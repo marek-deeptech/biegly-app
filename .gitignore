@@ -5,6 +5,10 @@ __pycache__/
 venv/
 # Lokalna konfiguracja narzędzi (ścieżki specyficzne dla maszyny)
 .claude/
+# Sekrety — klucze Supabase/Vercel NIGDY do repo
+.env
+.env.local
+.env.*.local
 # Dane sprawy NIGDY nie trafiają do repozytorium (poufność akt).
 data/
 *.xlsx
