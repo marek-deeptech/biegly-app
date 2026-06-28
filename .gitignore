@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+# Lokalna konfiguracja narzędzi (ścieżki specyficzne dla maszyny)
+.claude/
+# Dane sprawy NIGDY nie trafiają do repozytorium (poufność akt).
+data/
+*.xlsx
+*.xls
+*.xlsm
+# Pre-generowane inwentarze zawierają nazwy plików (nazwiska) — też poufne.
+webapp/static/cases/
