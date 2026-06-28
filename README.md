@@ -1,46 +1,31 @@
-# Biegły GPW — silnik faktów (MVP)
+# Biegły GPW
 
-Narzędzie wspierające biegłego sądowego (Krzysztof Michrowski) w analizie manipulacji
+Aplikacja wspierająca biegłego sądowego (Krzysztof Michrowski) w analizie manipulacji
 instrumentami finansowymi na GPW i przygotowaniu opinii dla prokuratury i sądu.
 
-To repozytorium zawiera **silnik faktów** — pierwszy, deterministyczny rdzeń docelowej
-aplikacji. Zasada nadrzędna: **liczy kod, nie model językowy.** LLM będzie jedynie
-opisywał i interpretował policzone liczby; nigdy ich nie wyznacza.
+Zasada nadrzędna: **liczy kod, nie model językowy.** Wskaźniki manipulacji są wyznaczane
+deterministycznie i zwalidowane co do grosza wobec realnych opinii; LLM jedynie opisuje
+i interpretuje policzone liczby.
 
-## Status — zwalidowany na sprawie HubTech (RP I Ds 4.2019)
+## Stack
 
-Silnik odtwarza opublikowane liczby z opinii **co do sztuki / grosza**:
+- **Next.js** (App Router) na Vercel — interfejs i lekkie API.
+- **Funkcje Python** (`/api`) — zwalidowany silnik (`engine`/`intake`/`validate`).
+- **Supabase** (region UE) — Postgres + Storage (`case-files`) + Auth, RLS deny-by-default.
 
-| Wskaźnik | Silnik | Cel (opinia) |
-|---|---|---|
-| Transakcje / wartość / wolumen | 41 548 / 228 285 987 zł / 180 273 029 szt | identyczne |
-| Wash-trades 13.10.2020 | 38,45% | 38,45% |
-| Obrót z udziałem Grupy | 108 114 686 zł = 47,36% | 47,36% |
-| Joyfix — sprzedaż | 47 419 738 szt; 28,72% | 47 419 738 szt; 28,72% |
-| Anulacje kupna 8.10.2020 (layering) | 88% | 88% |
+## Moduły Pythona (rdzeń, zwalidowany)
 
-## Uruchomienie
+- `engine/` — deterministyczne wskaźniki (wash-trades, OWG, anulacje). 5 złotych liczb HubTech.
+- `intake/` — klasyfikacja dokumentów + checklista kanonu (99% / 92% pokrycia).
+- `validate/` — walidator wejścia QA #1 (integralność plików + spójność danych UTP).
+- `tests/` — 7 testów regresyjnych: `python -m pytest`.
+
+## Rozwój lokalny
 
 ```bash
-pip install -r requirements.txt
-python -m engine.report        # raport: wskaźniki vs liczby z opinii
-pytest -q                      # testy regresyjne złotych liczb
+npm install
+npm run dev            # front Next.js na http://localhost:3000
 ```
 
-Ścieżkę do pliku danych ustawia `engine/settings.py`. Dane akt sprawy są poufne i
-**nie są** częścią repozytorium (patrz `.gitignore`).
-
-## Moduły
-
-- `engine/loader.py` — wczytywanie arkuszy UTP (po nazwach kolumn).
-- `engine/identity.py` — mapowanie konto→beneficjent + kanonizacja podmiotów Grupy
-  (normalizacja wariantów powierniczych, np. „Pekao | Joyfix" → Joyfix).
-- `engine/metrics.py` — wskaźniki: wash-trades, obrót Grupy, sprzedaż podmiotu, anulacje.
-- `engine/report.py` — zestawienie wyników z liczbami docelowymi.
-- `tests/` — regresja na złotych liczbach HubTech.
-
-## Dalej (poza MVP silnika)
-
-Pełny pipeline aplikacji: wgranie i klasyfikacja plików → checklista braków →
-walidacja wejścia (QA #1) → analizy pośrednie → robocza opinia z mapą pewności →
-recenzent adwersarialny (QA #2) → zatwierdzenie biegłego.
+Zmienne środowiskowe: skopiuj `.env.example` → `.env.local` (klucze Supabase, region UE).
+Dane akt są poufne i **nie** trafiają do repozytorium (patrz `.gitignore`).

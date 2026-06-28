@@ -16,3 +16,10 @@ data/
 *.xlsm
 # Pre-generowane inwentarze zawierają nazwy plików (nazwiska) — też poufne.
 webapp/static/cases/
+
+# Next.js / Node
+node_modules/
+.next/
+next-env.d.ts
+.vercel/
+*.tsbuildinfo
