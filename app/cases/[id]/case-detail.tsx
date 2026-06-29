@@ -8,6 +8,7 @@ import { classify } from "@/lib/intake/classify";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/upload";
+import OpinionView from "./opinion-view";
 import Zenek from "./zenek";
 
 type CaseRow = { id: string; name: string; signature: string | null };
@@ -67,7 +68,7 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
-  const [tab, setTab] = useState<"overview" | "files">("overview");
+  const [tab, setTab] = useState<"overview" | "files" | "opinion">("overview");
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
@@ -505,7 +506,7 @@ export default function CaseDetail({
       </header>
 
       <div className="mb-6 flex gap-1 border-b border-ink/20">
-        {(["overview", "files"] as const).map((t) => (
+        {(["overview", "files", "opinion"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -515,7 +516,7 @@ export default function CaseDetail({
                 : "border-transparent text-inksoft hover:text-ink"
             }`}
           >
-            {t === "overview" ? "Sprawa" : `Pliki (${documents.length})`}
+            {t === "overview" ? "Sprawa" : t === "files" ? `Pliki (${documents.length})` : "Opinia"}
           </button>
         ))}
       </div>
@@ -860,6 +861,10 @@ export default function CaseDetail({
           </>
         )}
       </section>
+      )}
+
+      {tab === "opinion" && (
+        <OpinionView caseId={caseRow.id} caseRow={caseRow} metrics={metrics} documents={documents} />
       )}
 
       {toast && (
