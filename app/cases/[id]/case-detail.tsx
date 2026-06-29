@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { classify } from "@/lib/intake/classify";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
+import { uploadResumable } from "@/lib/upload";
 
 type CaseRow = { id: string; name: string; signature: string | null };
 type Doc = {
@@ -19,13 +20,12 @@ type Doc = {
   storage_path: string | null;
 };
 type Check = { label: string; present: boolean };
-type Metric = {
-  key: string;
-  label: string;
-  value: number | null;
-  unit: string | null;
-  session_day: string | null;
-};
+type Metric = { key: string; label: string; value: number | null; unit: string | null; session_day: string | null };
+
+const BTN_PRIMARY =
+  "rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-40";
+const BTN_SECONDARY =
+  "rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-100 disabled:opacity-40";
 
 export default function CaseDetail({
   caseRow,
@@ -42,27 +42,168 @@ export default function CaseDetail({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [up, setUp] = useState<{ done: number; total: number; pct: number } | null>(null);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
+  const [selectedUtp, setSelectedUtp] = useState("");
 
-  // Główny plik UTP do analizy: największy dokument typu DANE_UTP wgrany do Storage.
-  const utpDoc = useMemo(() => {
-    const utp = documents.filter((d) => d.doc_type === "DANE_UTP" && d.storage_path);
-    utp.sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0));
-    return utp[0] ?? null;
+  const folderRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
+  const replaceRef = useRef<HTMLInputElement>(null);
+  const replaceTarget = useRef<Doc | null>(null);
+
+  const stats = useMemo(() => {
+    const wej = documents.filter((d) => d.provenance === "wejście").length;
+    const wyj = documents.filter((d) => d.provenance === "wyjście").length;
+    return { wej, wyj };
   }, [documents]);
 
+  const utpDocs = useMemo(
+    () =>
+      documents
+        .filter((d) => d.doc_type === "DANE_UTP" && d.storage_path)
+        .sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0)),
+    [documents],
+  );
+  const activeUtp = selectedUtp || utpDocs[0]?.storage_path || "";
+
+  const visibleDocs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q ? documents.filter((d) => d.rel_path.toLowerCase().includes(q)) : documents;
+    return list;
+  }, [documents, search]);
+
+  async function authToken() {
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }
+
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    const totalBytes = files.reduce((s, f) => s + f.size, 0) || 1;
+    setError("");
+    setBusy(true);
+    setUp({ done: 0, total: files.length, pct: 0 });
+    const supabase = createClient();
+    const token = await authToken();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const rows: Array<{
+      case_id: string;
+      rel_path: string;
+      size_bytes: number;
+      doc_type: string;
+      source: string | null;
+      provenance: string;
+      storage_path: string | null;
+    }> = [];
+    let sentBase = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      const storagePath = `${caseRow.id}/${rel}`;
+      let uploaded = true;
+      try {
+        if (!token) throw new Error("brak sesji");
+        await uploadResumable({
+          supabaseUrl,
+          token,
+          bucket: "case-files",
+          path: storagePath,
+          file: f,
+          onProgress: (s) =>
+            setUp({ done: i, total: files.length, pct: Math.min(100, Math.round(((sentBase + s) / totalBytes) * 100)) }),
+        });
+      } catch {
+        uploaded = false;
+      }
+      sentBase += f.size;
+      const { code, source, provenance } = classify(rel);
+      rows.push({
+        case_id: caseRow.id,
+        rel_path: rel,
+        size_bytes: f.size,
+        doc_type: code,
+        source,
+        provenance,
+        storage_path: uploaded ? storagePath : null,
+      });
+      setUp({ done: i + 1, total: files.length, pct: Math.round((sentBase / totalBytes) * 100) });
+    }
+
+    const { error: insErr } = await supabase
+      .from("documents")
+      .upsert(rows, { onConflict: "case_id,rel_path" });
+    if (insErr) setError(insErr.message);
+    setBusy(false);
+    setUp(null);
+    router.refresh();
+  }
+
+  function startReplace(doc: Doc) {
+    replaceTarget.current = doc;
+    replaceRef.current?.click();
+  }
+
+  async function handleReplace(fileList: FileList | null) {
+    const f = fileList?.[0];
+    const doc = replaceTarget.current;
+    if (!f || !doc) return;
+    setBusy(true);
+    setError("");
+    setUp({ done: 0, total: 1, pct: 0 });
+    const supabase = createClient();
+    const token = await authToken();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const storagePath = doc.storage_path || `${caseRow.id}/${doc.rel_path}`;
+    let uploaded = true;
+    try {
+      if (!token) throw new Error("brak sesji");
+      await uploadResumable({
+        supabaseUrl,
+        token,
+        bucket: "case-files",
+        path: storagePath,
+        file: f,
+        onProgress: (s, t) => setUp({ done: 0, total: 1, pct: Math.round((s / (t || 1)) * 100) }),
+      });
+    } catch {
+      uploaded = false;
+    }
+    await supabase
+      .from("documents")
+      .update({ size_bytes: f.size, storage_path: uploaded ? storagePath : doc.storage_path })
+      .eq("id", doc.id);
+    replaceTarget.current = null;
+    setBusy(false);
+    setUp(null);
+    router.refresh();
+  }
+
+  async function deleteDoc(doc: Doc) {
+    const supabase = createClient();
+    if (doc.storage_path) await supabase.storage.from("case-files").remove([doc.storage_path]);
+    await supabase.from("documents").delete().eq("id", doc.id);
+    setConfirmId(null);
+    router.refresh();
+  }
+
   async function runAnalysis() {
-    if (!utpDoc?.storage_path) return;
+    if (!activeUtp) return;
     setAnalyzing(true);
     setAnalyzeMsg("");
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId: caseRow.id, storagePath: utpDoc.storage_path }),
+        body: JSON.stringify({ caseId: caseRow.id, storagePath: activeUtp }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -75,64 +216,11 @@ export default function CaseDetail({
     }
   }
 
-  const stats = useMemo(() => {
-    const wej = documents.filter((d) => d.provenance === "wejście").length;
-    const wyj = documents.filter((d) => d.provenance === "wyjście").length;
-    const byType = new Map<string, number>();
-    for (const d of documents) byType.set(d.doc_type, (byType.get(d.doc_type) ?? 0) + 1);
-    const rows = [...byType.entries()].sort((a, b) => b[1] - a[1]);
-    return { wej, wyj, rows };
-  }, [documents]);
-
-  async function handleFiles(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0) return;
-    setBusy(true);
-    setError("");
-    const supabase = createClient();
-    const files = Array.from(fileList);
-    setProgress({ done: 0, total: files.length });
-    const rows: {
-      case_id: string;
-      rel_path: string;
-      size_bytes: number;
-      doc_type: string;
-      source: string | null;
-      provenance: string;
-      storage_path: string | null;
-    }[] = [];
-
-    for (const f of files) {
-      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
-      const storagePath = `${caseRow.id}/${rel}`;
-      const { error: upErr } = await supabase.storage
-        .from("case-files")
-        .upload(storagePath, f, { upsert: true });
-      const { code, source, provenance } = classify(rel);
-      rows.push({
-        case_id: caseRow.id,
-        rel_path: rel,
-        size_bytes: f.size,
-        doc_type: code,
-        source,
-        provenance,
-        storage_path: upErr ? null : storagePath,
-      });
-      setProgress((p) => ({ ...p, done: p.done + 1 }));
-    }
-
-    const { error: insErr } = await supabase
-      .from("documents")
-      .upsert(rows, { onConflict: "case_id,rel_path" });
-    if (insErr) setError(insErr.message);
-    setBusy(false);
-    router.refresh();
-  }
-
   const checklistOk = checklist.every((c) => c.present);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
-      <Link href="/" className="text-sm text-neutral-500 hover:text-neutral-800">
+      <Link href="/" className="text-sm text-neutral-500 transition-colors hover:text-neutral-900">
         ← Sprawy
       </Link>
       <header className="mb-8 mt-2">
@@ -141,38 +229,42 @@ export default function CaseDetail({
       </header>
 
       <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-medium">Wgraj akta sprawy</h2>
+        <h2 className="mb-2 text-sm font-bold">Wgraj akta sprawy</h2>
         <p className="mb-3 text-xs text-neutral-500">
-          Wskaż cały katalog albo dograj pojedyncze pliki (np. uzupełnienia). Ponowne wgranie
-          tego samego pliku aktualizuje wpis — bez duplikatów.
+          Wskaż cały katalog albo dograj pojedyncze pliki. Ponowne wgranie tego samego pliku
+          aktualizuje wpis — bez duplikatów.
         </p>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="flex-1">
-            <span className="mb-1 block text-xs text-neutral-500">Cały katalog</span>
-            <input
-              type="file"
-              multiple
-              {...({ webkitdirectory: "" } as Record<string, string>)}
-              disabled={busy}
-              onChange={(e) => handleFiles(e.target.files)}
-              className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-            />
-          </label>
-          <label className="flex-1">
-            <span className="mb-1 block text-xs text-neutral-500">Pojedyncze pliki</span>
-            <input
-              type="file"
-              multiple
-              disabled={busy}
-              onChange={(e) => handleFiles(e.target.files)}
-              className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-            />
-          </label>
+        <div className="flex gap-2">
+          <button className={BTN_PRIMARY} disabled={busy} onClick={() => folderRef.current?.click()}>
+            Wybierz katalog
+          </button>
+          <button className={BTN_SECONDARY} disabled={busy} onClick={() => filesRef.current?.click()}>
+            Dodaj pliki
+          </button>
         </div>
-        {busy && (
-          <p className="mt-3 text-sm text-neutral-600">
-            Przetwarzam… {progress.done}/{progress.total}
-          </p>
+        <input
+          ref={folderRef}
+          type="file"
+          multiple
+          {...({ webkitdirectory: "" } as Record<string, string>)}
+          className="hidden"
+          onChange={(e) => uploadFiles(e.target.files)}
+        />
+        <input ref={filesRef} type="file" multiple className="hidden" onChange={(e) => uploadFiles(e.target.files)} />
+        <input ref={replaceRef} type="file" className="hidden" onChange={(e) => handleReplace(e.target.files)} />
+
+        {up && (
+          <div className="mt-4">
+            <div className="mb-1 flex justify-between text-xs text-neutral-600">
+              <span>
+                Wgrywanie… {up.done}/{up.total} plików
+              </span>
+              <span className="font-medium text-neutral-900">{up.pct}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-neutral-100">
+              <div className="h-full bg-emerald-600 transition-all" style={{ width: `${up.pct}%` }} />
+            </div>
+          </div>
         )}
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       </section>
@@ -183,58 +275,100 @@ export default function CaseDetail({
         <Stat n={stats.wyj} label="wyjście (biegły)" color="text-amber-700" />
       </section>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <section className="rounded-xl border border-neutral-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-bold">
-            Dokumenty wymagane{" "}
-            <span
-              className={`ml-1 rounded-full px-2 py-0.5 text-xs font-normal ${
-                checklistOk ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
-              }`}
-            >
-              {checklistOk ? "komplet" : "braki"}
-            </span>
-          </h2>
-          {checklist.map((c) => (
-            <Row key={c.label} label={c.label} present={c.present} strongMissing />
-          ))}
-          <h2 className="mb-2 mt-4 text-sm font-bold">Zalecane</h2>
-          {recommended.map((c) => (
-            <Row key={c.label} label={c.label} present={c.present} />
-          ))}
-        </section>
-
-        <section className="rounded-xl border border-neutral-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-medium">Inwentarz wg typu</h2>
-          {stats.rows.length === 0 ? (
-            <p className="text-sm text-neutral-400">Brak dokumentów — wgraj akta powyżej.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <tbody>
-                {stats.rows.map(([code, n]) => (
-                  <tr key={code} className="border-b border-neutral-100 last:border-0">
-                    <td className="py-1.5">{DOC_TYPES[code]?.label ?? code}</td>
-                    <td className="py-1.5 text-right tabular-nums font-medium">{n}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-      </div>
-
-      <section className="mt-8 rounded-xl border border-neutral-200 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium">Analiza liczbowa (silnik faktów)</h2>
-          <button
-            onClick={runAnalysis}
-            disabled={!utpDoc || analyzing}
-            className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-4">
+        <h2 className="mb-3 text-sm font-bold">
+          Dokumenty wymagane{" "}
+          <span
+            className={`ml-1 rounded-full px-2 py-0.5 text-xs font-normal ${
+              checklistOk ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+            }`}
           >
-            {analyzing ? "Liczę…" : "Policz wskaźniki z danych UTP"}
-          </button>
+            {checklistOk ? "komplet" : "braki"}
+          </span>
+        </h2>
+        <div className="grid gap-x-6 sm:grid-cols-2">
+          <div>{checklist.map((c) => <Row key={c.label} label={c.label} present={c.present} strongMissing />)}</div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-neutral-500">Zalecane</p>
+            {recommended.map((c) => <Row key={c.label} label={c.label} present={c.present} />)}
+          </div>
         </div>
-        {!utpDoc && (
+      </section>
+
+      <section className="mb-8 rounded-xl border border-neutral-200 bg-white">
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-100 p-3">
+          <h2 className="text-sm font-bold">Dokumenty ({documents.length})</h2>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="szukaj w nazwach…"
+            className="w-48 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+          />
+        </div>
+        {visibleDocs.length === 0 ? (
+          <p className="p-6 text-center text-sm text-neutral-400">
+            {documents.length === 0 ? "Brak dokumentów — wgraj akta powyżej." : "Brak wyników wyszukiwania."}
+          </p>
+        ) : (
+          <ul className="max-h-96 overflow-auto">
+            {visibleDocs.map((d) => (
+              <li key={d.id} className="flex items-center gap-3 border-b border-neutral-100 px-3 py-2 last:border-0">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm">{basename(d.rel_path)}</div>
+                  <div className="truncate text-xs text-neutral-400">
+                    {DOC_TYPES[d.doc_type]?.label ?? d.doc_type}
+                    {!d.storage_path && <span className="ml-2 text-amber-600">· nie w magazynie</span>}
+                  </div>
+                </div>
+                <span className="w-14 text-right text-xs text-neutral-400">{fmtSize(d.size_bytes)}</span>
+                {confirmId === d.id ? (
+                  <span className="flex shrink-0 gap-2 text-xs">
+                    <button onClick={() => deleteDoc(d)} className="font-medium text-red-600 hover:underline">
+                      Tak, usuń
+                    </button>
+                    <button onClick={() => setConfirmId(null)} className="text-neutral-500 hover:underline">
+                      Anuluj
+                    </button>
+                  </span>
+                ) : (
+                  <span className="flex shrink-0 gap-3 text-xs">
+                    <button onClick={() => startReplace(d)} className="text-neutral-600 transition-colors hover:text-neutral-900">
+                      Podmień
+                    </button>
+                    <button onClick={() => setConfirmId(d.id)} className="text-red-600 transition-colors hover:text-red-800">
+                      Usuń
+                    </button>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-neutral-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold">Analiza liczbowa (silnik faktów)</h2>
+          <div className="flex items-center gap-2">
+            {utpDocs.length > 0 && (
+              <select
+                value={activeUtp}
+                onChange={(e) => setSelectedUtp(e.target.value)}
+                className="max-w-[220px] rounded-lg border border-neutral-300 px-2 py-1.5 text-xs"
+              >
+                {utpDocs.map((d) => (
+                  <option key={d.id} value={d.storage_path ?? ""}>
+                    {basename(d.rel_path)}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button onClick={runAnalysis} disabled={!activeUtp || analyzing} className={BTN_PRIMARY}>
+              {analyzing ? "Liczę…" : "Policz wskaźniki"}
+            </button>
+          </div>
+        </div>
+        {!activeUtp && (
           <p className="text-xs text-neutral-500">
             Wgraj plik danych UTP (transakcje i zlecenia), aby policzyć wskaźniki.
           </p>
@@ -284,6 +418,15 @@ export default function CaseDetail({
   );
 }
 
+function basename(p: string): string {
+  return p.split("/").pop() || p;
+}
+function fmtSize(n: number | null): string {
+  if (!n) return "—";
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
 function fmt(m: Metric): string {
   if (m.value == null) return "—";
   if (m.unit === "%") return `${m.value}%`;
@@ -300,15 +443,7 @@ function Stat({ n, label, color = "" }: { n: number; label: string; color?: stri
   );
 }
 
-function Row({
-  label,
-  present,
-  strongMissing = false,
-}: {
-  label: string;
-  present: boolean;
-  strongMissing?: boolean;
-}) {
+function Row({ label, present, strongMissing = false }: { label: string; present: boolean; strongMissing?: boolean }) {
   return (
     <div className="flex items-center justify-between border-b border-neutral-100 py-1.5 last:border-0">
       <span className="text-sm">{label}</span>
