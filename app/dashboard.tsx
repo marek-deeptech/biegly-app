@@ -12,31 +12,17 @@ type Case = {
 };
 
 export default function Dashboard({
-  email,
   cases,
   createCase,
-  signOut,
 }: {
-  email: string;
   cases: Case[];
   createCase: (formData: FormData) => Promise<void>;
-  signOut: () => Promise<void>;
 }) {
   const newCaseRef = useRef<HTMLFormElement>(null);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
-      <header className="mb-8 flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Biegły GPW</h1>
-          <p className="mt-1 text-sm text-neutral-500">{email}</p>
-        </div>
-        <form action={signOut}>
-          <button className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-100">
-            Wyloguj
-          </button>
-        </form>
-      </header>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Sprawy</h1>
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-medium text-neutral-500">Nowa sprawa</h2>
@@ -64,7 +50,7 @@ export default function Dashboard({
       </section>
 
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-neutral-500">Sprawy ({cases.length})</h2>
+        <h2 className="mb-3 text-sm font-medium text-neutral-500">Lista ({cases.length})</h2>
         {cases.length === 0 ? (
           <p className="rounded-xl border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-400">
             Brak spraw — dodaj pierwszą powyżej.
@@ -83,7 +69,7 @@ export default function Dashboard({
                       <span className="ml-2 text-xs text-neutral-500">{c.signature}</span>
                     )}
                   </span>
-                  <span className="text-xs text-neutral-400">
+                  <span className="text-xs text-neutral-500">
                     {new Date(c.created_at).toLocaleDateString("pl-PL")}
                   </span>
                 </Link>

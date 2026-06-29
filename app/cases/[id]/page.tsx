@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
+import AppHeader from "@/app/app-header";
 import { DOC_TYPES, RECOMMENDED, REQUIRED } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/server";
 import CaseDetail from "./case-detail";
@@ -24,7 +25,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
 
   const { data: metricsData } = await supabase
     .from("metrics")
-    .select("key,label,value,unit,session_day")
+    .select("key,label,value,unit,session_day,computed_at")
     .eq("case_id", id)
     .order("session_day", { nullsFirst: true });
   const metrics = metricsData ?? [];
@@ -40,12 +41,15 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   }));
 
   return (
-    <CaseDetail
-      caseRow={caseRow}
-      documents={documents}
-      checklist={checklist}
-      recommended={recommended}
-      metrics={metrics}
-    />
+    <>
+      <AppHeader email={user.email ?? ""} />
+      <CaseDetail
+        caseRow={caseRow}
+        documents={documents}
+        checklist={checklist}
+        recommended={recommended}
+        metrics={metrics}
+      />
+    </>
   );
 }

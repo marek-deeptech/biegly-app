@@ -20,12 +20,20 @@ type Doc = {
   storage_path: string | null;
 };
 type Check = { label: string; present: boolean };
-type Metric = { key: string; label: string; value: number | null; unit: string | null; session_day: string | null };
+type Metric = {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: string | null;
+  session_day: string | null;
+  computed_at?: string | null;
+};
 
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400";
 const BTN_PRIMARY =
-  "rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-40";
+  `rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-40 ${FOCUS}`;
 const BTN_SECONDARY =
-  "rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-100 disabled:opacity-40";
+  `rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-100 disabled:opacity-40 ${FOCUS}`;
 
 export default function CaseDetail({
   caseRow,
@@ -92,6 +100,26 @@ export default function CaseDetail({
     const q = search.trim().toLowerCase();
     return q ? documents.filter((d) => d.rel_path.toLowerCase().includes(q)) : documents;
   }, [documents, search]);
+
+  const analysis = useMemo(() => {
+    if (!metrics.length) return null;
+    const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
+    const peak = (prefix: string) =>
+      metrics
+        .filter((m) => m.key.startsWith(prefix))
+        .reduce<Metric | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
+    const computedAt = metrics
+      .map((m) => m.computed_at)
+      .filter((v): v is string => !!v)
+      .sort()
+      .pop();
+    return {
+      groupShare: find("group_turnover_share"),
+      washPeak: peak("wash_"),
+      cancelPeak: peak("cancel_"),
+      computedAt: computedAt ?? null,
+    };
+  }, [metrics]);
 
   async function authToken() {
     const supabase = createClient();
@@ -421,6 +449,7 @@ export default function CaseDetail({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="szukaj w nazwach…"
+            aria-label="Szukaj w nazwach plików"
             className="w-48 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
         </div>
@@ -494,8 +523,26 @@ export default function CaseDetail({
         )}
         {analyzeMsg && <p className="mb-3 text-sm text-red-600">{analyzeMsg}</p>}
 
-        {metrics.length > 0 && (
+        {metrics.length > 0 && analysis && (
           <>
+            {analysis.computedAt && (
+              <p className="mb-3 text-xs text-neutral-500">
+                Policzono: {new Date(analysis.computedAt).toLocaleString("pl-PL")}
+              </p>
+            )}
+            <div className="mb-4 grid grid-cols-3 gap-3">
+              <MetricCard label="Udział Grupy w obrocie" value={analysis.groupShare ? fmt(analysis.groupShare) : "—"} />
+              <MetricCard
+                label="Wash-trades — szczyt"
+                value={analysis.washPeak ? fmt(analysis.washPeak) : "—"}
+                sub={analysis.washPeak?.session_day ?? undefined}
+              />
+              <MetricCard
+                label="Anulacje — szczyt"
+                value={analysis.cancelPeak ? fmt(analysis.cancelPeak) : "—"}
+                sub={analysis.cancelPeak?.session_day ?? undefined}
+              />
+            </div>
             <ul className="mb-3 space-y-1">
               {metrics
                 .filter((m) => !m.session_day)
@@ -557,6 +604,16 @@ function fmt(m: Metric): string {
   if (m.unit === "%") return `${m.value}%`;
   const n = m.value.toLocaleString("pl-PL");
   return m.unit ? `${n} ${m.unit}` : n;
+}
+
+function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-lg bg-neutral-50 px-4 py-3">
+      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="text-xl font-semibold tabular-nums">{value}</div>
+      {sub && <div className="text-xs text-neutral-400">{sub}</div>}
+    </div>
+  );
 }
 
 function Stat({ n, label, color = "" }: { n: number; label: string; color?: string }) {

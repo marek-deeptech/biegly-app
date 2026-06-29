@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import AppHeader from "./app-header";
 import Dashboard from "./dashboard";
 
 export default async function Home({
@@ -34,19 +35,10 @@ export default async function Home({
     revalidatePath("/");
   }
 
-  async function signOut() {
-    "use server";
-    const sb = await createClient();
-    await sb.auth.signOut();
-    redirect("/login");
-  }
-
   return (
-    <Dashboard
-      email={user.email ?? ""}
-      cases={cases ?? []}
-      createCase={createCase}
-      signOut={signOut}
-    />
+    <>
+      <AppHeader email={user.email ?? ""} />
+      <Dashboard cases={cases ?? []} createCase={createCase} />
+    </>
   );
 }
