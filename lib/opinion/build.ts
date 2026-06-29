@@ -262,6 +262,75 @@ export function buildEkofinSubanaliza(
   };
 }
 
+// ── Generator subanalizy porozumienia — rozdz. IV.4 (IP + relacje osobowe) ──
+// Dowód „wspólnie i w porozumieniu". Inwentarz dowodów jest ugruntowany; sama
+// ocena zbieżności IP i relacji pozostaje do uzupełnienia/weryfikacji przez biegłego
+// (pliki źródłowe UKNF często zawierają już gotowe zestawienia zbieżności).
+export function buildPorozumienieSubanaliza(metrics: Metric[], documents: Doc[]): SubResult {
+  void metrics;
+  const byType = (t: string) => documents.filter((d) => d.doc_type === t);
+  const ip = byType("DANE_IP");
+  const osint = byType("ANALIZA_OSINT");
+  const broker = byType("DANE_BROKERSKIE");
+  const lst = (ds: Doc[], n = 15) =>
+    ds.slice(0, n).map((d) => "• " + basename(d.rel_path)).join("\n") +
+    (ds.length > n ? `\n• … (+${ds.length - n})` : "");
+
+  const sec: string[] = [];
+  sec.push(
+    `Celem analizy jest ustalenie, czy aktywność rachunków na instrumencie nosi znamiona działania ` +
+      `wspólnie i w porozumieniu (skoordynowania), w oparciu o zbieżność adresów IP, relacje osobowe ` +
+      `oraz wzorce czasowe składanych zleceń.`,
+  );
+  sec.push(
+    `Zbieżność adresów IP. ` +
+      (ip.length
+        ? `W aktach znajdują się dane logowań i adresów IP (${ip.length}):\n${lst(ip)}\n`
+        : `Brak w aktach danych logowań/IP. `) +
+      `[Do uzupełnienia: które adresy IP były współdzielone przez różne rachunki Grupy i w jakich sesjach.]`,
+  );
+  sec.push(
+    `Relacje osobowe. ` +
+      (osint.length
+        ? `W aktach znajduje się analiza OSINT / graf powiązań (${osint.length}):\n${lst(osint)}\n`
+        : `Brak w aktach analizy OSINT / grafu powiązań. `) +
+      `[Do uzupełnienia: zidentyfikowane relacje rodzinne i biznesowe między posiadaczami rachunków.]`,
+  );
+  sec.push(
+    `Wspólni decydenci i pełnomocnicy. ` +
+      (broker.length
+        ? `Dane z firm inwestycyjnych (${broker.length}) umożliwiają ustalenie pełnomocników i osób ` +
+          `faktycznie dysponujących rachunkami. `
+        : ``) +
+      `[Do uzupełnienia: wspólni pełnomocnicy/decydenci rachunków, wspólne dane kontaktowe.]`,
+  );
+  sec.push(
+    `Wzorce czasowe. [Do uzupełnienia: zbieżność czasowa zleceń rachunków Grupy (z analizy ilościowej ` +
+      `UTP — transakcje wzajemne i dopasowania) wskazująca na koordynację działań.]`,
+  );
+  sec.push(
+    `Ocena. [Do uzupełnienia przez biegłego: czy zebrane okoliczności — zbieżność IP, relacje osobowe ` +
+      `i wzorce czasowe — wskazują na działanie wspólnie i w porozumieniu w rozumieniu art. 12 MAR.]`,
+  );
+
+  const findings: string[] = [
+    `W aktach zidentyfikowano: ${ip.length} zbiór(ów) danych IP/logowań, ${osint.length} analiz(ę) OSINT, ` +
+      `${broker.length} zestawień z firm inwestycyjnych.`,
+  ];
+
+  return {
+    kind: "porozumienie",
+    chapterNo: "IV.4",
+    title: "Porozumienie — zbieżność IP i relacje osobowe",
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: null,
+      findings,
+      legalRefs: ["art. 12 ust. 1 MAR (manipulacja)", "art. 12 ust. 2 lit. a–c MAR"],
+    },
+  };
+}
+
 const SUB_LABEL: Record<string, string> = {
   ilosciowa: "ilościowa UTP (silnik faktów)",
   ekofin: "ekonomiczno-finansowa i otoczenie",
