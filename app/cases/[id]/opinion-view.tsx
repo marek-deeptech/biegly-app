@@ -16,6 +16,7 @@ import {
   type StoredSub,
   type SubResult,
 } from "@/lib/opinion/build";
+import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 
 type Metric = {
   key: string;
@@ -82,6 +83,7 @@ export default function OpinionView({
     [caseRow, metrics, documents, stored],
   );
   const ready = opinion.chapters.filter((c) => c.status === "ready").length;
+  const review = useMemo(() => reviewOpinion(opinion, metrics, stored), [opinion, metrics, stored]);
   const hasQuant = subanalyses.some((s) => s.kind === "ilosciowa");
   const hasEkofin = subanalyses.some((s) => s.kind === "ekofin");
   const hasPoroz = subanalyses.some((s) => s.kind === "porozumienie");
@@ -298,6 +300,43 @@ export default function OpinionView({
         </div>
       </section>
 
+      {/* ── Recenzent (QA#2) ── */}
+      <section className="border border-ink/60 bg-card p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Recenzent (QA#2)</h2>
+          <p className="text-xs text-inksoft">
+            {review.filter((r) => r.severity === "ERROR").length} błędów ·{" "}
+            {review.filter((r) => r.severity === "WARN").length} uwag ·{" "}
+            {review.filter((r) => r.severity === "OK").length} OK
+          </p>
+        </div>
+        <ul className="space-y-3">
+          {REVIEW_CHECKS.map((name) => {
+            const fs = review.filter((r) => r.check === name);
+            const worst: Severity = fs.some((f) => f.severity === "ERROR")
+              ? "ERROR"
+              : fs.some((f) => f.severity === "WARN")
+                ? "WARN"
+                : "OK";
+            return (
+              <li key={name} className="border border-line bg-paper p-3">
+                <div className="mb-1 flex items-center gap-2">
+                  <SevDot s={worst} />
+                  <span className="text-sm font-semibold">{name}</span>
+                </div>
+                <ul className="space-y-1 pl-4">
+                  {fs.map((f, i) => (
+                    <li key={i} className={`text-sm ${sevText(f.severity)}`}>
+                      {f.message}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
       {/* ── Montaż opinii ── */}
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -412,6 +451,14 @@ export default function OpinionView({
 function pickNotowania(docs: Doc[]): Doc | undefined {
   const csv = (d: Doc) => !!d.storage_path && d.doc_type === "NOTOWANIA_REF" && /\.csv$/i.test(d.rel_path);
   return docs.find((d) => csv(d) && !/chemia|sektor|branż|peer|indeks/i.test(d.rel_path)) ?? docs.find(csv);
+}
+
+function SevDot({ s }: { s: Severity }) {
+  const c = s === "ERROR" ? "bg-red-600" : s === "WARN" ? "bg-amber-500" : "bg-emerald-600";
+  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${c}`} />;
+}
+function sevText(s: Severity): string {
+  return s === "ERROR" ? "text-red-700" : s === "WARN" ? "text-amber-800" : "text-inksoft";
 }
 
 function migrationHint(m: string): string {
