@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { useFormStatus } from "react-dom";
 
 type Case = {
@@ -10,15 +10,6 @@ type Case = {
   signature: string | null;
   created_at: string;
 };
-
-type Health = "checking" | "ok" | "error";
-
-const PHASES = [
-  { n: 1, t: "Wgranie i klasyfikacja", done: true },
-  { n: 2, t: "Walidacja wejścia (QA #1)", done: true },
-  { n: 3, t: "Analizy pośrednie", done: false },
-  { n: 4, t: "Robocza opinia + recenzent", done: false },
-];
 
 export default function Dashboard({
   email,
@@ -31,16 +22,7 @@ export default function Dashboard({
   createCase: (formData: FormData) => Promise<void>;
   signOut: () => Promise<void>;
 }) {
-  const [health, setHealth] = useState<Health>("checking");
-  const supabaseOk = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const newCaseRef = useRef<HTMLFormElement>(null);
-
-  useEffect(() => {
-    fetch("/api/health")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setHealth(d.status === "ok" ? "ok" : "error"))
-      .catch(() => setHealth("error"));
-  }, []);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
@@ -55,11 +37,6 @@ export default function Dashboard({
           </button>
         </form>
       </header>
-
-      <section className="mb-8 grid grid-cols-2 gap-3">
-        <Badge label="Silnik Python (Vercel)" state={health} />
-        <Badge label="Supabase (UE)" state={supabaseOk ? "ok" : "error"} okText="połączone" />
-      </section>
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-medium text-neutral-500">Nowa sprawa</h2>
@@ -116,23 +93,6 @@ export default function Dashboard({
         )}
       </section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-medium text-neutral-500">Pipeline</h2>
-        <ol className="flex flex-wrap gap-2">
-          {PHASES.map((p) => (
-            <li
-              key={p.n}
-              className={`rounded-lg border px-3 py-2 text-xs ${
-                p.done
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-neutral-200 bg-white text-neutral-400"
-              }`}
-            >
-              {p.n}. {p.t}
-            </li>
-          ))}
-        </ol>
-      </section>
     </main>
   );
 }
@@ -147,30 +107,5 @@ function AddCaseButton() {
     >
       {pending ? "Dodaję…" : "Dodaj"}
     </button>
-  );
-}
-
-function Badge({
-  label,
-  state,
-  okText = "ok",
-}: {
-  label: string;
-  state: Health;
-  okText?: string;
-}) {
-  const map = {
-    checking: { dot: "bg-amber-400", text: "sprawdzam…", cls: "text-amber-700" },
-    ok: { dot: "bg-emerald-500", text: okText, cls: "text-emerald-700" },
-    error: { dot: "bg-red-500", text: "błąd", cls: "text-red-700" },
-  }[state];
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3">
-      <span className="text-sm font-medium">{label}</span>
-      <span className={`flex items-center gap-2 text-xs ${map.cls}`}>
-        <span className={`h-2 w-2 rounded-full ${map.dot}`} />
-        {map.text}
-      </span>
-    </div>
   );
 }

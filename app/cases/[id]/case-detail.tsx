@@ -49,17 +49,35 @@ export default function CaseDetail({
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
   const [selectedUtp, setSelectedUtp] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState(caseRow.name);
+  const [sigVal, setSigVal] = useState(caseRow.signature ?? "");
+  const [confirmDelCase, setConfirmDelCase] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<Doc | null>(null);
 
+  function notify(msg: string) {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 3000);
+  }
+
   const stats = useMemo(() => {
     const wej = documents.filter((d) => d.provenance === "wejście").length;
     const wyj = documents.filter((d) => d.provenance === "wyjście").length;
     return { wej, wyj };
   }, [documents]);
+
+  const checklistOk = checklist.every((c) => c.present);
+  const phases = [
+    { t: "Dokumenty", done: documents.length > 0 },
+    { t: "Kompletność", done: documents.length > 0 && checklistOk },
+    { t: "Analiza liczbowa", done: metrics.length > 0 },
+    { t: "Opinia", done: false },
+  ];
 
   const utpDocs = useMemo(
     () =>
@@ -72,8 +90,7 @@ export default function CaseDetail({
 
   const visibleDocs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q ? documents.filter((d) => d.rel_path.toLowerCase().includes(q)) : documents;
-    return list;
+    return q ? documents.filter((d) => d.rel_path.toLowerCase().includes(q)) : documents;
   }, [documents, search]);
 
   async function authToken() {
@@ -142,6 +159,7 @@ export default function CaseDetail({
       .from("documents")
       .upsert(rows, { onConflict: "case_id,rel_path" });
     if (insErr) setError(insErr.message);
+    else notify(`Wgrano ${files.length} plików`);
     setBusy(false);
     setUp(null);
     router.refresh();
@@ -184,6 +202,7 @@ export default function CaseDetail({
     replaceTarget.current = null;
     setBusy(false);
     setUp(null);
+    notify("Podmieniono plik");
     router.refresh();
   }
 
@@ -192,7 +211,27 @@ export default function CaseDetail({
     if (doc.storage_path) await supabase.storage.from("case-files").remove([doc.storage_path]);
     await supabase.from("documents").delete().eq("id", doc.id);
     setConfirmId(null);
+    notify("Usunięto plik");
     router.refresh();
+  }
+
+  async function saveName() {
+    const supabase = createClient();
+    await supabase
+      .from("cases")
+      .update({ name: nameVal.trim() || caseRow.name, signature: sigVal.trim() || null })
+      .eq("id", caseRow.id);
+    setEditingName(false);
+    notify("Zapisano nazwę sprawy");
+    router.refresh();
+  }
+
+  async function deleteCase() {
+    const supabase = createClient();
+    const paths = documents.map((d) => d.storage_path).filter((p): p is string => !!p);
+    if (paths.length) await supabase.storage.from("case-files").remove(paths);
+    await supabase.from("cases").delete().eq("id", caseRow.id);
+    router.push("/");
   }
 
   async function runAnalysis() {
@@ -207,7 +246,7 @@ export default function CaseDetail({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setAnalyzeMsg(`Policzono ${data.metrics} wskaźników.`);
+      notify(`Policzono ${data.metrics} wskaźników`);
       router.refresh();
     } catch (e) {
       setAnalyzeMsg(`Błąd analizy: ${e instanceof Error ? e.message : String(e)}`);
@@ -216,17 +255,97 @@ export default function CaseDetail({
     }
   }
 
-  const checklistOk = checklist.every((c) => c.present);
-
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
-      <Link href="/" className="text-sm text-neutral-500 transition-colors hover:text-neutral-900">
-        ← Sprawy
-      </Link>
-      <header className="mb-8 mt-2">
-        <h1 className="text-2xl font-semibold tracking-tight">{caseRow.name}</h1>
-        {caseRow.signature && <p className="mt-1 text-sm text-neutral-500">{caseRow.signature}</p>}
+      <div className="mb-3 flex items-center justify-between">
+        <Link href="/" className="text-sm text-neutral-500 transition-colors hover:text-neutral-900">
+          ← Sprawy
+        </Link>
+        {!editingName && !confirmDelCase && (
+          <button
+            onClick={() => setConfirmDelCase(true)}
+            className="text-xs text-red-600 transition-colors hover:text-red-800"
+          >
+            Usuń sprawę
+          </button>
+        )}
+      </div>
+
+      {confirmDelCase && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm">
+          <span className="text-red-800">Usunąć sprawę i wszystkie jej dokumenty? Tej operacji nie można cofnąć.</span>
+          <span className="flex gap-3">
+            <button onClick={deleteCase} className="font-medium text-red-700 hover:underline">
+              Usuń sprawę
+            </button>
+            <button onClick={() => setConfirmDelCase(false)} className="text-neutral-500 hover:underline">
+              Anuluj
+            </button>
+          </span>
+        </div>
+      )}
+
+      <header className="mb-6">
+        {editingName ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={nameVal}
+              onChange={(e) => setNameVal(e.target.value)}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-lg outline-none focus:border-neutral-500"
+            />
+            <input
+              value={sigVal}
+              onChange={(e) => setSigVal(e.target.value)}
+              placeholder="sygnatura"
+              className="w-56 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            />
+            <button onClick={saveName} className={BTN_PRIMARY}>
+              Zapisz
+            </button>
+            <button
+              onClick={() => {
+                setEditingName(false);
+                setNameVal(caseRow.name);
+                setSigVal(caseRow.signature ?? "");
+              }}
+              className={BTN_SECONDARY}
+            >
+              Anuluj
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">{caseRow.name}</h1>
+              {caseRow.signature && <p className="mt-1 text-sm text-neutral-500">{caseRow.signature}</p>}
+            </div>
+            <button
+              onClick={() => setEditingName(true)}
+              className="text-xs text-neutral-500 transition-colors hover:text-neutral-900"
+            >
+              Zmień nazwę
+            </button>
+          </div>
+        )}
       </header>
+
+      <section className="mb-8">
+        <ol className="flex flex-wrap gap-2">
+          {phases.map((p, i) => (
+            <li
+              key={p.t}
+              className={`rounded-lg border px-3 py-2 text-xs ${
+                p.done
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-neutral-200 bg-white text-neutral-400"
+              }`}
+            >
+              {i + 1}. {p.t}
+              {p.done ? " ✓" : ""}
+            </li>
+          ))}
+        </ol>
+      </section>
 
       <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-4">
         <h2 className="mb-2 text-sm font-bold">Wgraj akta sprawy</h2>
@@ -373,7 +492,7 @@ export default function CaseDetail({
             Wgraj plik danych UTP (transakcje i zlecenia), aby policzyć wskaźniki.
           </p>
         )}
-        {analyzeMsg && <p className="mb-3 text-sm text-neutral-600">{analyzeMsg}</p>}
+        {analyzeMsg && <p className="mb-3 text-sm text-red-600">{analyzeMsg}</p>}
 
         {metrics.length > 0 && (
           <>
@@ -414,6 +533,12 @@ export default function CaseDetail({
           </>
         )}
       </section>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-lg bg-neutral-900 px-4 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
     </main>
   );
 }
