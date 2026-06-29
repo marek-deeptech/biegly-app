@@ -30,8 +30,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     .from("documents")
     .select("rel_path,provenance")
     .eq("case_id", id);
+  const { data: subanalyses } = await supabase
+    .from("subanalyses")
+    .select("kind,chapter_no,title,status,body_md,data")
+    .eq("case_id", id);
 
-  const op = buildOpinion(caseRow, metrics ?? [], documents ?? []);
+  const op = buildOpinion(caseRow, metrics ?? [], documents ?? [], subanalyses ?? []);
   const buf = await Packer.toBuffer(renderOpinionDocx(op));
 
   const safe = (caseRow.name || "sprawa").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 60);

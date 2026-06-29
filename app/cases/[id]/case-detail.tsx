@@ -31,6 +31,16 @@ type Metric = {
   session_day: string | null;
   computed_at?: string | null;
 };
+type SubRow = {
+  id: string;
+  kind: string;
+  chapter_no: string;
+  title: string;
+  status: string;
+  body_md: string;
+  data: { table?: unknown; findings?: string[]; legalRefs?: string[] } | null;
+  updated_at?: string | null;
+};
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30";
 const BTN_PRIMARY =
@@ -44,12 +54,14 @@ export default function CaseDetail({
   checklist,
   recommended,
   metrics,
+  subanalyses,
 }: {
   caseRow: CaseRow;
   documents: Doc[];
   checklist: Check[];
   recommended: Check[];
   metrics: Metric[];
+  subanalyses: SubRow[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -864,7 +876,13 @@ export default function CaseDetail({
       )}
 
       {tab === "opinion" && (
-        <OpinionView caseId={caseRow.id} caseRow={caseRow} metrics={metrics} documents={documents} />
+        <OpinionView
+          caseId={caseRow.id}
+          caseRow={caseRow}
+          metrics={metrics}
+          documents={documents}
+          subanalyses={subanalyses}
+        />
       )}
 
       {toast && (

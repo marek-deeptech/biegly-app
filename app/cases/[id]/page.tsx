@@ -30,6 +30,15 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
     .order("session_day", { nullsFirst: true });
   const metrics = metricsData ?? [];
 
+  // Subanalizy (tabela 0004). Gdy migracja jeszcze nieuruchomiona — zapytanie
+  // zwróci błąd, więc traktujemy brak danych jako pustą listę.
+  const { data: subData } = await supabase
+    .from("subanalyses")
+    .select("id,kind,chapter_no,title,status,body_md,data,approved_at,updated_at")
+    .eq("case_id", id)
+    .order("chapter_no");
+  const subanalyses = subData ?? [];
+
   const present = new Set(documents.map((d) => d.doc_type));
   const checklist = REQUIRED.map((code) => ({
     label: DOC_TYPES[code].label,
@@ -49,6 +58,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
         checklist={checklist}
         recommended={recommended}
         metrics={metrics}
+        subanalyses={subanalyses}
       />
     </>
   );
