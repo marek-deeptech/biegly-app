@@ -27,14 +27,15 @@ export type Opinion = {
   chapters: Chapter[];
 };
 
-// Wynik generatora subanalizy ilościowej (do zapisania w `subanalyses`).
-export type QuantResult = {
-  kind: "ilosciowa";
-  chapterNo: "IV";
+// Wynik generatora subanalizy (do zapisania w `subanalyses`).
+export type SubResult = {
+  kind: string;
+  chapterNo: string;
   title: string;
   bodyMd: string;
   data: { table: OpTable | null; findings: string[]; legalRefs: string[] };
 };
+export type QuantResult = SubResult;
 
 // Zapisana subanaliza (z tabeli `subanalyses`).
 export type StoredSub = {
@@ -52,7 +53,7 @@ type Metric = {
   unit: string | null;
   session_day: string | null;
 };
-type Doc = { rel_path: string; provenance: string | null };
+type Doc = { rel_path: string; provenance: string | null; doc_type?: string | null };
 
 const EXPERT = "mgr Krzysztof Michrowski — biegły sądowy";
 const LEGAL_BASIS = [
@@ -150,37 +151,117 @@ export function buildQuantitativeSubanaliza(metrics: Metric[]): QuantResult | nu
 
   return {
     kind: "ilosciowa",
-    chapterNo: "IV",
+    chapterNo: "IV.3",
     title: "Analiza ilościowa aktywności Grupy",
     bodyMd: paras.join("\n\n"),
     data: { table, findings, legalRefs: ["art. 12 MAR", "RD 2016/522, zał. II"] },
   };
 }
 
-function chapterIV(metrics: Metric[], stored?: StoredSub): Chapter {
-  if (stored) {
-    const conf: Conf = stored.status === "zatwierdzona" ? "grounded" : "review";
-    return {
-      no: "IV",
-      title: stored.title || "Analiza ilościowa aktywności Grupy",
-      status: stored.status === "zatwierdzona" ? "ready" : "draft",
-      source: "Subanaliza: ilościowa UTP (silnik faktów)" + (stored.status === "zatwierdzona" ? " · zatwierdzona" : " · szkic"),
-      paras: splitParas(stored.body_md).map((t) => ({ text: t, conf })),
-      table: stored.data?.table ?? undefined,
-      findings: (stored.data?.findings ?? []).map((t) => ({ text: t, conf: "grounded" as Conf })),
-    };
-  }
-  const q = buildQuantitativeSubanaliza(metrics);
-  if (!q) {
-    return {
-      no: "IV",
-      title: "Analiza ilościowa aktywności Grupy",
-      status: "todo",
-      paras: [{ conf: "todo", text: "Brak policzonych wskaźników — wykonaj „Policz wskaźniki” na głównym pliku UTP." }],
-    };
-  }
+// ── Generator subanalizy eko-fin — szkielet rozdz. IV.1 z faktami z inwentarza ──
+// Otoczenie rynkowe jest częściowo jakościowe: fakty z inwentarza akt są
+// ugruntowane, a ocena fundamentalna pozostaje do uzupełnienia przez biegłego.
+export function buildEkofinSubanaliza(metrics: Metric[], documents: Doc[]): SubResult {
+  const days = [
+    ...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day as string)),
+  ].sort();
+  const period = days.length ? `od ${days[0]} do ${days[days.length - 1]}` : "[okres do uzupełnienia]";
+  const byType = (t: string) => documents.filter((d) => d.doc_type === t);
+  const espi = byType("RAPORT_ESPI_EBI");
+  const fin = byType("SPRAWOZDANIE_FIN");
+  const notow = byType("NOTOWANIA_REF");
+  const stanp = byType("ZAWIAD_STAN_POSIADANIA");
+  const lst = (ds: Doc[], n = 15) =>
+    ds.slice(0, n).map((d) => "• " + basename(d.rel_path)).join("\n") +
+    (ds.length > n ? `\n• … (+${ds.length - n})` : "");
+
+  const sec: string[] = [];
+  sec.push(
+    `Celem niniejszej analizy jest ustalenie, czy zmiana kursu instrumentu w okresie ${period} ` +
+      `znajduje uzasadnienie w sytuacji ekonomiczno-finansowej spółki oraz w publicznie dostępnych ` +
+      `informacjach, czy też ma charakter oderwany od fundamentów — co wzmacniałoby tezę o manipulacji.`,
+  );
+  sec.push(
+    `Dynamika kursu i wolumenu. ` +
+      (notow.length
+        ? `W aktach znajdują się dane notowań (${notow.length}), umożliwiające wyznaczenie kursu ` +
+          `otwarcia i zamknięcia okresu, kursu maksymalnego oraz skali wzrostu. `
+        : `Brak w aktach danych notowań do wyznaczenia dynamiki kursu. `) +
+      `[Do uzupełnienia: kurs początkowy, kurs maksymalny, procentowa zmiana, data szczytu.]`,
+  );
+  sec.push(
+    `Sytuacja finansowa spółki. ` +
+      (fin.length
+        ? `W aktach zidentyfikowano ${fin.length} dokument(ów) finansowych (sprawozdania / plany rozwoju):\n${lst(fin)}\n`
+        : `Brak w aktach sprawozdań finansowych. `) +
+      `[Do uzupełnienia: czy wyniki i perspektywy spółki uzasadniają zaobserwowaną zmianę kursu.]`,
+  );
+  sec.push(
+    `Informacje publiczne (raporty ESPI/EBI). ` +
+      (espi.length
+        ? `W okresie objętym analizą spółka publikowała raporty bieżące/okresowe. W aktach ` +
+          `zidentyfikowano ${espi.length} raport(ów):\n${lst(espi)}\n`
+        : `Brak w aktach raportów ESPI/EBI. `) +
+      `[Do uzupełnienia: czy którykolwiek raport miał charakter cenotwórczy i tłumaczy ruch kursu.]`,
+  );
+  if (stanp.length)
+    sec.push(
+      `Zmiany stanu posiadania. Zidentyfikowano ${stanp.length} zawiadomienie(a) o zmianie stanu ` +
+        `posiadania — istotne dla oceny przepływu pakietów i powiązania z dynamiką kursu.`,
+    );
+  sec.push(
+    `Ocena. [Do uzupełnienia przez biegłego: czy fundamenty i informacje publiczne uzasadniają ` +
+      `zaobserwowaną dynamikę kursu. Brak takiego uzasadnienia wzmacnia tezę o oderwaniu ceny od ` +
+      `wartości i o manipulacji instrumentem finansowym.]`,
+  );
+
+  const findings: string[] = [
+    `W aktach zidentyfikowano: ${espi.length} raport(ów) ESPI/EBI, ${fin.length} dokument(ów) ` +
+      `finansowych, ${notow.length} zbiór(ów) notowań, ${stanp.length} zawiadomień o stanie posiadania.`,
+  ];
+
   return {
-    no: "IV",
+    kind: "ekofin",
+    chapterNo: "IV.1",
+    title: "Analiza ekonomiczno-finansowa i otoczenie rynkowe",
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: null,
+      findings,
+      legalRefs: ["art. 7 MAR (informacja poufna)", "art. 17 MAR (raporty bieżące)"],
+    },
+  };
+}
+
+const SUB_LABEL: Record<string, string> = {
+  ilosciowa: "ilościowa UTP (silnik faktów)",
+  ekofin: "ekonomiczno-finansowa i otoczenie",
+  porozumienie: "porozumienie (IP / OSINT)",
+  otc: "obrót pozagiełdowy / motyw",
+};
+
+// Rozdział opinii z zapisanej subanalizy (zatwierdzona → grounded/ready).
+function chapterFromStored(s: StoredSub): Chapter {
+  const conf: Conf = s.status === "zatwierdzona" ? "grounded" : "review";
+  return {
+    no: s.chapter_no,
+    title: s.title,
+    status: s.status === "zatwierdzona" ? "ready" : "draft",
+    source:
+      `Subanaliza: ${SUB_LABEL[s.kind] ?? s.kind}` +
+      (s.status === "zatwierdzona" ? " · zatwierdzona" : " · szkic"),
+    paras: splitParas(s.body_md).map((t) => ({ text: t, conf })),
+    table: s.data?.table ?? undefined,
+    findings: (s.data?.findings ?? []).map((t) => ({ text: t, conf: "grounded" as Conf })),
+  };
+}
+
+// Podgląd subanalizy ilościowej „na żywo" (gdy nie zapisano jej jeszcze w bazie).
+function liveQuantChapter(metrics: Metric[]): Chapter | null {
+  const q = buildQuantitativeSubanaliza(metrics);
+  if (!q) return null;
+  return {
+    no: q.chapterNo,
     title: q.title,
     status: "draft",
     source: "Subanaliza: ilościowa UTP (niezapisana — wygeneruj, aby edytować)",
@@ -196,10 +277,31 @@ export function buildOpinion(
   documents: Doc[],
   stored: StoredSub[] = [],
 ): Opinion {
-  const byChapter = new Map(stored.map((s) => [s.chapter_no, s]));
   const inputDocs = documents.filter((d) => d.provenance !== "wyjście");
-  const ivStored = stored.find((s) => s.kind === "ilosciowa") ?? byChapter.get("IV");
-  const ivTable = chapterIV(metrics, ivStored).table;
+
+  // Rozdział IV — blok subanaliz (IV.x): zapisane + ewentualny podgląd ilościowy.
+  const ivChapters: Chapter[] = stored
+    .filter((s) => s.chapter_no.startsWith("IV"))
+    .map(chapterFromStored);
+  if (!stored.some((s) => s.kind === "ilosciowa")) {
+    const live = liveQuantChapter(metrics);
+    if (live) ivChapters.push(live);
+  }
+  ivChapters.sort((a, b) => a.no.localeCompare(b.no, "pl"));
+  if (ivChapters.length === 0) {
+    ivChapters.push({
+      no: "IV",
+      title: "Analiza",
+      status: "todo",
+      paras: [
+        {
+          conf: "todo",
+          text: "Brak subanaliz dla rozdziału IV — wygeneruj subanalizę ilościową lub eko-fin.",
+        },
+      ],
+    });
+  }
+  const ivTable = ivChapters.find((c) => c.table)?.table ?? null;
 
   const chapters: Chapter[] = [
     {
@@ -248,7 +350,7 @@ export function buildOpinion(
         },
       ],
     },
-    chapterIV(metrics, ivStored),
+    ...ivChapters,
     {
       no: "V",
       title: "Podsumowanie",

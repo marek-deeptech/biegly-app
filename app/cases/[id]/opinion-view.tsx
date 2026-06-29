@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import {
+  buildEkofinSubanaliza,
   buildOpinion,
   buildQuantitativeSubanaliza,
   type Chapter,
   type Conf,
   type Para,
   type StoredSub,
+  type SubResult,
 } from "@/lib/opinion/build";
 
 type Metric = {
@@ -19,7 +21,7 @@ type Metric = {
   unit: string | null;
   session_day: string | null;
 };
-type Doc = { rel_path: string; provenance: string | null };
+type Doc = { rel_path: string; provenance: string | null; doc_type?: string | null };
 type SubRow = {
   id: string;
   kind: string;
@@ -74,25 +76,25 @@ export default function OpinionView({
   );
   const ready = opinion.chapters.filter((c) => c.status === "ready").length;
   const hasQuant = subanalyses.some((s) => s.kind === "ilosciowa");
+  const hasEkofin = subanalyses.some((s) => s.kind === "ekofin");
   const draftFor = (s: SubRow) => drafts[s.id] ?? s.body_md;
 
-  async function generateQuant(overwrite = false) {
-    const q = buildQuantitativeSubanaliza(metrics);
-    if (!q) {
-      setMsg("Brak policzonych wskaźników — najpierw policz wskaźniki na zakładce Sprawa.");
+  async function saveGenerated(result: SubResult | null, overwrite = false) {
+    if (!result) {
+      setMsg("Brak danych do wygenerowania — najpierw policz wskaźniki na zakładce Sprawa.");
       return;
     }
-    setBusy("gen");
+    setBusy("gen-" + result.kind);
     setMsg("");
     const supabase = createClient();
     const { error } = await supabase.from("subanalyses").upsert(
       {
         case_id: caseId,
-        kind: q.kind,
-        chapter_no: q.chapterNo,
-        title: q.title,
-        body_md: q.bodyMd,
-        data: q.data,
+        kind: result.kind,
+        chapter_no: result.chapterNo,
+        title: result.title,
+        body_md: result.bodyMd,
+        data: result.data,
         ...(overwrite ? { status: "szkic", approved_at: null } : {}),
       },
       { onConflict: "case_id,kind" },
@@ -101,15 +103,13 @@ export default function OpinionView({
     if (error) {
       setMsg(migrationHint(error.message));
     } else {
-      setDrafts((d) => {
-        const n = { ...d };
-        const ex = subanalyses.find((s) => s.kind === "ilosciowa");
-        if (ex) delete n[ex.id];
-        return n;
-      });
+      const ex = subanalyses.find((s) => s.kind === result.kind);
+      if (ex) setDrafts((d) => { const n = { ...d }; delete n[ex.id]; return n; });
       router.refresh();
     }
   }
+  const genQuant = (ow = false) => saveGenerated(buildQuantitativeSubanaliza(metrics), ow);
+  const genEkofin = (ow = false) => saveGenerated(buildEkofinSubanaliza(metrics, documents), ow);
 
   async function saveBody(s: SubRow) {
     setBusy(s.id);
@@ -141,15 +141,26 @@ export default function OpinionView({
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Subanalizy (warsztat)</h2>
-          {!hasQuant && (
-            <button
-              onClick={() => generateQuant(false)}
-              disabled={busy !== null || metrics.length === 0}
-              className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              {busy === "gen" ? "Generuję…" : "Generuj subanalizę ilościową"}
-            </button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {!hasQuant && (
+              <button
+                onClick={() => genQuant(false)}
+                disabled={busy !== null || metrics.length === 0}
+                className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {busy === "gen-ilosciowa" ? "Generuję…" : "Generuj: ilościowa"}
+              </button>
+            )}
+            {!hasEkofin && (
+              <button
+                onClick={() => genEkofin(false)}
+                disabled={busy !== null}
+                className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+              >
+                {busy === "gen-ekofin" ? "Generuję…" : "Generuj: eko-fin"}
+              </button>
+            )}
+          </div>
         </div>
 
         {msg && <p className="mb-3 text-sm text-red-600">{msg}</p>}
@@ -212,15 +223,16 @@ export default function OpinionView({
                       >
                         Zatwierdź
                       </button>
-                      {s.kind === "ilosciowa" && (
+                      {(s.kind === "ilosciowa" || s.kind === "ekofin") && (
                         <button
                           onClick={() => {
-                            if (confirm("Nadpisać treść świeżym wynikiem z silnika? Twoje zmiany w tej subanalizie zostaną utracone.")) generateQuant(true);
+                            if (confirm("Nadpisać treść świeżym wynikiem z danych? Twoje zmiany w tej subanalizie zostaną utracone."))
+                              s.kind === "ilosciowa" ? genQuant(true) : genEkofin(true);
                           }}
                           disabled={busy !== null}
                           className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
                         >
-                          Odśwież z silnika
+                          {s.kind === "ilosciowa" ? "Odśwież z silnika" : "Odśwież z inwentarza"}
                         </button>
                       )}
                     </>
