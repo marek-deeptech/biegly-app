@@ -158,10 +158,27 @@ export function buildQuantitativeSubanaliza(metrics: Metric[]): QuantResult | nu
   };
 }
 
+// Dynamika kursu z notowania-engine (lib/quotes/parse.ts).
+export type QuoteDyn = {
+  from: string;
+  to: string;
+  start: number;
+  end: number;
+  maxClose: number;
+  peakDate: string;
+  changeStartMaxPct: number;
+  changeStartEndPct: number;
+};
+
 // ── Generator subanalizy eko-fin — szkielet rozdz. IV.1 z faktami z inwentarza ──
-// Otoczenie rynkowe jest częściowo jakościowe: fakty z inwentarza akt są
-// ugruntowane, a ocena fundamentalna pozostaje do uzupełnienia przez biegłego.
-export function buildEkofinSubanaliza(metrics: Metric[], documents: Doc[]): SubResult {
+// Otoczenie rynkowe jest częściowo jakościowe: fakty z inwentarza akt oraz
+// policzona dynamika kursu są ugruntowane, a ocena fundamentalna pozostaje do
+// uzupełnienia przez biegłego.
+export function buildEkofinSubanaliza(
+  metrics: Metric[],
+  documents: Doc[],
+  quotes?: QuoteDyn | null,
+): SubResult {
   const days = [
     ...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day as string)),
   ].sort();
@@ -183,11 +200,17 @@ export function buildEkofinSubanaliza(metrics: Metric[], documents: Doc[]): SubR
   );
   sec.push(
     `Dynamika kursu i wolumenu. ` +
-      (notow.length
-        ? `W aktach znajdują się dane notowań (${notow.length}), umożliwiające wyznaczenie kursu ` +
-          `otwarcia i zamknięcia okresu, kursu maksymalnego oraz skali wzrostu. `
-        : `Brak w aktach danych notowań do wyznaczenia dynamiki kursu. `) +
-      `[Do uzupełnienia: kurs początkowy, kurs maksymalny, procentowa zmiana, data szczytu.]`,
+      (quotes
+        ? `W okresie od ${quotes.from} do ${quotes.to} kurs zmienił się z ${plnum(quotes.start, "zł")} ` +
+          `(początek) do maksymalnie ${plnum(quotes.maxClose, "zł")} w dniu ${quotes.peakDate} — wzrost ` +
+          `o ${plnum(quotes.changeStartMaxPct, "%")}. Kurs na koniec okresu: ${plnum(quotes.end, "zł")} ` +
+          `(${plnum(quotes.changeStartEndPct, "%")} względem początku). ` +
+          `[Do uzupełnienia: czy skala zmiany kursu znajduje uzasadnienie w fundamentach.]`
+        : (notow.length
+            ? `W aktach znajdują się dane notowań (${notow.length}) — wygeneruj subanalizę, aby policzyć ` +
+              `kurs początkowy, maksymalny i skalę wzrostu. `
+            : `Brak w aktach danych notowań do wyznaczenia dynamiki kursu. `) +
+          `[Do uzupełnienia: kurs początkowy, kurs maksymalny, procentowa zmiana, data szczytu.]`),
   );
   sec.push(
     `Sytuacja finansowa spółki. ` +
@@ -215,10 +238,16 @@ export function buildEkofinSubanaliza(metrics: Metric[], documents: Doc[]): SubR
       `wartości i o manipulacji instrumentem finansowym.]`,
   );
 
-  const findings: string[] = [
+  const findings: string[] = [];
+  if (quotes)
+    findings.push(
+      `Kurs wzrósł o ${plnum(quotes.changeStartMaxPct, "%")} (z ${plnum(quotes.start, "zł")} do ` +
+        `${plnum(quotes.maxClose, "zł")}, szczyt ${quotes.peakDate}).`,
+    );
+  findings.push(
     `W aktach zidentyfikowano: ${espi.length} raport(ów) ESPI/EBI, ${fin.length} dokument(ów) ` +
       `finansowych, ${notow.length} zbiór(ów) notowań, ${stanp.length} zawiadomień o stanie posiadania.`,
-  ];
+  );
 
   return {
     kind: "ekofin",

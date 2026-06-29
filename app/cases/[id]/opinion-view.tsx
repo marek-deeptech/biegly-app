@@ -21,7 +21,12 @@ type Metric = {
   unit: string | null;
   session_day: string | null;
 };
-type Doc = { rel_path: string; provenance: string | null; doc_type?: string | null };
+type Doc = {
+  rel_path: string;
+  provenance: string | null;
+  doc_type?: string | null;
+  storage_path?: string | null;
+};
 type SubRow = {
   id: string;
   kind: string;
@@ -109,7 +114,24 @@ export default function OpinionView({
     }
   }
   const genQuant = (ow = false) => saveGenerated(buildQuantitativeSubanaliza(metrics), ow);
-  const genEkofin = (ow = false) => saveGenerated(buildEkofinSubanaliza(metrics, documents), ow);
+
+  async function genEkofin(ow = false) {
+    // Policz dynamikę kursu z pliku notowań (NOTOWANIA_REF) w oknie analizy.
+    let quotes = null;
+    const nf = pickNotowania(documents);
+    if (nf?.storage_path) {
+      const days = [...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day))].sort();
+      const win = days.length ? `&from=${days[0]}&to=${days[days.length - 1]}` : "";
+      try {
+        const r = await fetch(`/cases/${caseId}/quotes?path=${encodeURIComponent(nf.storage_path)}${win}`);
+        const j = await r.json();
+        if (j.ok) quotes = j.dynamics;
+      } catch {
+        /* brak notowań — sekcja zostanie z [do uzupełnienia] */
+      }
+    }
+    await saveGenerated(buildEkofinSubanaliza(metrics, documents, quotes), ow);
+  }
 
   async function saveBody(s: SubRow) {
     setBusy(s.id);
@@ -360,6 +382,12 @@ export default function OpinionView({
       </section>
     </div>
   );
+}
+
+// Plik notowań pojedynczego instrumentu (CSV), z pominięciem zestawień sektorowych.
+function pickNotowania(docs: Doc[]): Doc | undefined {
+  const csv = (d: Doc) => !!d.storage_path && d.doc_type === "NOTOWANIA_REF" && /\.csv$/i.test(d.rel_path);
+  return docs.find((d) => csv(d) && !/chemia|sektor|branż|peer|indeks/i.test(d.rel_path)) ?? docs.find(csv);
 }
 
 function migrationHint(m: string): string {
