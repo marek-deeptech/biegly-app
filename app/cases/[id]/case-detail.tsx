@@ -503,6 +503,13 @@ export default function CaseDetail({
             className="w-48 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
         </div>
+        {stats.wyj > 0 && (
+          <div className="border-b border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            Wykryto {stats.wyj}{" "}
+            {stats.wyj === 1 ? "pozycję" : "pozycji"} oznaczoną jako wytwór biegłego (wyjście) — na czerwono. Akta to
+            materiał wejściowy; sprawdź, czy nie trafiły tu przez pomyłkę.
+          </div>
+        )}
         {visibleDocs.length === 0 ? (
           <p className="p-6 text-center text-sm text-neutral-400">
             {documents.length === 0 ? "Brak dokumentów — wgraj akta powyżej." : "Brak wyników wyszukiwania."}
@@ -510,11 +517,21 @@ export default function CaseDetail({
         ) : (
           <ul className="max-h-96 overflow-auto">
             {visibleDocs.map((d) => (
-              <li key={d.id} className="flex items-center gap-3 border-b border-neutral-100 px-3 py-2 last:border-0">
+              <li
+                key={d.id}
+                className={`flex items-center gap-3 border-b border-neutral-100 px-3 py-2 last:border-0 ${
+                  d.provenance === "wyjście" ? "bg-red-50" : ""
+                }`}
+              >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{basename(d.rel_path)}</div>
+                  <div className={`truncate text-sm ${d.provenance === "wyjście" ? "text-red-700" : ""}`}>
+                    {basename(d.rel_path)}
+                  </div>
                   <div className="truncate text-xs text-neutral-400">
                     {DOC_TYPES[d.doc_type]?.label ?? d.doc_type}
+                    {d.provenance === "wyjście" && (
+                      <span className="ml-2 font-medium text-red-600">· wytwór biegłego — czy na pewno do akt?</span>
+                    )}
                     {!d.storage_path && <span className="ml-2 text-amber-600">· nie w magazynie</span>}
                   </div>
                 </div>
