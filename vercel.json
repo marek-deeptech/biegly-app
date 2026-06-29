@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "functions": {
+    "api/analyze.py": {
+      "includeFiles": "engine/**",
+      "maxDuration": 60
+    }
+  }
 }

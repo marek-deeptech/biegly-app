@@ -16,24 +16,64 @@ type Doc = {
   doc_type: string;
   source: string | null;
   provenance: string | null;
+  storage_path: string | null;
 };
 type Check = { label: string; present: boolean };
+type Metric = {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: string | null;
+  session_day: string | null;
+};
 
 export default function CaseDetail({
   caseRow,
   documents,
   checklist,
   recommended,
+  metrics,
 }: {
   caseRow: CaseRow;
   documents: Doc[];
   checklist: Check[];
   recommended: Check[];
+  metrics: Metric[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeMsg, setAnalyzeMsg] = useState("");
+
+  // Główny plik UTP do analizy: największy dokument typu DANE_UTP wgrany do Storage.
+  const utpDoc = useMemo(() => {
+    const utp = documents.filter((d) => d.doc_type === "DANE_UTP" && d.storage_path);
+    utp.sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0));
+    return utp[0] ?? null;
+  }, [documents]);
+
+  async function runAnalysis() {
+    if (!utpDoc?.storage_path) return;
+    setAnalyzing(true);
+    setAnalyzeMsg("");
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId: caseRow.id, storagePath: utpDoc.storage_path }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setAnalyzeMsg(`Policzono ${data.metrics} wskaźników.`);
+      router.refresh();
+    } catch (e) {
+      setAnalyzeMsg(`Błąd analizy: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   const stats = useMemo(() => {
     const wej = documents.filter((d) => d.provenance === "wejście").length;
@@ -164,8 +204,73 @@ export default function CaseDetail({
           )}
         </section>
       </div>
+
+      <section className="mt-8 rounded-xl border border-neutral-200 bg-white p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-medium">Analiza liczbowa (silnik faktów)</h2>
+          <button
+            onClick={runAnalysis}
+            disabled={!utpDoc || analyzing}
+            className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {analyzing ? "Liczę…" : "Policz wskaźniki z danych UTP"}
+          </button>
+        </div>
+        {!utpDoc && (
+          <p className="text-xs text-neutral-500">
+            Wgraj plik danych UTP (transakcje i zlecenia), aby policzyć wskaźniki.
+          </p>
+        )}
+        {analyzeMsg && <p className="mb-3 text-sm text-neutral-600">{analyzeMsg}</p>}
+
+        {metrics.length > 0 && (
+          <>
+            <ul className="mb-3 space-y-1">
+              {metrics
+                .filter((m) => !m.session_day)
+                .map((m) => (
+                  <li key={m.key} className="flex justify-between border-b border-neutral-100 py-1.5 text-sm">
+                    <span>{m.label}</span>
+                    <span className="font-medium tabular-nums">{fmt(m)}</span>
+                  </li>
+                ))}
+            </ul>
+            {metrics.some((m) => m.session_day) && (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-neutral-500">
+                    <th className="py-1 text-left">Sesja</th>
+                    <th className="py-1 text-right">Wash-trades</th>
+                    <th className="py-1 text-right">Anulacje kupna</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day))].map((day) => {
+                    const wash = metrics.find((m) => m.session_day === day && m.key.startsWith("wash_"));
+                    const cancel = metrics.find((m) => m.session_day === day && m.key.startsWith("cancel_"));
+                    return (
+                      <tr key={day} className="border-b border-neutral-100 last:border-0">
+                        <td className="py-1.5">{day}</td>
+                        <td className="py-1.5 text-right tabular-nums">{wash ? fmt(wash) : "—"}</td>
+                        <td className="py-1.5 text-right tabular-nums">{cancel ? fmt(cancel) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </section>
     </main>
   );
+}
+
+function fmt(m: Metric): string {
+  if (m.value == null) return "—";
+  if (m.unit === "%") return `${m.value}%`;
+  const n = m.value.toLocaleString("pl-PL");
+  return m.unit ? `${n} ${m.unit}` : n;
 }
 
 function Stat({ n, label, color = "" }: { n: number; label: string; color?: string }) {

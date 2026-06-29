@@ -17,10 +17,17 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
 
   const { data: docs } = await supabase
     .from("documents")
-    .select("id,rel_path,size_bytes,doc_type,source,provenance")
+    .select("id,rel_path,size_bytes,doc_type,source,provenance,storage_path")
     .eq("case_id", id)
     .order("rel_path");
   const documents = docs ?? [];
+
+  const { data: metricsData } = await supabase
+    .from("metrics")
+    .select("key,label,value,unit,session_day")
+    .eq("case_id", id)
+    .order("session_day", { nullsFirst: true });
+  const metrics = metricsData ?? [];
 
   const present = new Set(documents.map((d) => d.doc_type));
   const checklist = REQUIRED.map((code) => ({
@@ -38,6 +45,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
       documents={documents}
       checklist={checklist}
       recommended={recommended}
+      metrics={metrics}
     />
   );
 }
