@@ -18,6 +18,7 @@ type Doc = {
   source: string | null;
   provenance: string | null;
   storage_path: string | null;
+  accepted?: boolean | null;
 };
 type Check = { label: string; present: boolean };
 type Metric = {
@@ -63,11 +64,26 @@ export default function CaseDetail({
   const [confirmDelCase, setConfirmDelCase] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmBulkDel, setConfirmBulkDel] = useState(false);
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<HTMLInputElement>(null);
   const replaceTarget = useRef<Doc | null>(null);
+  const bulkReplaceRef = useRef<HTMLInputElement>(null);
+
+  const isSuspect = (d: Doc) => d.provenance === "wyjście" && !d.accepted;
+  const suspectCount = documents.filter(isSuspect).length;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function notify(msg: string) {
     setToast(msg);
@@ -269,6 +285,84 @@ export default function CaseDetail({
     await supabase.from("documents").delete().eq("id", doc.id);
     setConfirmId(null);
     notify("Usunięto plik");
+    router.refresh();
+  }
+
+  async function acceptDoc(doc: Doc) {
+    const supabase = createClient();
+    await supabase.from("documents").update({ accepted: true }).eq("id", doc.id);
+    notify("Zaakceptowano dokument");
+    router.refresh();
+  }
+
+  async function acceptSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    const supabase = createClient();
+    await supabase.from("documents").update({ accepted: true }).in("id", ids);
+    setSelected(new Set());
+    notify(`Zaakceptowano ${ids.length}`);
+    router.refresh();
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    const supabase = createClient();
+    const paths = documents
+      .filter((d) => ids.includes(d.id) && d.storage_path)
+      .map((d) => d.storage_path as string);
+    if (paths.length) await supabase.storage.from("case-files").remove(paths);
+    await supabase.from("documents").delete().in("id", ids);
+    setSelected(new Set());
+    setConfirmBulkDel(false);
+    notify(`Usunięto ${ids.length}`);
+    router.refresh();
+  }
+
+  async function handleBulkReplace(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    const targets = documents.filter((d) => selected.has(d.id));
+    const byBase = new Map(targets.map((d) => [basename(d.rel_path), d] as const));
+    const matched = Array.from(fileList).filter((f) => byBase.has(f.name));
+    if (matched.length === 0) {
+      notify("Żaden plik nie pasował nazwą do zaznaczonych");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setUp({ done: 0, total: matched.length, pct: 0 });
+    const supabase = createClient();
+    const token = await authToken();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    for (let i = 0; i < matched.length; i++) {
+      const f = matched[i];
+      const doc = byBase.get(f.name)!;
+      const storagePath = doc.storage_path || `${caseRow.id}/${doc.rel_path}`;
+      let ok = true;
+      try {
+        if (!token) throw new Error("brak sesji");
+        await uploadResumable({
+          supabaseUrl,
+          token,
+          bucket: "case-files",
+          path: storagePath,
+          file: f,
+          onProgress: (s, t) => setUp({ done: i, total: matched.length, pct: Math.round((s / (t || 1)) * 100) }),
+        });
+      } catch {
+        ok = false;
+      }
+      await supabase
+        .from("documents")
+        .update({ size_bytes: f.size, storage_path: ok ? storagePath : doc.storage_path })
+        .eq("id", doc.id);
+      setUp({ done: i + 1, total: matched.length, pct: 100 });
+    }
+    setBusy(false);
+    setUp(null);
+    setSelected(new Set());
+    notify(`Podmieniono ${matched.length} (dopasowano po nazwie)`);
     router.refresh();
   }
 
@@ -503,11 +597,52 @@ export default function CaseDetail({
             className="w-48 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
         </div>
-        {stats.wyj > 0 && (
+        {suspectCount > 0 && (
           <div className="border-b border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            Wykryto {stats.wyj}{" "}
-            {stats.wyj === 1 ? "pozycję" : "pozycji"} oznaczoną jako wytwór biegłego (wyjście) — na czerwono. Akta to
-            materiał wejściowy; sprawdź, czy nie trafiły tu przez pomyłkę.
+            Wykryto {suspectCount}{" "}
+            {suspectCount === 1 ? "pozycję" : "pozycji"} oznaczoną jako wytwór biegłego (wyjście) — na czerwono. Akta to
+            materiał wejściowy; sprawdź, usuń, albo zaakceptuj, jeśli ma tam być.
+          </div>
+        )}
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">
+            <span className="font-medium">Zaznaczono {selected.size}</span>
+            <button onClick={() => bulkReplaceRef.current?.click()} disabled={busy} className={BTN_SECONDARY}>
+              Podmień
+            </button>
+            <button onClick={acceptSelected} className={BTN_SECONDARY}>
+              Zaakceptuj
+            </button>
+            {confirmBulkDel ? (
+              <>
+                <button
+                  onClick={deleteSelected}
+                  className={`rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 ${FOCUS}`}
+                >
+                  Tak, usuń {selected.size}
+                </button>
+                <button onClick={() => setConfirmBulkDel(false)} className={BTN_SECONDARY}>
+                  Anuluj
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmBulkDel(true)}
+                className={`rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 transition-colors hover:bg-red-50 ${FOCUS}`}
+              >
+                Usuń
+              </button>
+            )}
+            <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-neutral-500 hover:underline">
+              Wyczyść zaznaczenie
+            </button>
+            <input
+              ref={bulkReplaceRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => handleBulkReplace(e.target.files)}
+            />
           </div>
         )}
         {visibleDocs.length === 0 ? (
@@ -520,17 +655,25 @@ export default function CaseDetail({
               <li
                 key={d.id}
                 className={`flex items-center gap-3 border-b border-neutral-100 px-3 py-2 last:border-0 ${
-                  d.provenance === "wyjście" ? "bg-red-50" : ""
+                  isSuspect(d) ? "bg-red-50" : ""
                 }`}
               >
+                <input
+                  type="checkbox"
+                  checked={selected.has(d.id)}
+                  onChange={() => toggleSelect(d.id)}
+                  aria-label={`Zaznacz ${basename(d.rel_path)}`}
+                  className="shrink-0"
+                />
                 <div className="min-w-0 flex-1">
-                  <div className={`truncate text-sm ${d.provenance === "wyjście" ? "text-red-700" : ""}`}>
-                    {basename(d.rel_path)}
-                  </div>
+                  <div className={`truncate text-sm ${isSuspect(d) ? "text-red-700" : ""}`}>{basename(d.rel_path)}</div>
                   <div className="truncate text-xs text-neutral-400">
                     {DOC_TYPES[d.doc_type]?.label ?? d.doc_type}
-                    {d.provenance === "wyjście" && (
+                    {isSuspect(d) && (
                       <span className="ml-2 font-medium text-red-600">· wytwór biegłego — czy na pewno do akt?</span>
+                    )}
+                    {d.provenance === "wyjście" && d.accepted && (
+                      <span className="ml-2 text-emerald-600">· zaakceptowany</span>
                     )}
                     {!d.storage_path && <span className="ml-2 text-amber-600">· nie w magazynie</span>}
                   </div>
@@ -550,6 +693,11 @@ export default function CaseDetail({
                     <button onClick={() => startReplace(d)} className="text-neutral-600 transition-colors hover:text-neutral-900">
                       Podmień
                     </button>
+                    {isSuspect(d) && (
+                      <button onClick={() => acceptDoc(d)} className="text-emerald-700 transition-colors hover:text-emerald-900">
+                        Zaakceptuj
+                      </button>
+                    )}
                     <button onClick={() => setConfirmId(d.id)} className="text-red-600 transition-colors hover:text-red-800">
                       Usuń
                     </button>
