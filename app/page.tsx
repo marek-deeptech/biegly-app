@@ -4,7 +4,15 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Dashboard from "./dashboard";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ code?: string }>;
+}) {
+  // Awaryjnie: gdyby magic-link trafił z kodem na "/" zamiast na /auth/callback.
+  const { code } = await searchParams;
+  if (code) redirect(`/auth/callback?code=${code}`);
+
   const supabase = await createClient();
   const {
     data: { user },
