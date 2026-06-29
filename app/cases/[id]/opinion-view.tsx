@@ -10,6 +10,7 @@ import {
   buildOtcSubanaliza,
   buildPorozumienieSubanaliza,
   buildQuantitativeSubanaliza,
+  buildWnioskiSubanaliza,
   type Chapter,
   type Conf,
   type Para,
@@ -88,6 +89,8 @@ export default function OpinionView({
   const hasEkofin = subanalyses.some((s) => s.kind === "ekofin");
   const hasPoroz = subanalyses.some((s) => s.kind === "porozumienie");
   const hasOtc = subanalyses.some((s) => s.kind === "otc");
+  const hasWnioski = subanalyses.some((s) => s.kind === "wnioski");
+  const canWnioski = subanalyses.some((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"));
   const draftFor = (s: SubRow) => drafts[s.id] ?? s.body_md;
 
   async function saveGenerated(result: SubResult | null, overwrite = false) {
@@ -140,6 +143,7 @@ export default function OpinionView({
   }
   const genPoroz = (ow = false) => saveGenerated(buildPorozumienieSubanaliza(metrics, documents), ow);
   const genOtc = (ow = false) => saveGenerated(buildOtcSubanaliza(metrics, documents), ow);
+  const genWnioski = (ow = false) => saveGenerated(buildWnioskiSubanaliza(stored), ow);
 
   async function saveBody(s: SubRow) {
     setBusy(s.id);
@@ -208,6 +212,16 @@ export default function OpinionView({
                 {busy === "gen-otc" ? "Generuję…" : "Generuj: motyw/OTC"}
               </button>
             )}
+            {!hasWnioski && canWnioski && (
+              <button
+                onClick={() => genWnioski(false)}
+                disabled={busy !== null}
+                className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                title="Synteza z zatwierdzonych subanaliz"
+              >
+                {busy === "gen-wnioski" ? "Generuję…" : "Generuj: Wnioski"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -271,16 +285,28 @@ export default function OpinionView({
                       >
                         Zatwierdź
                       </button>
-                      {(s.kind === "ilosciowa" || s.kind === "ekofin" || s.kind === "porozumienie" || s.kind === "otc") && (
+                      {["ilosciowa", "ekofin", "porozumienie", "otc", "wnioski"].includes(s.kind) && (
                         <button
                           onClick={() => {
                             if (confirm("Nadpisać treść świeżym wynikiem z danych? Twoje zmiany w tej subanalizie zostaną utracone."))
-                              s.kind === "ilosciowa" ? genQuant(true) : s.kind === "ekofin" ? genEkofin(true) : s.kind === "porozumienie" ? genPoroz(true) : genOtc(true);
+                              s.kind === "ilosciowa"
+                                ? genQuant(true)
+                                : s.kind === "ekofin"
+                                  ? genEkofin(true)
+                                  : s.kind === "porozumienie"
+                                    ? genPoroz(true)
+                                    : s.kind === "otc"
+                                      ? genOtc(true)
+                                      : genWnioski(true);
                           }}
                           disabled={busy !== null}
                           className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
                         >
-                          {s.kind === "ilosciowa" ? "Odśwież z silnika" : "Odśwież z inwentarza"}
+                          {s.kind === "ilosciowa"
+                            ? "Odśwież z silnika"
+                            : s.kind === "wnioski"
+                              ? "Odśwież z subanaliz"
+                              : "Odśwież z inwentarza"}
                         </button>
                       )}
                     </>

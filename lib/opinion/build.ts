@@ -402,11 +402,50 @@ export function buildOtcSubanaliza(metrics: Metric[], documents: Doc[]): SubResu
   };
 }
 
+// ── Synteza Wniosków (rozdz. II) z ZATWIERDZONYCH subanaliz IV.x ──
+// Deterministyczne zebranie wniosków cząstkowych + rozdzielenie ustaleń
+// faktycznych od ocen zastrzeżonych dla sądu (kwalifikacja prawna, zamiar, wina).
+export function buildWnioskiSubanaliza(stored: StoredSub[]): SubResult | null {
+  const approved = stored
+    .filter((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"))
+    .sort((a, b) => a.chapter_no.localeCompare(b.chapter_no, "pl"));
+  if (!approved.length) return null;
+
+  const parts: string[] = [
+    `Na podstawie analiz przeprowadzonych w rozdziale IV formułuje się następujące wnioski.`,
+  ];
+  for (const s of approved) {
+    const fs = (s.data?.findings ?? []).join(" ");
+    parts.push(`${s.title} (rozdz. ${s.chapter_no}). ${fs}`.trim());
+  }
+  parts.push(
+    `Powyższe ustalenia faktyczne wskazują łącznie na cechy manipulacji instrumentem finansowym w ` +
+      `rozumieniu art. 12 rozporządzenia MAR. Ocena prawnokarna czynu oraz ustalenie zamiaru i winy ` +
+      `konkretnych osób pozostają w wyłącznej kompetencji organu prowadzącego postępowanie oraz sądu.`,
+  );
+
+  return {
+    kind: "wnioski",
+    chapterNo: "II",
+    title: "Wnioski",
+    bodyMd: parts.join("\n\n"),
+    data: {
+      table: null,
+      findings: [
+        `Ustalenia faktyczne wskazują na cechy manipulacji instrumentem finansowym (art. 12 MAR); ` +
+          `kwalifikacja prawnokarna i ocena zamiaru — w gestii sądu.`,
+      ],
+      legalRefs: ["art. 12 MAR"],
+    },
+  };
+}
+
 const SUB_LABEL: Record<string, string> = {
   ilosciowa: "ilościowa UTP (silnik faktów)",
   ekofin: "ekonomiczno-finansowa i otoczenie",
   porozumienie: "porozumienie (IP / OSINT)",
   otc: "obrót pozagiełdowy / motyw",
+  wnioski: "synteza wniosków",
 };
 
 // Rozdział opinii z zapisanej subanalizy (zatwierdzona → grounded/ready).
@@ -549,12 +588,22 @@ export function buildOpinion(
     },
   ];
 
+  // Rozdziały stałe (I, II, III, V) nadpisuje zapisana subanaliza o tym numerze
+  // (np. „Wnioski" jako subanaliza kind=wnioski, chapter_no=II). VI i blok IV.x
+  // pozostają nietknięte.
+  const exact = new Map(
+    stored.filter((s) => !s.chapter_no.startsWith("IV")).map((s) => [s.chapter_no, s] as const),
+  );
+  const merged = chapters.map((c) =>
+    c.no !== "VI" && exact.has(c.no) ? chapterFromStored(exact.get(c.no)!) : c,
+  );
+
   return {
     caseName: caseRow.name,
     signature: caseRow.signature,
     expert: EXPERT,
     generatedAt: new Date().toISOString(),
     legalBasis: LEGAL_BASIS,
-    chapters,
+    chapters: merged,
   };
 }
