@@ -331,6 +331,77 @@ export function buildPorozumienieSubanaliza(metrics: Metric[], documents: Doc[])
   };
 }
 
+// ── Generator subanalizy OTC / motyw — rozdz. IV.5 (kto zyskał i dlaczego) ──
+// Beneficjent i motyw. Inwentarz dowodów obrotu pozagiełdowego jest ugruntowany;
+// szacunek korzyści i motyw pozostają do uzupełnienia przez biegłego (wymagają cen
+// z umów i kursu rynkowego, których nie wyliczamy automatycznie).
+export function buildOtcSubanaliza(metrics: Metric[], documents: Doc[]): SubResult {
+  const days = [
+    ...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day as string)),
+  ].sort();
+  const period = days.length ? `od ${days[0]} do ${days[days.length - 1]}` : "[okres do uzupełnienia]";
+  const byType = (t: string) => documents.filter((d) => d.doc_type === t);
+  const umowy = byType("UMOWA_CYWILNA");
+  const stanp = byType("ZAWIAD_STAN_POSIADANIA");
+  const lst = (ds: Doc[], n = 15) =>
+    ds.slice(0, n).map((d) => "• " + basename(d.rel_path)).join("\n") +
+    (ds.length > n ? `\n• … (+${ds.length - n})` : "");
+
+  const sec: string[] = [];
+  sec.push(
+    `Celem analizy jest ustalenie, kto odniósł korzyść z zaobserwowanej w okresie ${period} dynamiki ` +
+      `kursu oraz jaki był cel działań (motyw), w oparciu o obrót pozagiełdowy (umowy cywilnoprawne, ` +
+      `transakcje pakietowe) i zmiany stanu posiadania.`,
+  );
+  sec.push(
+    `Obrót pozagiełdowy (umowy cywilnoprawne). ` +
+      (umowy.length
+        ? `W aktach zidentyfikowano ${umowy.length} umów(y) zbycia/nabycia akcji poza rynkiem ` +
+          `regulowanym:\n${lst(umowy)}\n`
+        : `Brak w aktach umów cywilnoprawnych. `) +
+      `[Do uzupełnienia: ceny nabycia pakietów poza rynkiem i ich relacja do kursu giełdowego.]`,
+  );
+  sec.push(
+    `Zmiany stanu posiadania. ` +
+      (stanp.length
+        ? `Zidentyfikowano ${stanp.length} zawiadomienie(a) o zmianie stanu posiadania:\n${lst(stanp)}\n`
+        : `Brak w aktach zawiadomień o zmianie stanu posiadania. `) +
+      `[Do uzupełnienia: kierunek przepływu pakietów — kto zwiększał, a kto redukował zaangażowanie w ` +
+      `okresie wzrostu kursu.]`,
+  );
+  sec.push(
+    `Transakcje pakietowe. [Do uzupełnienia: transakcje pakietowe (block trades) w danych UTP — wolumen ` +
+      `i ceny względem kursu rynkowego.]`,
+  );
+  sec.push(
+    `Beneficjent i szacunek korzyści. [Do uzupełnienia przez biegłego: który podmiot odniósł korzyść ` +
+      `majątkową oraz jej szacunkowa wartość — np. różnica między ceną nabycia pakietu (umowa) a ceną ` +
+      `jego zbycia na rynku po wzroście kursu.]`,
+  );
+  sec.push(
+    `Motyw. [Do uzupełnienia: cel działań — np. upłynnienie posiadanego pakietu po zawyżonym kursie ` +
+      `(schemat pump&dump) albo uniknięcie straty. Wykazanie korzyści beneficjenta wzmacnia tezę o ` +
+      `celowości manipulacji.]`,
+  );
+
+  const findings: string[] = [
+    `W aktach zidentyfikowano: ${umowy.length} umów(y) cywilnoprawnych, ${stanp.length} zawiadomień o ` +
+      `zmianie stanu posiadania.`,
+  ];
+
+  return {
+    kind: "otc",
+    chapterNo: "IV.5",
+    title: "Motyw i beneficjent — obrót pozagiełdowy i przepływ pakietów",
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: null,
+      findings,
+      legalRefs: ["art. 12 ust. 1 lit. a–b MAR", "art. 183 ustawy o obrocie instrumentami finansowymi"],
+    },
+  };
+}
+
 const SUB_LABEL: Record<string, string> = {
   ilosciowa: "ilościowa UTP (silnik faktów)",
   ekofin: "ekonomiczno-finansowa i otoczenie",

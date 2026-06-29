@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   buildEkofinSubanaliza,
   buildOpinion,
+  buildOtcSubanaliza,
   buildPorozumienieSubanaliza,
   buildQuantitativeSubanaliza,
   type Chapter,
@@ -84,6 +85,7 @@ export default function OpinionView({
   const hasQuant = subanalyses.some((s) => s.kind === "ilosciowa");
   const hasEkofin = subanalyses.some((s) => s.kind === "ekofin");
   const hasPoroz = subanalyses.some((s) => s.kind === "porozumienie");
+  const hasOtc = subanalyses.some((s) => s.kind === "otc");
   const draftFor = (s: SubRow) => drafts[s.id] ?? s.body_md;
 
   async function saveGenerated(result: SubResult | null, overwrite = false) {
@@ -135,6 +137,7 @@ export default function OpinionView({
     await saveGenerated(buildEkofinSubanaliza(metrics, documents, quotes), ow);
   }
   const genPoroz = (ow = false) => saveGenerated(buildPorozumienieSubanaliza(metrics, documents), ow);
+  const genOtc = (ow = false) => saveGenerated(buildOtcSubanaliza(metrics, documents), ow);
 
   async function saveBody(s: SubRow) {
     setBusy(s.id);
@@ -192,6 +195,15 @@ export default function OpinionView({
                 className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
               >
                 {busy === "gen-porozumienie" ? "Generuję…" : "Generuj: porozumienie"}
+              </button>
+            )}
+            {!hasOtc && (
+              <button
+                onClick={() => genOtc(false)}
+                disabled={busy !== null}
+                className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+              >
+                {busy === "gen-otc" ? "Generuję…" : "Generuj: motyw/OTC"}
               </button>
             )}
           </div>
@@ -257,11 +269,11 @@ export default function OpinionView({
                       >
                         Zatwierdź
                       </button>
-                      {(s.kind === "ilosciowa" || s.kind === "ekofin" || s.kind === "porozumienie") && (
+                      {(s.kind === "ilosciowa" || s.kind === "ekofin" || s.kind === "porozumienie" || s.kind === "otc") && (
                         <button
                           onClick={() => {
                             if (confirm("Nadpisać treść świeżym wynikiem z danych? Twoje zmiany w tej subanalizie zostaną utracone."))
-                              s.kind === "ilosciowa" ? genQuant(true) : s.kind === "ekofin" ? genEkofin(true) : genPoroz(true);
+                              s.kind === "ilosciowa" ? genQuant(true) : s.kind === "ekofin" ? genEkofin(true) : s.kind === "porozumienie" ? genPoroz(true) : genOtc(true);
                           }}
                           disabled={busy !== null}
                           className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
