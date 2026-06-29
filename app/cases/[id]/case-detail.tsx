@@ -120,7 +120,9 @@ export default function CaseDetail({
       setProgress((p) => ({ ...p, done: p.done + 1 }));
     }
 
-    const { error: insErr } = await supabase.from("documents").insert(rows);
+    const { error: insErr } = await supabase
+      .from("documents")
+      .upsert(rows, { onConflict: "case_id,rel_path" });
     if (insErr) setError(insErr.message);
     setBusy(false);
     router.refresh();
@@ -141,16 +143,32 @@ export default function CaseDetail({
       <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-4">
         <h2 className="mb-2 text-sm font-medium">Wgraj akta sprawy</h2>
         <p className="mb-3 text-xs text-neutral-500">
-          Możesz wskazać cały katalog. Pliki trafiają do prywatnego magazynu i są klasyfikowane.
+          Wskaż cały katalog albo dograj pojedyncze pliki (np. uzupełnienia). Ponowne wgranie
+          tego samego pliku aktualizuje wpis — bez duplikatów.
         </p>
-        <input
-          type="file"
-          multiple
-          {...({ webkitdirectory: "" } as Record<string, string>)}
-          disabled={busy}
-          onChange={(e) => handleFiles(e.target.files)}
-          className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
-        />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <label className="flex-1">
+            <span className="mb-1 block text-xs text-neutral-500">Cały katalog</span>
+            <input
+              type="file"
+              multiple
+              {...({ webkitdirectory: "" } as Record<string, string>)}
+              disabled={busy}
+              onChange={(e) => handleFiles(e.target.files)}
+              className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
+            />
+          </label>
+          <label className="flex-1">
+            <span className="mb-1 block text-xs text-neutral-500">Pojedyncze pliki</span>
+            <input
+              type="file"
+              multiple
+              disabled={busy}
+              onChange={(e) => handleFiles(e.target.files)}
+              className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
+            />
+          </label>
+        </div>
         {busy && (
           <p className="mt-3 text-sm text-neutral-600">
             Przetwarzam… {progress.done}/{progress.total}
@@ -167,10 +185,10 @@ export default function CaseDetail({
 
       <div className="grid gap-6 md:grid-cols-2">
         <section className="rounded-xl border border-neutral-200 bg-white p-4">
-          <h2 className="mb-3 text-sm font-medium">
-            Checklista kanonu{" "}
+          <h2 className="mb-3 text-sm font-bold">
+            Dokumenty wymagane{" "}
             <span
-              className={`ml-1 rounded-full px-2 py-0.5 text-xs ${
+              className={`ml-1 rounded-full px-2 py-0.5 text-xs font-normal ${
                 checklistOk ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
               }`}
             >
@@ -180,7 +198,7 @@ export default function CaseDetail({
           {checklist.map((c) => (
             <Row key={c.label} label={c.label} present={c.present} strongMissing />
           ))}
-          <h2 className="mb-2 mt-4 text-sm font-medium">Zalecane</h2>
+          <h2 className="mb-2 mt-4 text-sm font-bold">Zalecane</h2>
           {recommended.map((c) => (
             <Row key={c.label} label={c.label} present={c.present} />
           ))}
