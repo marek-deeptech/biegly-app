@@ -28,7 +28,7 @@ export default function Login() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
       <p className="text-xs uppercase tracking-[0.2em] text-inksoft">Analiza akt</p>
-      <h1 className="text-2xl font-semibold tracking-tight">Biegły GPW</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Hochsztapler</h1>
       <p className="mb-6 mt-1 text-sm text-inksoft">Logowanie dla zespołu</p>
 
       {status === "sent" ? (

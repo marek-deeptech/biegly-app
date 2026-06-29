@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Biegły GPW — analiza akt",
+  title: "Hochsztapler — analiza akt",
   description: "Wsparcie biegłego sądowego w analizie manipulacji instrumentami finansowymi na GPW",
 };
 
