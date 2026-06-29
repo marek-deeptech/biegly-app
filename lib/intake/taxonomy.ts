@@ -13,6 +13,7 @@ export const DOC_TYPES: Record<string, DocType> = {
   POSTANOWIENIE: { label: "Postanowienie o powołaniu biegłego", source: "prokuratura", provenance: "wejście" },
   ZAWIADOMIENIE_KNF: { label: "Zawiadomienie o podejrzeniu przestępstwa", source: "UKNF", provenance: "wejście" },
   OPINIA_UKNF: { label: "Opinia biegłego UKNF (teza do weryfikacji)", source: "biegły UKNF", provenance: "wejście" },
+  OPINIA_INNY_BIEGLY: { label: "Opinia / analiza innego biegłego (materiał wejściowy)", source: "inny biegły / organ", provenance: "wejście" },
   ANALIZA_OSINT: { label: "Analiza OSINT / graf powiązań", source: "UKNF", provenance: "wejście" },
   DANE_IP: { label: "Dane logowań / mapowanie IP", source: "UKNF / brokerzy", provenance: "wejście" },
   ZALACZNIK_OSOBOWY: { label: "Załącznik osobowy (dane identyfikacyjne)", source: "prokuratura", provenance: "wejście" },
@@ -36,7 +37,10 @@ export const DOC_TYPES: Record<string, DocType> = {
 export const RULES: { phrases: string[]; code: string }[] = [
   { phrases: ["uwagi"], code: "RECENZJA_UWAGI" },
   { phrases: ["kupis", "odpwiedź uknf", "odpowiedź uknf", "odpowiedz uknf"], code: "OPINIA_UKNF" },
-  { phrases: ["km finał", "km final", "opinia final", "opinia biegłego", "opinia bieglego", "hub.tech km", "hub.tech 2", "wnioski km"], code: "OPINIA_BIEGLEGO" },
+  // Wytwory Krzysztofa Michrowskiego (WYJŚCIE) — tylko z wyraźnym oznaczeniem autorstwa (KM / Michrowski).
+  { phrases: ["km finał", "km final", "hub.tech km", "hub.tech 2", "wnioski km", "michrowski", "k. michrowski"], code: "OPINIA_BIEGLEGO" },
+  // Opinie i analizy INNYCH biegłych otrzymane z prokuratury = materiał WEJŚCIOWY (nie wytwór Michrowskiego).
+  { phrases: ["opinia biegłego", "opinia bieglego", "opinia biegłej", "opinia bieglej", "opinia sądowa", "opinia sadowa", "opinia final", "opinia uzupełniająca", "opinia uzupelniajaca", "ekspertyza", "opinia z zakresu", "analiza biegłego", "analiza bieglego"], code: "OPINIA_INNY_BIEGLY" },
   { phrases: ["opinia_mk", "/poprawione/", "wash trade", "wash-trades", "pump&dump", "pump and dump", "layering", "grup-grup", "obrótwolumen", "obrotwolumen", "analiza_anulowane", "analiza czasu", "kurs_wolumen", "tabele dzienne", "tabele per podmiot", "ekon-fin", "ekon_fin", "espi_ebi_powiązania", "wnioski.docx", "podsumowanie.docx", "sekwencje zleceń", "wykresy", "imo.xlsx", "imo_", "transakcje_2", "załączniki/", "zalaczniki/", "_aktywnosc", "_aktywność", "pomiędzy grupą", "pomiedzy grupa", "wew. grupy", "wew grupy", "wew. podmiot", "wew podmiot", "podział podmiotowy", "podzial podmiotowy"], code: "SUBANALIZA" },
   { phrases: ["postanowienie"], code: "POSTANOWIENIE" },
   { phrases: ["zał. osobowy", "załącznik osobowy", "zalacznik osobowy", "1. załącznik osobowy"], code: "ZALACZNIK_OSOBOWY" },
