@@ -446,6 +446,9 @@ const SUB_LABEL: Record<string, string> = {
   porozumienie: "porozumienie (IP / OSINT)",
   otc: "obrót pozagiełdowy / motyw",
   wnioski: "synteza wniosków",
+  proza_i: "redakcja rozdziału I (model)",
+  proza_iii: "redakcja rozdziału III (model)",
+  proza_v: "redakcja rozdziału V (model)",
 };
 
 // Rozdział opinii z zapisanej subanalizy (zatwierdzona → grounded/ready).

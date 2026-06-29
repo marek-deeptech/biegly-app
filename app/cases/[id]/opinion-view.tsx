@@ -145,6 +145,47 @@ export default function OpinionView({
   const genOtc = (ow = false) => saveGenerated(buildOtcSubanaliza(metrics, documents), ow);
   const genWnioski = (ow = false) => saveGenerated(buildWnioskiSubanaliza(stored), ow);
 
+  // Redakcja rozdziału miękkiego przez model (Claude API). Model redaguje prozę —
+  // liczby i fakty wstrzykiwane są z silnika po stronie serwera.
+  async function redact(chapter: "I" | "III" | "V") {
+    setBusy("redact-" + chapter);
+    setMsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/redact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapter }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setMsg(j.reason || "Błąd redakcji.");
+        setBusy(null);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase.from("subanalyses").upsert(
+        {
+          case_id: caseId,
+          kind: j.meta.kind,
+          chapter_no: j.meta.chapterNo,
+          title: j.meta.title,
+          body_md: j.text,
+          data: { table: null, findings: [], legalRefs: [] },
+          status: "szkic",
+          approved_at: null,
+        },
+        { onConflict: "case_id,kind" },
+      );
+      setBusy(null);
+      if (error) setMsg(migrationHint(error.message));
+      else router.refresh();
+    } catch {
+      setBusy(null);
+      setMsg("Błąd sieci przy redakcji.");
+    }
+  }
+  const hasKind = (k: string) => subanalyses.some((s) => s.kind === k);
+
   async function saveBody(s: SubRow) {
     setBusy(s.id);
     setMsg("");
@@ -221,6 +262,19 @@ export default function OpinionView({
               >
                 {busy === "gen-wnioski" ? "Generuję…" : "Generuj: Wnioski"}
               </button>
+            )}
+            {(["I", "III", "V"] as const).map((ch) =>
+              hasKind(`proza_${ch.toLowerCase()}`) ? null : (
+                <button
+                  key={ch}
+                  onClick={() => redact(ch)}
+                  disabled={busy !== null}
+                  className="border border-ink/60 px-3 py-1.5 text-xs uppercase tracking-wider text-inksoft transition-colors hover:border-ink hover:text-ink disabled:opacity-40"
+                  title="Redakcja rozdziału przez model (Claude API)"
+                >
+                  {busy === "redact-" + ch ? "Redaguję…" : `Proza ${ch} (model)`}
+                </button>
+              ),
             )}
           </div>
         </div>
@@ -307,6 +361,18 @@ export default function OpinionView({
                             : s.kind === "wnioski"
                               ? "Odśwież z subanaliz"
                               : "Odśwież z inwentarza"}
+                        </button>
+                      )}
+                      {s.kind.startsWith("proza_") && (
+                        <button
+                          onClick={() => {
+                            if (confirm("Ponownie zredagować rozdział modelem? Twoje zmiany zostaną utracone."))
+                              redact(s.chapter_no as "I" | "III" | "V");
+                          }}
+                          disabled={busy !== null}
+                          className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
+                        >
+                          Odśwież z modelu
                         </button>
                       )}
                     </>
