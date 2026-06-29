@@ -38,8 +38,17 @@ class handler(BaseHTTPRequestHandler):
             obj_url = f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(storage_path)}"
             _, data = _req("GET", obj_url)
 
-            tx = load_rows(io.BytesIO(data), SHEET_TRANSACTIONS)
-            zo = load_rows(io.BytesIO(data), SHEET_ORDERS)
+            try:
+                tx = load_rows(io.BytesIO(data), SHEET_TRANSACTIONS)
+                zo = load_rows(io.BytesIO(data), SHEET_ORDERS)
+            except KeyError:
+                self._json(400, {
+                    "ok": False,
+                    "error": "Ten plik nie jest głównym plikiem UTP (brak arkuszy "
+                             "'Transakcje' i 'Zlecenia BO'). Wybierz plik typu "
+                             "'Transakcje_i_Zlecenia ... prok.xlsx'.",
+                })
+                return
             rows = compute_all(tx, zo)
 
             _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}",

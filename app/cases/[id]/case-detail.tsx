@@ -119,8 +119,12 @@ export default function CaseDetail({
   const utpDocs = useMemo(
     () =>
       documents
-        .filter((d) => d.doc_type === "DANE_UTP" && d.storage_path)
+        .filter((d) => d.doc_type === "DANE_UTP" && d.storage_path && isMainUtp(d.rel_path))
         .sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0)),
+    [documents],
+  );
+  const otherUtpCount = useMemo(
+    () => documents.filter((d) => d.doc_type === "DANE_UTP" && d.storage_path && !isMainUtp(d.rel_path)).length,
     [documents],
   );
   const activeUtp = selectedUtp || utpDocs[0]?.storage_path || "";
@@ -791,7 +795,9 @@ export default function CaseDetail({
         </div>
         {!activeUtp && (
           <p className="text-xs text-neutral-500">
-            Wgraj plik danych UTP (transakcje i zlecenia), aby policzyć wskaźniki.
+            {otherUtpCount > 0
+              ? "Wgrane pliki UTP to dane źródłowe per-dzień — silnik liczy z głównego pliku łączonego. Wgraj „Transakcje_i_Zlecenia … prok.xlsx”, aby policzyć wskaźniki."
+              : "Wgraj główny plik UTP („Transakcje_i_Zlecenia … prok.xlsx”), aby policzyć wskaźniki."}
           </p>
         )}
         {analyzeMsg && <p className="mb-3 text-sm text-red-600">{analyzeMsg}</p>}
@@ -866,6 +872,13 @@ export default function CaseDetail({
 
 function basename(p: string): string {
   return p.split("/").pop() || p;
+}
+// Główny plik UTP (łączony: arkusze Transakcje + Zlecenia BO), a NIE źródłowe
+// pliki per-dzień ("…zrodlo…", arkusze "Mikro-…"), których silnik nie liczy.
+function isMainUtp(relPath: string): boolean {
+  const b = basename(relPath).toLowerCase();
+  if (b.includes("zrodlo") || b.includes("źródło")) return false;
+  return b.includes("transakcje_i_zlecenia") || (b.includes("transakcje") && b.includes("zlecenia"));
 }
 function statusBadge(prov: string | null | undefined): { cls: string; label: string } {
   if (prov === "wejście") return { cls: "bg-emerald-100 text-emerald-800", label: "wej" };
