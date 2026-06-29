@@ -66,6 +66,7 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
+  const [tab, setTab] = useState<"overview" | "files">("overview");
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
@@ -75,6 +76,17 @@ export default function CaseDetail({
 
   const isSuspect = (d: Doc) => d.provenance === "wyjście" && !d.accepted;
   const suspectCount = documents.filter(isSuspect).length;
+  const suspectIds = documents.filter(isSuspect).map((d) => d.id);
+  const allSuspectSelected = suspectIds.length > 0 && suspectIds.every((id) => selected.has(id));
+
+  function toggleAllSuspect() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSuspectSelected) suspectIds.forEach((id) => next.delete(id));
+      else suspectIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
@@ -288,6 +300,13 @@ export default function CaseDetail({
     router.refresh();
   }
 
+  async function downloadDoc(doc: Doc) {
+    if (!doc.storage_path) return;
+    const supabase = createClient();
+    const { data } = await supabase.storage.from("case-files").createSignedUrl(doc.storage_path, 120);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+  }
+
   async function acceptDoc(doc: Doc) {
     const supabase = createClient();
     await supabase.from("documents").update({ accepted: true }).eq("id", doc.id);
@@ -480,6 +499,24 @@ export default function CaseDetail({
         )}
       </header>
 
+      <div className="mb-6 flex gap-1 border-b border-neutral-200">
+        {(["overview", "files"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
+              tab === t
+                ? "border-neutral-900 font-medium text-neutral-900"
+                : "border-transparent text-neutral-500 hover:text-neutral-800"
+            }`}
+          >
+            {t === "overview" ? "Sprawa" : `Pliki (${documents.length})`}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" && (
+        <>
       <section className="mb-8">
         <ol className="flex flex-wrap gap-2">
           {phases.map((p, i) => (
@@ -585,7 +622,10 @@ export default function CaseDetail({
           </div>
         </div>
       </section>
+        </>
+      )}
 
+      {tab === "files" && (
       <section className="mb-8 rounded-xl border border-neutral-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-b border-neutral-100 p-3">
           <h2 className="text-sm font-bold">Dokumenty ({documents.length})</h2>
@@ -598,10 +638,15 @@ export default function CaseDetail({
           />
         </div>
         {suspectCount > 0 && (
-          <div className="border-b border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            Wykryto {suspectCount}{" "}
-            {suspectCount === 1 ? "pozycję" : "pozycji"} oznaczoną jako wytwór biegłego (wyjście) — na czerwono. Akta to
-            materiał wejściowy; sprawdź, usuń, albo zaakceptuj, jeśli ma tam być.
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <span>
+              Wykryto {suspectCount} {suspectCount === 1 ? "pozycję" : "pozycji"} oznaczoną jako wytwór biegłego
+              (wyjście) — na czerwono. Sprawdź, usuń albo zaakceptuj.
+            </span>
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap font-medium">
+              <input type="checkbox" checked={allSuspectSelected} onChange={toggleAllSuspect} />
+              Zaznacz wszystkie podejrzane
+            </label>
           </div>
         )}
         {selected.size > 0 && (
@@ -678,6 +723,9 @@ export default function CaseDetail({
                     {!d.storage_path && <span className="ml-2 text-amber-600">· nie w magazynie</span>}
                   </div>
                 </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${statusBadge(d.provenance).cls}`}>
+                  {statusBadge(d.provenance).label}
+                </span>
                 <span className="w-14 text-right text-xs text-neutral-400">{fmtSize(d.size_bytes)}</span>
                 {confirmId === d.id ? (
                   <span className="flex shrink-0 gap-2 text-xs">
@@ -701,6 +749,14 @@ export default function CaseDetail({
                     <button onClick={() => setConfirmId(d.id)} className="text-red-600 transition-colors hover:text-red-800">
                       Usuń
                     </button>
+                    {d.storage_path && (
+                      <button
+                        onClick={() => downloadDoc(d)}
+                        className="text-neutral-600 transition-colors hover:text-neutral-900"
+                      >
+                        Pobierz
+                      </button>
+                    )}
                   </span>
                 )}
               </li>
@@ -708,7 +764,9 @@ export default function CaseDetail({
           </ul>
         )}
       </section>
+      )}
 
+      {tab === "overview" && (
       <section className="rounded-xl border border-neutral-200 bg-white p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-bold">Analiza liczbowa (silnik faktów)</h2>
@@ -795,6 +853,7 @@ export default function CaseDetail({
           </>
         )}
       </section>
+      )}
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-lg bg-neutral-900 px-4 py-2 text-sm text-white shadow-lg">
@@ -807,6 +866,11 @@ export default function CaseDetail({
 
 function basename(p: string): string {
   return p.split("/").pop() || p;
+}
+function statusBadge(prov: string | null | undefined): { cls: string; label: string } {
+  if (prov === "wejście") return { cls: "bg-emerald-100 text-emerald-800", label: "wej" };
+  if (prov === "wyjście") return { cls: "bg-red-100 text-red-800", label: "wyj" };
+  return { cls: "bg-neutral-100 text-neutral-500", label: "?" };
 }
 function fmtSize(n: number | null): string {
   if (!n) return "—";
