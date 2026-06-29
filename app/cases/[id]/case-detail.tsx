@@ -62,6 +62,7 @@ export default function CaseDetail({
   const [sigVal, setSigVal] = useState(caseRow.signature ?? "");
   const [confirmDelCase, setConfirmDelCase] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
@@ -129,13 +130,41 @@ export default function CaseDetail({
     return session?.access_token ?? null;
   }
 
+  function relOf(f: File) {
+    return (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+  }
+
   async function uploadFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList);
-    const totalBytes = files.reduce((s, f) => s + f.size, 0) || 1;
+    const all = Array.from(fileList);
+
+    // Pliki już obecne w repozytorium sprawy (po ścieżce + faktycznie w magazynie)
+    // — nie nadpisujemy, sygnalizujemy. Aktualizacja świadoma = przycisk „Podmień".
+    const inStorage = new Map(documents.filter((d) => d.storage_path).map((d) => [d.rel_path, d] as const));
+    const toUpload: File[] = [];
+    const skip: { name: string; reason: string }[] = [];
+    for (const f of all) {
+      const rel = relOf(f);
+      const ex = inStorage.get(rel);
+      if (ex) {
+        skip.push({
+          name: rel,
+          reason: ex.size_bytes === f.size ? "już w repozytorium" : "ta sama nazwa, inna zawartość — użyj „Podmień”",
+        });
+      } else {
+        toUpload.push(f);
+      }
+    }
+    setSkipped(skip);
     setError("");
+    if (toUpload.length === 0) {
+      notify(skip.length ? `${skip.length} plików już w repozytorium` : "Brak plików do wgrania");
+      return;
+    }
+
+    const totalBytes = toUpload.reduce((s, f) => s + f.size, 0) || 1;
     setBusy(true);
-    setUp({ done: 0, total: files.length, pct: 0 });
+    setUp({ done: 0, total: toUpload.length, pct: 0 });
     const supabase = createClient();
     const token = await authToken();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -150,9 +179,9 @@ export default function CaseDetail({
     }> = [];
     let sentBase = 0;
 
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+    for (let i = 0; i < toUpload.length; i++) {
+      const f = toUpload[i];
+      const rel = relOf(f);
       const storagePath = `${caseRow.id}/${rel}`;
       let uploaded = true;
       try {
@@ -164,7 +193,7 @@ export default function CaseDetail({
           path: storagePath,
           file: f,
           onProgress: (s) =>
-            setUp({ done: i, total: files.length, pct: Math.min(100, Math.round(((sentBase + s) / totalBytes) * 100)) }),
+            setUp({ done: i, total: toUpload.length, pct: Math.min(100, Math.round(((sentBase + s) / totalBytes) * 100)) }),
         });
       } catch {
         uploaded = false;
@@ -180,14 +209,14 @@ export default function CaseDetail({
         provenance,
         storage_path: uploaded ? storagePath : null,
       });
-      setUp({ done: i + 1, total: files.length, pct: Math.round((sentBase / totalBytes) * 100) });
+      setUp({ done: i + 1, total: toUpload.length, pct: Math.round((sentBase / totalBytes) * 100) });
     }
 
     const { error: insErr } = await supabase
       .from("documents")
       .upsert(rows, { onConflict: "case_id,rel_path" });
     if (insErr) setError(insErr.message);
-    else notify(`Wgrano ${files.length} plików`);
+    else notify(`Wgrano ${toUpload.length}${skip.length ? ` · ${skip.length} już w repozytorium` : ""}`);
     setBusy(false);
     setUp(null);
     router.refresh();
@@ -414,6 +443,27 @@ export default function CaseDetail({
           </div>
         )}
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+
+        {skipped.length > 0 && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-medium text-amber-800">
+                {skipped.length}{" "}
+                {skipped.length === 1 ? "plik już" : "plików już"} w Repozytorium Dokumentów Sprawy — nie nadpisano
+              </span>
+              <button onClick={() => setSkipped([])} className="text-xs text-amber-700 hover:underline">
+                Ukryj
+              </button>
+            </div>
+            <ul className="max-h-40 overflow-auto text-xs text-amber-800">
+              {skipped.map((s, i) => (
+                <li key={i} className="truncate py-0.5">
+                  · {basename(s.name)} — {s.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="mb-8 grid grid-cols-3 gap-3">
