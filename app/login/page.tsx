@@ -27,8 +27,9 @@ export default function Login() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
-      <h1 className="text-xl font-semibold tracking-tight">Biegły GPW</h1>
-      <p className="mb-6 mt-1 text-sm text-neutral-500">Logowanie dla zespołu</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-inksoft">Analiza akt</p>
+      <h1 className="text-2xl font-semibold tracking-tight">Biegły GPW</h1>
+      <p className="mb-6 mt-1 text-sm text-inksoft">Logowanie dla zespołu</p>
 
       {status === "sent" ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -42,12 +43,12 @@ export default function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="adres e-mail"
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="w-full border border-ink/30 bg-card px-3 py-2 text-sm outline-none focus:border-ink"
           />
           <button
             type="submit"
             disabled={status === "sending"}
-            className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="w-full bg-ink px-3 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {status === "sending" ? "Wysyłam…" : "Wyślij link logujący"}
           </button>

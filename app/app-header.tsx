@@ -15,19 +15,17 @@ export default function AppHeader({ email }: { email: string }) {
   }
 
   return (
-    <div className="border-b border-neutral-200 bg-white">
-      <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
-        <Link
-          href="/"
-          className="rounded text-sm font-semibold tracking-tight transition-colors hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
-        >
-          Biegły GPW
+    <div className="border-b border-ink/20 bg-paper">
+      <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
+        <Link href="/" className="flex items-baseline gap-3 focus-visible:outline-none">
+          <span className="text-lg font-semibold tracking-tight">Biegły GPW</span>
+          <span className="hidden text-[11px] uppercase tracking-[0.2em] text-inksoft sm:inline">Analiza akt</span>
         </Link>
-        <div className="flex items-center gap-3 text-sm text-neutral-600">
-          <span className="hidden sm:inline">{email}</span>
+        <div className="flex items-center gap-4">
+          <span className="hidden text-sm text-inksoft sm:inline">{email}</span>
           <button
             onClick={signOut}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400"
+            className="border border-clay px-3 py-1.5 text-xs uppercase tracking-wider text-clay transition-colors hover:bg-clay hover:text-paper focus-visible:outline-none"
           >
             Wyloguj
           </button>

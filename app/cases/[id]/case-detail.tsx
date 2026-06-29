@@ -8,6 +8,7 @@ import { classify } from "@/lib/intake/classify";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/upload";
+import Zenek from "./zenek";
 
 type CaseRow = { id: string; name: string; signature: string | null };
 type Doc = {
@@ -30,11 +31,11 @@ type Metric = {
   computed_at?: string | null;
 };
 
-const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400";
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30";
 const BTN_PRIMARY =
-  `rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 disabled:opacity-40 ${FOCUS}`;
+  `inline-flex items-center justify-center gap-1.5 bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40 ${FOCUS}`;
 const BTN_SECONDARY =
-  `rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-100 disabled:opacity-40 ${FOCUS}`;
+  `inline-flex items-center justify-center gap-1.5 border border-ink px-3 py-2 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40 ${FOCUS}`;
 
 export default function CaseDetail({
   caseRow,
@@ -432,7 +433,7 @@ export default function CaseDetail({
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
       <div className="mb-3 flex items-center justify-between">
-        <Link href="/" className="text-sm text-neutral-500 transition-colors hover:text-neutral-900">
+        <Link href="/" className="text-sm text-inksoft transition-colors hover:text-ink">
           ← Sprawy
         </Link>
         {!editingName && !confirmDelCase && (
@@ -452,7 +453,7 @@ export default function CaseDetail({
             <button onClick={deleteCase} className="font-medium text-red-700 hover:underline">
               Usuń sprawę
             </button>
-            <button onClick={() => setConfirmDelCase(false)} className="text-neutral-500 hover:underline">
+            <button onClick={() => setConfirmDelCase(false)} className="text-inksoft hover:underline">
               Anuluj
             </button>
           </span>
@@ -465,13 +466,13 @@ export default function CaseDetail({
             <input
               value={nameVal}
               onChange={(e) => setNameVal(e.target.value)}
-              className="rounded-lg border border-neutral-300 px-3 py-2 text-lg outline-none focus:border-neutral-500"
+              className="rounded-lg border border-ink/30 px-3 py-2 text-lg outline-none focus:border-neutral-500"
             />
             <input
               value={sigVal}
               onChange={(e) => setSigVal(e.target.value)}
               placeholder="sygnatura"
-              className="w-56 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+              className="w-56 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500"
             />
             <button onClick={saveName} className={BTN_PRIMARY}>
               Zapisz
@@ -491,11 +492,11 @@ export default function CaseDetail({
           <div className="flex items-center gap-3">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">{caseRow.name}</h1>
-              {caseRow.signature && <p className="mt-1 text-sm text-neutral-500">{caseRow.signature}</p>}
+              {caseRow.signature && <p className="mt-1 text-sm text-inksoft">{caseRow.signature}</p>}
             </div>
             <button
               onClick={() => setEditingName(true)}
-              className="text-xs text-neutral-500 transition-colors hover:text-neutral-900"
+              className="text-xs text-inksoft transition-colors hover:text-ink"
             >
               Zmień nazwę
             </button>
@@ -503,15 +504,15 @@ export default function CaseDetail({
         )}
       </header>
 
-      <div className="mb-6 flex gap-1 border-b border-neutral-200">
+      <div className="mb-6 flex gap-1 border-b border-ink/20">
         {(["overview", "files"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
+            className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
               tab === t
-                ? "border-neutral-900 font-medium text-neutral-900"
-                : "border-transparent text-neutral-500 hover:text-neutral-800"
+                ? "border-ink font-semibold text-ink"
+                : "border-transparent text-inksoft hover:text-ink"
             }`}
           >
             {t === "overview" ? "Sprawa" : `Pliki (${documents.length})`}
@@ -529,7 +530,7 @@ export default function CaseDetail({
               className={`rounded-lg border px-3 py-2 text-xs ${
                 p.done
                   ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-neutral-200 bg-white text-neutral-400"
+                  : "border-ink/20 bg-card text-inksoft"
               }`}
             >
               {i + 1}. {p.t}
@@ -539,9 +540,9 @@ export default function CaseDetail({
         </ol>
       </section>
 
-      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-bold">Wgraj akta sprawy</h2>
-        <p className="mb-3 text-xs text-neutral-500">
+      <section className="mb-8 border border-ink/60 bg-card p-4">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">Wgraj akta sprawy</h2>
+        <p className="mb-3 text-xs text-inksoft">
           Wskaż cały katalog albo dograj pojedyncze pliki. Ponowne wgranie tego samego pliku
           aktualizuje wpis — bez duplikatów.
         </p>
@@ -566,14 +567,14 @@ export default function CaseDetail({
 
         {up && (
           <div className="mt-4">
-            <div className="mb-1 flex justify-between text-xs text-neutral-600">
+            <div className="mb-1 flex justify-between text-xs text-ink/80">
               <span>
                 Wgrywanie… {up.done}/{up.total} plików
               </span>
-              <span className="font-medium text-neutral-900">{up.pct}%</span>
+              <span className="font-medium text-ink">{up.pct}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-neutral-100">
-              <div className="h-full bg-emerald-600 transition-all" style={{ width: `${up.pct}%` }} />
+            <div className="h-2 overflow-hidden rounded-full bg-ink/10">
+              <div className="h-full bg-ink transition-all" style={{ width: `${up.pct}%` }} />
             </div>
           </div>
         )}
@@ -607,8 +608,8 @@ export default function CaseDetail({
         <Stat n={stats.wyj} label="wyjście (biegły)" color="text-amber-700" />
       </section>
 
-      <section className="mb-8 rounded-xl border border-neutral-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-bold">
+      <section className="mb-8 border border-ink/60 bg-card p-4">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em]">
           Dokumenty wymagane{" "}
           <span
             className={`ml-1 rounded-full px-2 py-0.5 text-xs font-normal ${
@@ -621,7 +622,7 @@ export default function CaseDetail({
         <div className="grid gap-x-6 sm:grid-cols-2">
           <div>{checklist.map((c) => <Row key={c.label} label={c.label} present={c.present} strongMissing />)}</div>
           <div>
-            <p className="mb-1 text-xs font-medium text-neutral-500">Zalecane</p>
+            <p className="mb-1 text-xs font-medium text-inksoft">Zalecane</p>
             {recommended.map((c) => <Row key={c.label} label={c.label} present={c.present} />)}
           </div>
         </div>
@@ -630,15 +631,15 @@ export default function CaseDetail({
       )}
 
       {tab === "files" && (
-      <section className="mb-8 rounded-xl border border-neutral-200 bg-white">
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-100 p-3">
-          <h2 className="text-sm font-bold">Dokumenty ({documents.length})</h2>
+      <section className="mb-8 border border-ink/60 bg-card">
+        <div className="flex items-center justify-between gap-3 border-b border-line p-3">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Dokumenty ({documents.length})</h2>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="szukaj w nazwach…"
             aria-label="Szukaj w nazwach plików"
-            className="w-48 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+            className="w-48 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
         </div>
         {suspectCount > 0 && (
@@ -654,7 +655,7 @@ export default function CaseDetail({
           </div>
         )}
         {selected.size > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 border-b border-ink/20 bg-card px-3 py-2 text-sm">
             <span className="font-medium">Zaznaczono {selected.size}</span>
             <button onClick={() => bulkReplaceRef.current?.click()} disabled={busy} className={BTN_SECONDARY}>
               Podmień
@@ -682,7 +683,7 @@ export default function CaseDetail({
                 Usuń
               </button>
             )}
-            <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-neutral-500 hover:underline">
+            <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-inksoft hover:underline">
               Wyczyść zaznaczenie
             </button>
             <input
@@ -695,7 +696,7 @@ export default function CaseDetail({
           </div>
         )}
         {visibleDocs.length === 0 ? (
-          <p className="p-6 text-center text-sm text-neutral-400">
+          <p className="p-6 text-center text-sm text-inksoft">
             {documents.length === 0 ? "Brak dokumentów — wgraj akta powyżej." : "Brak wyników wyszukiwania."}
           </p>
         ) : (
@@ -703,7 +704,7 @@ export default function CaseDetail({
             {visibleDocs.map((d) => (
               <li
                 key={d.id}
-                className={`flex items-center gap-3 border-b border-neutral-100 px-3 py-2 last:border-0 ${
+                className={`flex items-center gap-3 border-b border-line px-3 py-2 last:border-0 ${
                   isSuspect(d) ? "bg-red-50" : ""
                 }`}
               >
@@ -716,7 +717,7 @@ export default function CaseDetail({
                 />
                 <div className="min-w-0 flex-1">
                   <div className={`truncate text-sm ${isSuspect(d) ? "text-red-700" : ""}`}>{basename(d.rel_path)}</div>
-                  <div className="truncate text-xs text-neutral-400">
+                  <div className="truncate text-xs text-inksoft">
                     {DOC_TYPES[d.doc_type]?.label ?? d.doc_type}
                     {isSuspect(d) && (
                       <span className="ml-2 font-medium text-red-600">· wytwór biegłego — czy na pewno do akt?</span>
@@ -730,19 +731,19 @@ export default function CaseDetail({
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${statusBadge(d.provenance).cls}`}>
                   {statusBadge(d.provenance).label}
                 </span>
-                <span className="w-14 text-right text-xs text-neutral-400">{fmtSize(d.size_bytes)}</span>
+                <span className="w-14 text-right text-xs text-inksoft">{fmtSize(d.size_bytes)}</span>
                 {confirmId === d.id ? (
                   <span className="flex shrink-0 gap-2 text-xs">
                     <button onClick={() => deleteDoc(d)} className="font-medium text-red-600 hover:underline">
                       Tak, usuń
                     </button>
-                    <button onClick={() => setConfirmId(null)} className="text-neutral-500 hover:underline">
+                    <button onClick={() => setConfirmId(null)} className="text-inksoft hover:underline">
                       Anuluj
                     </button>
                   </span>
                 ) : (
                   <span className="flex shrink-0 gap-3 text-xs">
-                    <button onClick={() => startReplace(d)} className="text-neutral-600 transition-colors hover:text-neutral-900">
+                    <button onClick={() => startReplace(d)} className="text-ink/80 transition-colors hover:text-ink">
                       Podmień
                     </button>
                     {isSuspect(d) && (
@@ -756,7 +757,7 @@ export default function CaseDetail({
                     {d.storage_path && (
                       <button
                         onClick={() => downloadDoc(d)}
-                        className="text-neutral-600 transition-colors hover:text-neutral-900"
+                        className="text-ink/80 transition-colors hover:text-ink"
                       >
                         Pobierz
                       </button>
@@ -771,15 +772,15 @@ export default function CaseDetail({
       )}
 
       {tab === "overview" && (
-      <section className="rounded-xl border border-neutral-200 bg-white p-4">
+      <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-bold">Analiza liczbowa (silnik faktów)</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa (silnik faktów)</h2>
           <div className="flex items-center gap-2">
             {utpDocs.length > 0 && (
               <select
                 value={activeUtp}
                 onChange={(e) => setSelectedUtp(e.target.value)}
-                className="max-w-[220px] rounded-lg border border-neutral-300 px-2 py-1.5 text-xs"
+                className="max-w-[220px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
               >
                 {utpDocs.map((d) => (
                   <option key={d.id} value={d.storage_path ?? ""}>
@@ -789,12 +790,12 @@ export default function CaseDetail({
               </select>
             )}
             <button onClick={runAnalysis} disabled={!activeUtp || analyzing} className={BTN_PRIMARY}>
-              {analyzing ? "Liczę…" : "Policz wskaźniki"}
+              {analyzing ? "Liczę…" : metrics.length > 0 ? "Przelicz wskaźniki" : "Policz wskaźniki"}
             </button>
           </div>
         </div>
         {!activeUtp && (
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-inksoft">
             {otherUtpCount > 0
               ? "Wgrane pliki UTP to dane źródłowe per-dzień — silnik liczy z głównego pliku łączonego. Wgraj „Transakcje_i_Zlecenia … prok.xlsx”, aby policzyć wskaźniki."
               : "Wgraj główny plik UTP („Transakcje_i_Zlecenia … prok.xlsx”), aby policzyć wskaźniki."}
@@ -805,7 +806,7 @@ export default function CaseDetail({
         {metrics.length > 0 && analysis && (
           <>
             {analysis.computedAt && (
-              <p className="mb-3 text-xs text-neutral-500">
+              <p className="mb-3 text-xs text-inksoft">
                 Policzono: {new Date(analysis.computedAt).toLocaleString("pl-PL")}
               </p>
             )}
@@ -826,7 +827,7 @@ export default function CaseDetail({
               {metrics
                 .filter((m) => !m.session_day)
                 .map((m) => (
-                  <li key={m.key} className="flex justify-between border-b border-neutral-100 py-1.5 text-sm">
+                  <li key={m.key} className="flex justify-between border-b border-line py-1.5 text-sm">
                     <span>{m.label}</span>
                     <span className="font-medium tabular-nums">{fmt(m)}</span>
                   </li>
@@ -835,7 +836,7 @@ export default function CaseDetail({
             {metrics.some((m) => m.session_day) && (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-neutral-500">
+                  <tr className="text-xs text-inksoft">
                     <th className="py-1 text-left">Sesja</th>
                     <th className="py-1 text-right">Wash-trades</th>
                     <th className="py-1 text-right">Anulacje kupna</th>
@@ -846,7 +847,7 @@ export default function CaseDetail({
                     const wash = metrics.find((m) => m.session_day === day && m.key.startsWith("wash_"));
                     const cancel = metrics.find((m) => m.session_day === day && m.key.startsWith("cancel_"));
                     return (
-                      <tr key={day} className="border-b border-neutral-100 last:border-0">
+                      <tr key={day} className="border-b border-line last:border-0">
                         <td className="py-1.5">{day}</td>
                         <td className="py-1.5 text-right tabular-nums">{wash ? fmt(wash) : "—"}</td>
                         <td className="py-1.5 text-right tabular-nums">{cancel ? fmt(cancel) : "—"}</td>
@@ -862,10 +863,12 @@ export default function CaseDetail({
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-lg bg-neutral-900 px-4 py-2 text-sm text-white shadow-lg">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-lg bg-ink px-4 py-2 text-sm text-paper shadow-lg">
           {toast}
         </div>
       )}
+
+      <Zenek documents={documents} checklist={checklist} />
     </main>
   );
 }
@@ -883,7 +886,7 @@ function isMainUtp(relPath: string): boolean {
 function statusBadge(prov: string | null | undefined): { cls: string; label: string } {
   if (prov === "wejście") return { cls: "bg-emerald-100 text-emerald-800", label: "wej" };
   if (prov === "wyjście") return { cls: "bg-red-100 text-red-800", label: "wyj" };
-  return { cls: "bg-neutral-100 text-neutral-500", label: "?" };
+  return { cls: "bg-ink/10 text-inksoft", label: "?" };
 }
 function fmtSize(n: number | null): string {
   if (!n) return "—";
@@ -900,26 +903,26 @@ function fmt(m: Metric): string {
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded-lg bg-neutral-50 px-4 py-3">
-      <div className="text-xs text-neutral-500">{label}</div>
+    <div className="rounded-lg bg-card px-4 py-3">
+      <div className="text-xs text-inksoft">{label}</div>
       <div className="text-xl font-semibold tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-neutral-400">{sub}</div>}
+      {sub && <div className="text-xs text-inksoft">{sub}</div>}
     </div>
   );
 }
 
 function Stat({ n, label, color = "" }: { n: number; label: string; color?: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+    <div className="border border-ink/60 bg-card px-4 py-3">
       <div className={`text-2xl font-semibold ${color}`}>{n}</div>
-      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="text-xs text-inksoft">{label}</div>
     </div>
   );
 }
 
 function Row({ label, present, strongMissing = false }: { label: string; present: boolean; strongMissing?: boolean }) {
   return (
-    <div className="flex items-center justify-between border-b border-neutral-100 py-1.5 last:border-0">
+    <div className="flex items-center justify-between border-b border-line py-1.5 last:border-0">
       <span className="text-sm">{label}</span>
       <span
         className={`rounded-full px-2 py-0.5 text-xs ${
@@ -927,7 +930,7 @@ function Row({ label, present, strongMissing = false }: { label: string; present
             ? "bg-emerald-100 text-emerald-800"
             : strongMissing
               ? "bg-red-100 text-red-800"
-              : "bg-neutral-100 text-neutral-500"
+              : "bg-ink/10 text-inksoft"
         }`}
       >
         {present ? "obecny" : "brak"}
