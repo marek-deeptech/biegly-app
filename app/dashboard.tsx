@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Case = {
@@ -87,19 +88,21 @@ export default function Dashboard({
         ) : (
           <ul className="space-y-2">
             {cases.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3"
-              >
-                <span>
-                  <span className="text-sm font-medium">{c.name}</span>
-                  {c.signature && (
-                    <span className="ml-2 text-xs text-neutral-500">{c.signature}</span>
-                  )}
-                </span>
-                <span className="text-xs text-neutral-400">
-                  {new Date(c.created_at).toLocaleDateString("pl-PL")}
-                </span>
+              <li key={c.id}>
+                <Link
+                  href={`/cases/${c.id}`}
+                  className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3 hover:border-neutral-400"
+                >
+                  <span>
+                    <span className="text-sm font-medium">{c.name}</span>
+                    {c.signature && (
+                      <span className="ml-2 text-xs text-neutral-500">{c.signature}</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {new Date(c.created_at).toLocaleDateString("pl-PL")}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
