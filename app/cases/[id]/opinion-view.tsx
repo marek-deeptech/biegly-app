@@ -5,18 +5,17 @@ import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import {
-  buildEkofinSubanaliza,
+  buildIVChapter,
   buildOpinion,
-  buildOtcSubanaliza,
-  buildPorozumienieSubanaliza,
-  buildQuantitativeSubanaliza,
   buildWnioskiSubanaliza,
   type Chapter,
   type Conf,
   type Para,
+  type QuoteDyn,
   type StoredSub,
   type SubResult,
 } from "@/lib/opinion/build";
+import { casePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 
 type Metric = {
@@ -43,10 +42,18 @@ type SubRow = {
 };
 
 const KIND_LABEL: Record<string, string> = {
-  ilosciowa: "Analiza ilościowa (silnik faktów)",
   ekofin: "Analiza ekonomiczno-finansowa",
-  porozumienie: "Porozumienie (IP / OSINT)",
-  otc: "Obrót pozagiełdowy / motyw",
+  espi: "Raporty bieżące ESPI/EBI",
+  aktywnosc: "Aktywność podmiotów z Grupy",
+  relacje: "Relacje / porozumienie (IP, OSINT)",
+  wash: "Wash trades",
+  imo: "Improper matched orders",
+  layering: "Layering & spoofing",
+  pumpdump: "Pump and dump",
+  wnioski: "Wnioski (synteza)",
+  proza_i: "Rozdział I (model)",
+  proza_iii: "Rozdział III — ujęcie teoretyczne (model)",
+  proza_v: "Rozdział V (model)",
 };
 
 const STATUS: Record<Chapter["status"], { label: string; cls: string }> = {
@@ -87,11 +94,9 @@ export default function OpinionView({
   const ready = opinion.chapters.filter((c) => c.status === "ready").length;
   const review = useMemo(() => reviewOpinion(opinion, metrics, stored), [opinion, metrics, stored]);
   const revIssues = review.filter((r) => r.severity !== "OK").length;
-  const hasQuant = subanalyses.some((s) => s.kind === "ilosciowa");
-  const hasEkofin = subanalyses.some((s) => s.kind === "ekofin");
-  const hasPoroz = subanalyses.some((s) => s.kind === "porozumienie");
-  const hasOtc = subanalyses.some((s) => s.kind === "otc");
-  const hasWnioski = subanalyses.some((s) => s.kind === "wnioski");
+  const plan = useMemo(() => casePlan(caseRow.name), [caseRow.name]);
+  const generated = useMemo(() => new Set(subanalyses.map((s) => s.kind)), [subanalyses]);
+  const hasWnioski = generated.has("wnioski");
   const canWnioski = subanalyses.some((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"));
   const draftFor = (s: SubRow) => drafts[s.id] ?? s.body_md;
 
@@ -124,28 +129,25 @@ export default function OpinionView({
       router.refresh();
     }
   }
-  const genQuant = (ow = false) => saveGenerated(buildQuantitativeSubanaliza(metrics), ow);
-
-  async function genEkofin(ow = false) {
-    // Policz dynamikę kursu z pliku notowań (NOTOWANIA_REF) w oknie analizy.
-    let quotes = null;
+  // Dynamika kursu z pliku notowań (NOTOWANIA_REF) w oknie analizy — dla eko-fin i pump&dump.
+  async function fetchQuotes(): Promise<QuoteDyn | null> {
     const nf = pickNotowania(documents);
-    if (nf?.storage_path) {
-      const days = [...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day))].sort();
-      const win = days.length ? `&from=${days[0]}&to=${days[days.length - 1]}` : "";
-      try {
-        const r = await fetch(`/cases/${caseId}/quotes?path=${encodeURIComponent(nf.storage_path)}${win}`);
-        const j = await r.json();
-        if (j.ok) quotes = j.dynamics;
-      } catch {
-        /* brak notowań — sekcja zostanie z [do uzupełnienia] */
-      }
+    if (!nf?.storage_path) return null;
+    const days = [...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day))].sort();
+    const win = days.length ? `&from=${days[0]}&to=${days[days.length - 1]}` : "";
+    try {
+      const r = await fetch(`/cases/${caseId}/quotes?path=${encodeURIComponent(nf.storage_path)}${win}`);
+      const j = await r.json();
+      return j.ok ? (j.dynamics as QuoteDyn) : null;
+    } catch {
+      return null;
     }
-    await saveGenerated(buildEkofinSubanaliza(metrics, documents, quotes), ow);
   }
-  const genPoroz = (ow = false) => saveGenerated(buildPorozumienieSubanaliza(metrics, documents), ow);
-  const genOtc = (ow = false) => saveGenerated(buildOtcSubanaliza(metrics, documents), ow);
-  const genWnioski = (ow = false) => saveGenerated(buildWnioskiSubanaliza(stored), ow);
+  async function genIV(kind: IVKind, ow = false) {
+    const quotes = kind === "ekofin" || kind === "pumpdump" ? await fetchQuotes() : null;
+    await saveGenerated(buildIVChapter(kind, caseRow.name, metrics, documents, quotes), ow);
+  }
+  const genWnioski = (ow = false) => saveGenerated(buildWnioskiSubanaliza(caseRow.name, metrics, stored), ow);
 
   // Redakcja rozdziału miękkiego przez model (Claude API). Model redaguje prozę —
   // liczby i fakty wstrzykiwane są z silnika po stronie serwera.
@@ -240,41 +242,21 @@ export default function OpinionView({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Subanalizy (warsztat)</h2>
           <div className="flex flex-wrap gap-2">
-            {!hasQuant && (
-              <button
-                onClick={() => genQuant(false)}
-                disabled={busy !== null || metrics.length === 0}
-                className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
-              >
-                {busy === "gen-ilosciowa" ? "Generuję…" : "Generuj: ilościowa"}
-              </button>
-            )}
-            {!hasEkofin && (
-              <button
-                onClick={() => genEkofin(false)}
-                disabled={busy !== null}
-                className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
-              >
-                {busy === "gen-ekofin" ? "Generuję…" : "Generuj: eko-fin"}
-              </button>
-            )}
-            {!hasPoroz && (
-              <button
-                onClick={() => genPoroz(false)}
-                disabled={busy !== null}
-                className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
-              >
-                {busy === "gen-porozumienie" ? "Generuję…" : "Generuj: porozumienie"}
-              </button>
-            )}
-            {!hasOtc && (
-              <button
-                onClick={() => genOtc(false)}
-                disabled={busy !== null}
-                className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
-              >
-                {busy === "gen-otc" ? "Generuję…" : "Generuj: motyw/OTC"}
-              </button>
+            {plan.map((p) =>
+              generated.has(p.kind) ? null : (
+                <button
+                  key={p.kind}
+                  onClick={() => genIV(p.kind, false)}
+                  disabled={
+                    busy !== null ||
+                    (["aktywnosc", "wash", "layering"].includes(p.kind) && metrics.length === 0)
+                  }
+                  className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                  title={KIND_LABEL[p.kind] ?? p.title}
+                >
+                  {busy === "gen-" + p.kind ? "Generuję…" : `Generuj: ${p.no}`}
+                </button>
+              ),
             )}
             {!hasWnioski && canWnioski && (
               <button
@@ -362,28 +344,17 @@ export default function OpinionView({
                       >
                         Zatwierdź
                       </button>
-                      {["ilosciowa", "ekofin", "porozumienie", "otc", "wnioski"].includes(s.kind) && (
+                      {["ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump", "wnioski"].includes(s.kind) && (
                         <button
                           onClick={() => {
-                            if (confirm("Nadpisać treść świeżym wynikiem z danych? Twoje zmiany w tej subanalizie zostaną utracone."))
-                              s.kind === "ilosciowa"
-                                ? genQuant(true)
-                                : s.kind === "ekofin"
-                                  ? genEkofin(true)
-                                  : s.kind === "porozumienie"
-                                    ? genPoroz(true)
-                                    : s.kind === "otc"
-                                      ? genOtc(true)
-                                      : genWnioski(true);
+                            if (!confirm("Nadpisać treść świeżym wynikiem z danych? Twoje zmiany w tej subanalizie zostaną utracone.")) return;
+                            if (s.kind === "wnioski") genWnioski(true);
+                            else genIV(s.kind as IVKind, true);
                           }}
                           disabled={busy !== null}
                           className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
                         >
-                          {s.kind === "ilosciowa"
-                            ? "Odśwież z silnika"
-                            : s.kind === "wnioski"
-                              ? "Odśwież z subanaliz"
-                              : "Odśwież z inwentarza"}
+                          {s.kind === "wnioski" ? "Odśwież z subanaliz" : "Odśwież z danych"}
                         </button>
                       )}
                       {s.kind.startsWith("proza_") && (

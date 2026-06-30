@@ -6,8 +6,8 @@
 export type RedactChapter = "I" | "III" | "V";
 
 export const REDACT_META: Record<RedactChapter, { kind: string; chapterNo: string; title: string }> = {
-  I: { kind: "proza_i", chapterNo: "I", title: "Przedmiot opinii i podstawa prawna" },
-  III: { kind: "proza_iii", chapterNo: "III", title: "Wstęp teoretyczny — techniki manipulacji" },
+  I: { kind: "proza_i", chapterNo: "I", title: "Przedmiot i podstawa prawna opinii" },
+  III: { kind: "proza_iii", chapterNo: "III", title: "Wstęp — ujęcie teoretyczne" },
   V: { kind: "proza_v", chapterNo: "V", title: "Podsumowanie" },
 };
 
