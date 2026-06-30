@@ -22,19 +22,24 @@ def norm_acct(value) -> str:
     return str(value).strip().lstrip("0")
 
 
-def canonical_group(owner: str | None) -> str | None:
-    """Zwraca fragment-kanon podmiotu z Grupy albo None, jeśli spoza Grupy."""
+def canonical_group(owner: str | None, fragments: list[str] | None = None) -> str | None:
+    """Zwraca fragment-kanon podmiotu z Grupy albo None, jeśli spoza Grupy.
+
+    `fragments` = definicja Grupy danej sprawy (per-sprawa). Gdy None — domyślnie
+    GROUP_FRAGMENTS z settings (zachowanie wsteczne dla HubTech).
+    """
     if not owner:
         return None
+    frags = GROUP_FRAGMENTS if fragments is None else fragments
     low = owner.lower()
-    for fragment in GROUP_FRAGMENTS:
+    for fragment in frags:
         if fragment in low:
             return fragment
     return None
 
 
-def is_group(owner: str | None) -> bool:
-    return canonical_group(owner) is not None
+def is_group(owner: str | None, fragments: list[str] | None = None) -> bool:
+    return canonical_group(owner, fragments) is not None
 
 
 def build_account_owner_map(transactions: list[dict]) -> dict[tuple[str, str], str]:

@@ -25,7 +25,7 @@ def session_totals(transactions: list[dict]) -> SessionTotals:
     return SessionTotals(len(transactions), value, volume)
 
 
-def wash_trade_share(transactions: list[dict], day: str) -> dict:
+def wash_trade_share(transactions: list[dict], day: str, group_fragments: list[str] | None = None) -> dict:
     """Udział wolumenu wewnątrzgrupowego (wash-trades) w wolumenie sesji danego dnia.
 
     Transakcja jest wewnątrzgrupowa, gdy obie strony należą do Grupy
@@ -38,26 +38,26 @@ def wash_trade_share(transactions: list[dict], day: str) -> dict:
             continue
         vol = r.get("WOLUMEN") or 0
         session_vol += vol
-        if is_group(r.get("ACCTOWNR_POPRAWIONY_B")) and is_group(r.get("ACCTOWNR_POPRAWIONY_S")):
+        if is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments) and is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments):
             intra_vol += vol
     share = intra_vol / session_vol if session_vol else 0.0
     return {"session_volume": session_vol, "intra_group_volume": intra_vol, "share": share}
 
 
-def group_turnover_share(transactions: list[dict]) -> dict:
+def group_turnover_share(transactions: list[dict], group_fragments: list[str] | None = None) -> dict:
     """Wartość obrotu, w którym co najmniej jedną stroną jest podmiot z Grupy."""
     total_value = 0.0
     group_value = 0.0
     for r in transactions:
         val = r.get("WARTOSC_TR") or 0
         total_value += val
-        if is_group(r.get("ACCTOWNR_POPRAWIONY_B")) or is_group(r.get("ACCTOWNR_POPRAWIONY_S")):
+        if is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments) or is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments):
             group_value += val
     share = group_value / total_value if total_value else 0.0
     return {"total_value": total_value, "group_value": group_value, "share": share}
 
 
-def entity_sell(transactions: list[dict], fragment: str) -> dict:
+def entity_sell(transactions: list[dict], fragment: str, group_fragments: list[str] | None = None) -> dict:
     """Wolumen i udział wartościowy sprzedaży jednego podmiotu z Grupy."""
     sell_volume = 0.0
     sell_value = 0.0
@@ -65,14 +65,14 @@ def entity_sell(transactions: list[dict], fragment: str) -> dict:
     for r in transactions:
         val = r.get("WARTOSC_TR") or 0
         total_sell_value += val
-        if canonical_group(r.get("ACCTOWNR_POPRAWIONY_S")) == fragment:
+        if canonical_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments) == fragment:
             sell_volume += r.get("WOLUMEN") or 0
             sell_value += val
     share = sell_value / total_sell_value if total_sell_value else 0.0
     return {"sell_volume": sell_volume, "sell_value_share": share}
 
 
-def cancelled_buy_share(orders: list[dict], owner_map: dict, day: str) -> dict:
+def cancelled_buy_share(orders: list[dict], owner_map: dict, day: str, group_fragments: list[str] | None = None) -> dict:
     """Udział anulowanego wolumenu w zadeklarowanym wolumenie kupna Grupy danego dnia.
 
     "Anulowany" = część zadeklarowana, która nie weszła do realizacji,
@@ -87,7 +87,7 @@ def cancelled_buy_share(orders: list[dict], owner_map: dict, day: str) -> dict:
         if r.get("K/S") != "K":
             continue
         owner = owner_map.get((norm_acct(r.get("Biuro")), norm_acct(r.get("Konto"))))
-        if not is_group(owner):
+        if not is_group(owner, group_fragments):
             continue
         vol = r.get("Wolumen") or 0
         realised = r.get("Wolumen zreal.") or 0
