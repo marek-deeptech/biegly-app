@@ -5,6 +5,7 @@ te same dane wejściowe dają te same liczby co do sztuki/grosza.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 
 from .identity import canonical_group, is_group, norm_acct
@@ -95,3 +96,83 @@ def cancelled_buy_share(orders: list[dict], owner_map: dict, day: str, group_fra
         cancelled += vol - realised
     share = cancelled / declared if declared else 0.0
     return {"declared_buy_volume": declared, "cancelled_volume": cancelled, "share": share}
+
+
+def per_entity_breakdown(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
+    """Tabela per podmiot z Grupy: wolumen/wartość kupna i sprzedaży oraz udziały.
+
+    Uogólnienie `entity_sell` na wszystkie podmioty Grupy naraz — odtwarza
+    „Tabele per podmiot" z opinii. Udziały liczone względem całkowitej wartości
+    obrotu (każda transakcja ma jedną stronę kupna i jedną sprzedaży, więc suma
+    wartości po stronie kupna = suma po stronie sprzedaży = obrót ogółem).
+    """
+    total_value = 0.0
+    agg: dict[str, dict] = defaultdict(
+        lambda: {"sell_volume": 0.0, "sell_value": 0.0, "buy_volume": 0.0, "buy_value": 0.0}
+    )
+    for r in transactions:
+        val = r.get("WARTOSC_TR") or 0
+        vol = r.get("WOLUMEN") or 0
+        total_value += val
+        s = canonical_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if s:
+            agg[s]["sell_volume"] += vol
+            agg[s]["sell_value"] += val
+        b = canonical_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+        if b:
+            agg[b]["buy_volume"] += vol
+            agg[b]["buy_value"] += val
+    out: list[dict] = []
+    for ent, a in agg.items():
+        out.append(
+            {
+                "entity": ent,
+                "sell_volume": a["sell_volume"],
+                "sell_value": a["sell_value"],
+                "sell_value_share": a["sell_value"] / total_value if total_value else 0.0,
+                "buy_volume": a["buy_volume"],
+                "buy_value": a["buy_value"],
+                "buy_value_share": a["buy_value"] / total_value if total_value else 0.0,
+            }
+        )
+    out.sort(key=lambda x: -x["sell_value"])
+    return out
+
+
+def per_session_layering(
+    orders: list[dict], owner_map: dict, group_fragments: list[str] | None = None
+) -> list[dict]:
+    """Layering & spoofing per (sesja, podmiot z Grupy): zadeklarowany wolumen kupna,
+    anulowany wolumen i udział anulacji — źródło tabel per sesja (Zał. aktywności).
+
+    Suma `cancelled` po podmiotach dla danego dnia = `cancelled_buy_share` tego dnia.
+    """
+    agg: dict[tuple, dict] = defaultdict(lambda: {"declared": 0.0, "cancelled": 0.0, "orders": 0})
+    for r in orders:
+        if r.get("K/S") != "K":
+            continue
+        owner = owner_map.get((norm_acct(r.get("Biuro")), norm_acct(r.get("Konto"))))
+        ent = canonical_group(owner, group_fragments)
+        if not ent:
+            continue
+        day = session_date(r.get("Data"))
+        vol = r.get("Wolumen") or 0
+        realised = r.get("Wolumen zreal.") or 0
+        a = agg[(day, ent)]
+        a["declared"] += vol
+        a["cancelled"] += vol - realised
+        a["orders"] += 1
+    out: list[dict] = []
+    for (day, ent), a in agg.items():
+        out.append(
+            {
+                "day": day,
+                "entity": ent,
+                "declared_buy_volume": a["declared"],
+                "cancelled_volume": a["cancelled"],
+                "cancel_share": a["cancelled"] / a["declared"] if a["declared"] else 0.0,
+                "orders": a["orders"],
+            }
+        )
+    out.sort(key=lambda x: (x["day"], -x["cancelled_volume"]))
+    return out

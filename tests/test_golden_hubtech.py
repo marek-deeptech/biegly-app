@@ -35,3 +35,18 @@ def test_cancelled_buy_08_10(orders, owner_map):
     r = metrics.cancelled_buy_share(orders, owner_map, "2020-10-08")
     assert round(r["cancelled_volume"]) == 46_371_305
     assert round(r["share"] * 100) == 88
+
+
+def test_per_entity_joyfix(transactions):
+    # „Tabela per podmiot" musi odtwarzać liczby Joyfix z entity_sell (golden).
+    rows = metrics.per_entity_breakdown(transactions)
+    joyfix = next(r for r in rows if r["entity"] == "joyfix")
+    assert round(joyfix["sell_volume"]) == 47_419_738
+    assert round(joyfix["sell_value_share"] * 100, 2) == 28.72
+
+
+def test_per_session_layering_sums_to_cancelled_08_10(orders, owner_map):
+    # Suma anulacji per podmiot dla 08.10 = łączna anulacja tego dnia (golden).
+    rows = metrics.per_session_layering(orders, owner_map)
+    day_total = sum(r["cancelled_volume"] for r in rows if r["day"] == "2020-10-08")
+    assert round(day_total) == 46_371_305

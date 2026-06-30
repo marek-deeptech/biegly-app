@@ -98,16 +98,9 @@ export const PROSECUTOR_QUESTIONS = [
   "Q4. Inne uwagi biegłego mające związek z przedmiotem postępowania.",
 ];
 
-// Akapit-mechanizm — re-używalny boilerplate (niemal identyczny w obu opiniach KM).
-// Model może go lekko adaptować; nie zawiera liczb konkretnej sprawy.
-export const MECHANISM_BOILERPLATE =
-  "Techniki te miały na celu wywołanie mylnego wrażenia dużego wolumenu obrotu, w sposób " +
-  "fałszywy implikując pozostałym uczestnikom rynku istnienie znacznego popytu na akcje. " +
-  "Zawierane przez Grupę transakcje powodowały nienaturalne, sztuczne wykreowanie ceny, a ich " +
-  "celem było zasugerowanie zmiany ceny rynkowej. Transakcje przeprowadzane były poprzez " +
-  "zlecenia wzajemne — bazujące na współdziałaniu członków Grupy dla osiągnięcia wspólnego celu: " +
-  "wzrostu wartości rynkowej akcji oraz zainteresowania innych uczestników rynku, co tworzyło " +
-  "warunki do zbycia posiadanego przez Grupę pakietu akcji.";
+// UWAGA: nie przechowujemy tu „akapitu-mechanizmu" przejętego z opinii KM —
+// byłaby to skopiowana KONKLUZJA, a wnioski muszą wynikać z materiału dowodowego
+// (zob. zasada evidence-only). Prozę wniosków generuje się warunkowo z subanaliz.
 
 export function techniqueRef(id: TechniqueId): string {
   const t = TECHNIQUES[id];

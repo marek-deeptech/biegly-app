@@ -43,4 +43,20 @@ def compute_all(
         out.append(_m(f"cancel_{d}", "Anulacje kupna Grupy (layering/spoofing)",
                       round(c["share"] * 100, 2), "%", d))
 
+    # Tabela per podmiot (Grupa) — udział i wolumen sprzedaży każdego podmiotu.
+    for e in metrics.per_entity_breakdown(transactions, group_fragments):
+        out.append(_m(f"ent_sell_share::{e['entity']}", f"Udział sprzedaży — {e['entity']}",
+                      round(e["sell_value_share"] * 100, 2), "%"))
+        out.append(_m(f"ent_sell_vol::{e['entity']}", f"Wolumen sprzedaży — {e['entity']}",
+                      round(e["sell_volume"]), "szt"))
+
+    # Layering per sesja i podmiot — tylko podmioty z faktycznymi anulacjami.
+    for r in metrics.per_session_layering(orders, owner_map, group_fragments):
+        if r["cancelled_volume"] <= 0:
+            continue
+        out.append(_m(f"lay_share::{r['entity']}", f"Anulacje — {r['entity']}",
+                      round(r["cancel_share"] * 100, 2), "%", r["day"]))
+        out.append(_m(f"lay_cancelled::{r['entity']}", f"Anulowano — {r['entity']}",
+                      round(r["cancelled_volume"]), "szt", r["day"]))
+
     return out

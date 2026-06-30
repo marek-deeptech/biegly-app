@@ -8,7 +8,6 @@
 
 import {
   LEGAL_REFS,
-  MECHANISM_BOILERPLATE,
   PROSECUTOR_QUESTIONS,
   TECHNIQUES,
   techniqueRef,
@@ -144,6 +143,69 @@ function dailyTable(metrics: Metric[], prefix: string, caption: string, col: str
   };
 }
 
+function cap(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+// Pivot metryk per podmiot (ent_sell_share:: / ent_sell_vol::) → lista podmiotów.
+function pivotEntities(metrics: Metric[]): { entity: string; share: number | null; vol: number | null }[] {
+  const map = new Map<string, { share: number | null; vol: number | null }>();
+  const get = (e: string) => map.get(e) ?? { share: null, vol: null };
+  for (const m of metrics) {
+    if (m.key.startsWith("ent_sell_share::")) {
+      const e = m.key.split("::")[1];
+      map.set(e, { ...get(e), share: m.value });
+    } else if (m.key.startsWith("ent_sell_vol::")) {
+      const e = m.key.split("::")[1];
+      map.set(e, { ...get(e), vol: m.value });
+    }
+  }
+  return [...map.entries()]
+    .map(([entity, v]) => ({ entity, ...v }))
+    .sort((a, b) => (b.share ?? -1) - (a.share ?? -1));
+}
+
+function entityTable(metrics: Metric[]): OpTable | null {
+  const ents = pivotEntities(metrics);
+  if (!ents.length) return null;
+  return {
+    caption: "Tabela. Zestawienie per podmiot z Grupy — udział i wolumen sprzedaży",
+    head: ["Podmiot", "Udział sprzedaży", "Wolumen sprzedaży"],
+    rows: ents.map((e) => [cap(e.entity), plnum(e.share, "%"), plnum(e.vol, "szt")]),
+  };
+}
+
+function topSeller(metrics: Metric[]): { entity: string; share: number | null; vol: number | null } | null {
+  const ents = pivotEntities(metrics);
+  return ents.length ? ents[0] : null;
+}
+
+// Pivot layering per sesja i podmiot (lay_share:: / lay_cancelled::) → tabela.
+function layeringSessionTable(metrics: Metric[]): OpTable | null {
+  type Row = { day: string; entity: string; share: number | null; cancelled: number | null };
+  const map = new Map<string, Row>();
+  const get = (day: string, e: string): Row =>
+    map.get(day + "|" + e) ?? { day, entity: e, share: null, cancelled: null };
+  for (const m of metrics) {
+    if (!m.session_day) continue;
+    if (m.key.startsWith("lay_share::")) {
+      const e = m.key.split("::")[1];
+      map.set(m.session_day + "|" + e, { ...get(m.session_day, e), share: m.value });
+    } else if (m.key.startsWith("lay_cancelled::")) {
+      const e = m.key.split("::")[1];
+      map.set(m.session_day + "|" + e, { ...get(m.session_day, e), cancelled: m.value });
+    }
+  }
+  const rows = [...map.values()];
+  if (!rows.length) return null;
+  rows.sort((a, b) => (a.day === b.day ? (b.cancelled ?? -1) - (a.cancelled ?? -1) : a.day.localeCompare(b.day)));
+  return {
+    caption: "Tabela. Layering & spoofing per sesja i podmiot — anulowany wolumen kupna",
+    head: ["Sesja", "Podmiot", "Anulowano (szt)", "Udział anulacji"],
+    rows: rows.map((r) => [r.day, cap(r.entity), plnum(r.cancelled, "szt"), plnum(r.share, "%")]),
+  };
+}
+
 // ── Rozdziały IV — buildery techniczne (szablon 7-częściowy KM) ───────────────
 
 function ivMeta(caseName: string, kind: IVKind): { no: string; title: string } {
@@ -156,15 +218,18 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
   const t = TECHNIQUES.wash;
   const washPeak = mpeak(metrics, "wash_");
   const groupShare = mfind(metrics, "group_turnover_share");
+  const top = topSeller(metrics);
   const sec: string[] = [];
   sec.push(
     `Poniżej biegły dokonał analizy transakcji dokonanych przez członków Grupy pod kątem ` +
       `współdziałania w generowaniu sztucznego obrotu oraz transakcji wzajemnych (por. rozdz. III).`,
   );
   sec.push(
-    `Kluczowe podmioty po stronie kupna i sprzedaży. [Do uzupełnienia z tabel per podmiot: trzy ` +
-      `podmioty o największej łącznej wartości transakcji oraz rozkład salda środków w czasie — ` +
-      `dane z rozszerzenia silnika o zestawienia per podmiot.]`,
+    top
+      ? `Kluczowe podmioty. Największy udział w wartości sprzedaży miał podmiot ${cap(top.entity)} ` +
+        `(${plnum(top.share, "%")}, wolumen ${plnum(top.vol, "szt")}); pełne zestawienie per podmiot ` +
+        `znajduje się w rozdziale aktywności/relacji Grupy.`
+      : `Kluczowe podmioty po stronie kupna i sprzedaży. [Do uzupełnienia z tabel per podmiot — policz wskaźniki.]`,
   );
   sec.push(
     `Poniższa tabela prezentuje udział transakcji wewnątrzgrupowych (wash trades) w wolumenie ` +
@@ -253,12 +318,14 @@ function buildLayeringSubanaliza(caseName: string, metrics: Metric[], perSession
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table: dailyTable(
-        metrics,
-        "cancel_",
-        "Tabela. Udział anulowanego wolumenu w zadeklarowanym wolumenie kupna Grupy",
-        "Anulacje kupna (%)",
-      ),
+      table:
+        (perSession ? layeringSessionTable(metrics) : null) ??
+        dailyTable(
+          metrics,
+          "cancel_",
+          "Tabela. Udział anulowanego wolumenu w zadeklarowanym wolumenie kupna Grupy",
+          "Anulacje kupna (%)",
+        ),
       findings,
       legalRefs: [t.mar, t.rd],
     },
@@ -330,24 +397,33 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResul
     `Udział rachunków powiązanych (Grupy) w wartości obrotu wyniósł ${plnum(groupShare?.value, "%")}` +
       (groupVal?.value != null ? ` (${plnum(groupVal.value, "zł")})` : ``) +
       `, co wskazuje na zdolność wywierania dominującego wpływu na kształtowanie kursu instrumentu.`,
-    `Poniższa tabela przedstawia obecność Grupy w poszczególnych sesjach (udział transakcji ` +
-      `wewnątrzgrupowych w wolumenie).`,
+    `Poniższa tabela zestawia podmioty z Grupy według udziału w wartości sprzedaży i wolumenu ` +
+      `(„Tabela per podmiot").`,
   ];
+  const top = topSeller(metrics);
+  if (top)
+    sec.push(
+      `Największy udział w wartości sprzedaży miał podmiot ${cap(top.entity)} ` +
+        `(${plnum(top.share, "%")}, wolumen ${plnum(top.vol, "szt")}).`,
+    );
   const findings: string[] = [];
   if (groupShare?.value != null)
     findings.push(`Udział Grupy w wartości obrotu: ${plnum(groupShare.value, "%")}.`);
+  if (top) findings.push(`Największy sprzedawca z Grupy: ${cap(top.entity)} (${plnum(top.share, "%")}).`);
   return {
     kind: "aktywnosc",
     chapterNo: no,
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table: dailyTable(
-        metrics,
-        "wash_",
-        "Tabela. Obecność Grupy w obrocie — udział transakcji wewnątrzgrupowych w wolumenie sesji",
-        "Udział wewnątrzgrupowy (% wolumenu)",
-      ),
+      table:
+        entityTable(metrics) ??
+        dailyTable(
+          metrics,
+          "wash_",
+          "Tabela. Obecność Grupy w obrocie — udział transakcji wewnątrzgrupowych w wolumenie sesji",
+          "Udział wewnątrzgrupowy (% wolumenu)",
+        ),
       findings,
       legalRefs: [LEGAL_REFS.manipulacja],
     },
@@ -455,8 +531,9 @@ function buildEspiSubanaliza(caseName: string, metrics: Metric[], documents: Doc
 
 // IV.x — Identyfikacja relacji / porozumienie (IP + relacje osobowe).
 function buildRelacjeSubanaliza(caseName: string, metrics: Metric[], documents: Doc[]): SubResult {
-  void metrics;
   const { no, title } = ivMeta(caseName, "relacje");
+  // Gdy sprawa nie ma osobnego rozdziału „aktywność" — tu trafia tabela per podmiot.
+  const grupaTable = casePlan(caseName).some((c) => c.kind === "aktywnosc") ? null : entityTable(metrics);
   const ip = byType(documents, "DANE_IP");
   const osint = byType(documents, "ANALIZA_OSINT");
   const broker = byType(documents, "DANE_BROKERSKIE");
@@ -481,7 +558,7 @@ function buildRelacjeSubanaliza(caseName: string, metrics: Metric[], documents: 
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table: null,
+      table: grupaTable,
       findings: [
         `W aktach: ${ip.length} zbiór(ów) IP, ${osint.length} analiz OSINT, ${broker.length} zestawień brokerskich.`,
       ],
@@ -556,80 +633,82 @@ export function buildTeoriaIII(caseName: string): SubResult {
   };
 }
 
-// ── II. Wnioski — szablon blokowy z mapą pytanie → odpowiedź ──────────────────
+// ── II. Wnioski — synteza WYŁĄCZNIE z zatwierdzonych analiz dowodowych (IV) ────
+// Zasada evidence-only: nie przejmujemy tez ani konkluzji z opinii KM, ani z
+// zawiadomienia UKNF/GPW. Wnioski potwierdzają (lub nie) zarzuty na podstawie
+// ustaleń z rozdziału IV; brak dowodu = [do uzupełnienia], nigdy konkluzja.
 export function buildWnioskiSubanaliza(
   caseName: string,
   metrics: Metric[],
   stored: StoredSub[],
 ): SubResult {
+  void caseName;
   const washPeak = mpeak(metrics, "wash_");
   const cancelPeak = mpeak(metrics, "cancel_");
   const groupShare = mfind(metrics, "group_turnover_share");
-  const techs = planTechniques(caseName);
+  const seller = topSeller(metrics);
   const approved = stored
     .filter((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"))
     .sort((a, b) => a.chapter_no.localeCompare(b.chapter_no, "pl"));
+  const techKinds = new Set(["wash", "imo", "layering", "pumpdump"]);
+  const approvedTech = approved.filter((s) => techKinds.has(s.kind));
 
   const parts: string[] = [];
-
-  // Blok 1 — techniki z odniesieniami prawnymi.
-  if (techs.length) {
-    const lines = techs.map((k) => {
-      const t = TECHNIQUES[k as unknown as TechniqueId];
-      return `• ${t.label} — ${t.mar}; ${t.rd}`;
-    });
-    parts.push(
-      `Analiza zleceń i transakcji wskazuje, że podmioty Grupy wpływały na cenę i wolumen akcji Spółki ` +
-        `poprzez wykorzystanie następujących technik manipulacji:\n${lines.join("\n")}`,
-    );
-  }
-  // Blok 2 — mechanizm (boilerplate).
-  parts.push(MECHANISM_BOILERPLATE);
-
-  // Blok 3 — liczby ugruntowane z silnika.
-  const nums: string[] = [];
-  if (washPeak?.value != null)
-    nums.push(`transakcje wzajemne (wash trades) sięgały ${plnum(washPeak.value, "%")} wolumenu sesji (${washPeak.session_day})`);
-  if (cancelPeak?.value != null)
-    nums.push(`anulacje zleceń kupna Grupy sięgały ${plnum(cancelPeak.value, "%")} zadeklarowanego wolumenu (${cancelPeak.session_day})`);
-  if (groupShare?.value != null)
-    nums.push(`udział Grupy w wartości obrotu wyniósł ${plnum(groupShare.value, "%")}`);
-  if (nums.length)
-    parts.push(`Ustalenia liczbowe (z deterministycznego silnika): ${nums.join("; ")}.`);
-
-  // Blok 4 — porozumienie.
   parts.push(
-    `Działanie wspólnie i w porozumieniu podmiotów z Grupy potwierdza identyfikacja relacji osobowych ` +
-      `pomiędzy podmiotami oraz zbieżność adresów IP wykorzystywanych do logowań. ` +
-      `[Do uzupełnienia ze szczegółów rozdziału relacji.]`,
+    `Wnioski formułuje się wyłącznie na podstawie ustaleń z rozdziału IV (analiza materiału ` +
+      `dowodowego). Celem opinii jest weryfikacja, czy zebrany materiał potwierdza zarzuty postawione ` +
+      `w zawiadomieniu — bez przejmowania tez z zawiadomienia ani z opinii innego biegłego.`,
   );
 
-  // Blok 5 — falsyfikacja / beneficjent (z zatwierdzonych rozdziałów IV).
-  if (approved.length) {
-    const fs = approved
-      .map((s) => `${s.title} (rozdz. ${s.chapter_no}): ${(s.data?.findings ?? []).join(" ")}`.trim())
-      .filter(Boolean);
-    if (fs.length) parts.push(`Na podstawie zatwierdzonych analiz rozdziału IV:\n• ${fs.join("\n• ")}`);
+  if (!approved.length) {
+    parts.push(
+      `[Do uzupełnienia: brak zatwierdzonych rozdziałów IV. Wnioski można sformułować dopiero po ` +
+        `wykonaniu i zatwierdzeniu analiz dowodowych (techniki, aktywność, relacje).]`,
+    );
   } else {
-    parts.push(
-      `[Do uzupełnienia po zatwierdzeniu rozdziałów IV: ocena ESPI/EBI (czy informacje publiczne ` +
-        `tłumaczą ruch kursu) oraz wskazanie beneficjenta i szacunek korzyści.]`,
-    );
+    // Techniki — tylko te faktycznie zbadane w zatwierdzonych rozdziałach IV.
+    if (approvedTech.length) {
+      const lines = approvedTech.map((s) => {
+        const t = TECHNIQUES[s.kind as TechniqueId];
+        const f = (s.data?.findings ?? []).join(" ").trim();
+        return `• ${t.label} (${t.mar}; ${t.rd}) — ${f || "[brak ustaleń liczbowych w rozdziale]"}`;
+      });
+      parts.push(
+        `Analiza materiału dowodowego (rozdz. IV) obejmuje następujące techniki i ich ustalenia:\n${lines.join("\n")}`,
+      );
+    }
+    // Liczby — wyłącznie z silnika (dane UTP), bez interpretacji.
+    const nums: string[] = [];
+    if (washPeak?.value != null)
+      nums.push(`wolumen transakcji wewnątrzgrupowych do ${plnum(washPeak.value, "%")} wolumenu sesji (${washPeak.session_day})`);
+    if (cancelPeak?.value != null)
+      nums.push(`anulacje zleceń kupna Grupy do ${plnum(cancelPeak.value, "%")} zadeklarowanego wolumenu (${cancelPeak.session_day})`);
+    if (groupShare?.value != null)
+      nums.push(`udział Grupy w wartości obrotu ${plnum(groupShare.value, "%")}`);
+    if (nums.length)
+      parts.push(`Ustalenia liczbowe (deterministyczny silnik, dane UTP): ${nums.join("; ")}.`);
+
+    if (seller)
+      parts.push(
+        `Największy udział w wartości sprzedaży akcji w badanym okresie miał podmiot ` +
+          `${cap(seller.entity)} (${plnum(seller.share, "%")}, wolumen ${plnum(seller.vol, "szt")}).`,
+      );
+
+    // Pozostałe zatwierdzone rozdziały IV (ekofin/ESPI/aktywność/relacje).
+    const other = approved.filter((s) => !techKinds.has(s.kind));
+    if (other.length) {
+      const fs = other
+        .map((s) => `${s.title} (rozdz. ${s.chapter_no}): ${(s.data?.findings ?? []).join(" ")}`.trim())
+        .filter(Boolean);
+      if (fs.length) parts.push(`Pozostałe ustalenia z rozdziału IV:\n• ${fs.join("\n• ")}`);
+    }
   }
 
-  // Blok 6 — mapa odpowiedzi na pytania prokuratora + zastrzeżenie dla sądu.
   parts.push(
-    `Odpowiedzi na pytania postanowienia:\n` +
-      `• ${PROSECUTOR_QUESTIONS[0].slice(0, 4)} — tak; cena kształtowana była w sposób sztuczny, oderwany od ` +
-      `fundamentów (por. rozdz. IV.1–IV.2).\n` +
-      `• ${PROSECUTOR_QUESTIONS[1].slice(0, 4)} — ${techs.map((k) => TECHNIQUES[k as unknown as TechniqueId].label).join(", ") || "[do uzupełnienia]"}.\n` +
-      `• ${PROSECUTOR_QUESTIONS[2].slice(0, 4)} — relacje osobowe oraz zbieżność adresów IP (por. rozdz. relacji).\n` +
-      `• ${PROSECUTOR_QUESTIONS[3].slice(0, 4)} — [uwagi biegłego: m.in. beneficjent i szacunek korzyści].`,
-  );
-  parts.push(
-    `Powyższe ustalenia faktyczne wskazują łącznie na cechy manipulacji instrumentem finansowym ` +
-      `(art. 12 MAR). Ocena prawnokarna czynu oraz ustalenie zamiaru i winy konkretnych osób ` +
-      `pozostają w wyłącznej kompetencji organu prowadzącego postępowanie oraz sądu.`,
+    `Powyższe stanowią ustalenia faktyczne wynikające z analizy materiału dowodowego i odnoszą się do ` +
+      `pytań postanowienia o powołaniu biegłego. Ocena, czy potwierdzają one zarzuty manipulacji ` +
+      `instrumentem finansowym (art. 12 MAR), oraz kwalifikacja prawnokarna, zamiar i wina konkretnych ` +
+      `osób — pozostają w wyłącznej kompetencji organu prowadzącego postępowanie oraz sądu.`,
   );
 
   return {
@@ -640,8 +719,7 @@ export function buildWnioskiSubanaliza(
     data: {
       table: null,
       findings: [
-        `Ustalenia faktyczne wskazują na cechy manipulacji instrumentem finansowym (art. 12 MAR); ` +
-          `kwalifikacja prawnokarna i ocena zamiaru — w gestii sądu.`,
+        `Wnioski wynikają wyłącznie z zatwierdzonych analiz dowodowych (rozdz. IV); ocena prawnokarna — w gestii sądu.`,
       ],
       legalRefs: ["art. 12 MAR", LEGAL_REFS.manipulacja],
     },
