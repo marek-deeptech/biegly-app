@@ -77,6 +77,7 @@ export default function OpinionView({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [subtab, setSubtab] = useState<"warsztat" | "recenzent" | "montaz">("warsztat");
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -85,6 +86,7 @@ export default function OpinionView({
   );
   const ready = opinion.chapters.filter((c) => c.status === "ready").length;
   const review = useMemo(() => reviewOpinion(opinion, metrics, stored), [opinion, metrics, stored]);
+  const revIssues = review.filter((r) => r.severity !== "OK").length;
   const hasQuant = subanalyses.some((s) => s.kind === "ilosciowa");
   const hasEkofin = subanalyses.some((s) => s.kind === "ekofin");
   const hasPoroz = subanalyses.some((s) => s.kind === "porozumienie");
@@ -212,7 +214,28 @@ export default function OpinionView({
 
   return (
     <div className="space-y-6">
+      <div className="flex gap-1 border-b border-ink/20">
+        {([
+          ["warsztat", "Warsztat"],
+          ["recenzent", `Recenzent${revIssues ? ` · ${revIssues}` : ""}`],
+          ["montaz", `Montaż · ${ready}/${opinion.chapters.length}`],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setSubtab(key)}
+            className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
+              subtab === key
+                ? "border-ink font-semibold text-ink"
+                : "border-transparent text-inksoft hover:text-ink"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* ── Panel subanaliz (warsztat) ── */}
+      {subtab === "warsztat" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Subanalizy (warsztat)</h2>
@@ -392,7 +415,10 @@ export default function OpinionView({
         </div>
       </section>
 
+      )}
+
       {/* ── Recenzent (QA#2) ── */}
+      {subtab === "recenzent" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Recenzent (QA#2)</h2>
@@ -429,7 +455,10 @@ export default function OpinionView({
         </ul>
       </section>
 
+      )}
+
       {/* ── Montaż opinii ── */}
+      {subtab === "montaz" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -535,6 +564,7 @@ export default function OpinionView({
           ))}
         </ol>
       </section>
+      )}
     </div>
   );
 }
