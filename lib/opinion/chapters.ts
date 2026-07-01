@@ -71,8 +71,40 @@ export function chapterTitleFor(caseName: string, kind: IVKind): string {
 
 // Techniki manipulacji obecne w planie sprawy (do rozdz. III i Wniosków).
 export function planTechniques(caseName: string): IVKind[] {
-  const tech: IVKind[] = ["wash", "imo", "layering", "pumpdump"];
   return casePlan(caseName)
     .map((c) => c.kind)
-    .filter((k) => tech.includes(k));
+    .filter((k) => TECH_KINDS.includes(k));
+}
+
+// Techniczne rodzaje rozdziałów (uzasadnienia technik manipulacji).
+export const TECH_KINDS: IVKind[] = ["wash", "imo", "layering", "pumpdump"];
+
+const IV_TITLE: Record<IVKind, string> = {
+  ekofin: "Analiza ekonomiczno-finansowa oraz otoczenia rynkowego",
+  espi: "Analiza raportów bieżących w systemie ESPI i EBI",
+  aktywnosc: "Aktywność podmiotów z Grupy",
+  relacje: "Identyfikacja relacji pomiędzy podmiotami z Grupy",
+  wash: "Wash trades",
+  imo: "Improper matched orders",
+  layering: "Layering and spoofing",
+  pumpdump: "Pump and dump",
+};
+
+// Plan IV budowany z technik wybranych w A2 (z dowodów), nie z presetu.
+// Stały szkielet: ekon-fin, ESPI/EBI, aktywność, [techniki], relacje.
+export function buildPlanFromTechniques(techniques: IVKind[]): IVChapter[] {
+  const order: IVKind[] = [
+    "ekofin",
+    "espi",
+    "aktywnosc",
+    ...TECH_KINDS.filter((k) => techniques.includes(k)),
+    "relacje",
+  ];
+  return order.map((kind, i) => ({ kind, no: `IV.${i + 1}`, title: IV_TITLE[kind] }));
+}
+
+// Plan sprawy: z wyboru technik (A2) jeśli jest; inaczej preset (Hub/MLM/domyślny).
+export function resolvePlan(caseName: string, selected?: IVKind[] | null): IVChapter[] {
+  const techs = (selected ?? []).filter((k) => TECH_KINDS.includes(k));
+  return techs.length ? buildPlanFromTechniques(techs) : casePlan(caseName);
 }

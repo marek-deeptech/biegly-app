@@ -18,6 +18,7 @@ import {
   chapterNoFor,
   chapterTitleFor,
   planTechniques,
+  resolvePlan,
   type IVChapter,
   type IVKind,
 } from "./chapters";
@@ -764,7 +765,9 @@ export function buildOpinion(
   stored: StoredSub[] = [],
 ): Opinion {
   const inputDocs = documents.filter((d) => d.provenance !== "wyjście");
-  const plan: IVChapter[] = casePlan(caseRow.name);
+  const td = stored.find((s) => s.kind === "techniki");
+  const selectedTech = (td?.data as { selected?: string[] } | null)?.selected as IVKind[] | undefined;
+  const plan: IVChapter[] = resolvePlan(caseRow.name, selectedTech);
   const byKind = new Map(stored.map((s) => [s.kind, s] as const));
 
   // Rozdział IV — wg planu sprawy: zapisana subanaliza albo miejsce „do wygenerowania".

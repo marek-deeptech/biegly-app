@@ -15,9 +15,10 @@ import {
   type StoredSub,
   type SubResult,
 } from "@/lib/opinion/build";
-import { casePlan, type IVKind } from "@/lib/opinion/chapters";
+import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 import RosterPanel from "./roster-panel";
+import TechniquesPanel from "./techniques-panel";
 
 type Metric = {
   key: string;
@@ -96,7 +97,11 @@ export default function OpinionView({
   const ready = opinion.chapters.filter((c) => c.status === "ready").length;
   const review = useMemo(() => reviewOpinion(opinion, metrics, stored), [opinion, metrics, stored]);
   const revIssues = review.filter((r) => r.severity !== "OK").length;
-  const plan = useMemo(() => casePlan(caseRow.name), [caseRow.name]);
+  const selectedTech = useMemo(() => {
+    const t = subanalyses.find((s) => s.kind === "techniki");
+    return ((t?.data as { selected?: string[] } | null)?.selected ?? []) as IVKind[];
+  }, [subanalyses]);
+  const plan = useMemo(() => resolvePlan(caseRow.name, selectedTech), [caseRow.name, selectedTech]);
   const generated = useMemo(() => new Set(subanalyses.map((s) => s.kind)), [subanalyses]);
   const hasWnioski = generated.has("wnioski");
   const canWnioski = subanalyses.some((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"));
@@ -264,10 +269,7 @@ export default function OpinionView({
 
           {wsub === "podmioty" && <RosterPanel caseId={caseId} />}
           {wsub === "techniki" && (
-            <WarsztatStub
-              title="Techniki manipulacji (Krok 3)"
-              body="Aplikacja zaproponuje techniki z katalogu MAR art. 12 na podstawie sygnałów dowodowych (np. anulacje → layering, wolumen wewnątrzgrupowy → wash trades), do potwierdzenia przez biegłego. Wybór zbuduje zestaw rozdziałów uzasadnień. (Faza 2)"
-            />
+            <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />
           )}
           {wsub === "powiazania" && (
             <WarsztatStub
@@ -343,7 +345,7 @@ export default function OpinionView({
         )}
 
         <div className="space-y-4">
-          {subanalyses.map((s) => {
+          {subanalyses.filter((s) => s.kind !== "techniki").map((s) => {
             const approved = s.status === "zatwierdzona";
             return (
               <div key={s.id} className="border border-line bg-paper p-3">
