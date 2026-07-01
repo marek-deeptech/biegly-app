@@ -221,6 +221,60 @@ export default function OpinionView({
     else router.refresh();
   }
 
+  // Stepper montażu — kroki w kolejności PISANIA z bramkami zależności.
+  const isApproved = (kind: string) => subanalyses.some((s) => s.kind === kind && s.status === "zatwierdzona");
+  const bodyOf = (kind: string) => subanalyses.find((s) => s.kind === kind)?.body_md ?? "";
+  const ivAllApproved = plan.length > 0 && plan.every((p) => isApproved(p.kind));
+  const wnioskiApproved = isApproved("wnioski");
+  const steps: {
+    no: string;
+    label: string;
+    kind: string;
+    gen: () => void;
+    busyKey: string;
+    locked: boolean;
+    lockReason?: string;
+    note?: string;
+  }[] = [
+    ...plan.map((p) => ({
+      no: p.no,
+      label: p.title,
+      kind: p.kind,
+      gen: () => void genIV(p.kind),
+      busyKey: "gen-" + p.kind,
+      locked: false,
+    })),
+    {
+      no: "II",
+      label: "Wnioski",
+      kind: "wnioski",
+      gen: () => void genWnioski(),
+      busyKey: "gen-wnioski",
+      locked: !ivAllApproved,
+      lockReason: "Najpierw zatwierdź wszystkie rozdziały IV",
+    },
+    {
+      no: "III",
+      label: "Wstęp — ujęcie teoretyczne",
+      kind: "proza_iii",
+      gen: () => void redact("III"),
+      busyKey: "redact-III",
+      locked: !wnioskiApproved,
+      lockReason: "Najpierw zatwierdź Wnioski",
+      note: "III powstaje też automatycznie z biblioteki prawnej — regeneracja modelem jest opcjonalna.",
+    },
+    {
+      no: "V",
+      label: "Podsumowanie",
+      kind: "proza_v",
+      gen: () => void redact("V"),
+      busyKey: "redact-V",
+      locked: !wnioskiApproved,
+      lockReason: "Najpierw zatwierdź Wnioski",
+    },
+  ];
+  const stepsApproved = steps.filter((s) => isApproved(s.kind)).length;
+
   return (
     <div className="space-y-6">
       <div className="flex gap-1 border-b border-ink/20">
@@ -497,6 +551,109 @@ export default function OpinionView({
           </a>
         </div>
 
+        {/* Stepper — kolejność pisania, bramki zależności */}
+        <div className="mb-6">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.12em]">Kroki — kolejność pisania</h3>
+            <span className="text-xs text-inksoft">{stepsApproved}/{steps.length} zatwierdzonych</span>
+          </div>
+          <p className="mb-3 text-xs text-inksoft">
+            Rozdziały powstają „od środka”: najpierw analiza (IV), potem Wnioski, na końcu Wstęp i Podsumowanie.
+            Kroki są bramkowane zależnościami; montaż składa całość w kolejność dokumentu (I–VI) poniżej.
+          </p>
+          <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-ink/10">
+            <div
+              className="h-full bg-emerald-500 transition-all"
+              style={{ width: `${Math.round((stepsApproved / Math.max(1, steps.length)) * 100)}%` }}
+            />
+          </div>
+          <ol className="space-y-2">
+            {steps.map((st, i) => {
+              const row = subanalyses.find((s) => s.kind === st.kind);
+              const approved = !!row && row.status === "zatwierdzona";
+              const generated = !!row;
+              const state = st.locked
+                ? "zablokowany"
+                : approved
+                  ? "zatwierdzony"
+                  : generated
+                    ? "szkic"
+                    : "do wygenerowania";
+              const badge = st.locked
+                ? "bg-ink/10 text-inksoft"
+                : approved
+                  ? "bg-emerald-100 text-emerald-800"
+                  : generated
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-ink/10 text-inksoft";
+              return (
+                <li key={st.kind} className={`border border-line bg-paper p-3 ${st.locked ? "opacity-60" : ""}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-ink/10 text-[11px] font-medium">
+                        {i + 1}
+                      </span>
+                      <span className="text-sm font-medium">
+                        {st.no}. {st.label}
+                      </span>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${badge}`}>{state}</span>
+                  </div>
+                  {st.locked ? (
+                    <p className="mt-1 pl-7 text-xs text-inksoft">Zablokowane: {st.lockReason}.</p>
+                  ) : (
+                    <>
+                      {generated && (
+                        <p className="mt-1 pl-7 text-xs text-inksoft">
+                          {bodyOf(st.kind).slice(0, 200)}
+                          {bodyOf(st.kind).length > 200 ? "…" : ""}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 pl-7">
+                        <button
+                          onClick={st.gen}
+                          disabled={busy !== null}
+                          className="border border-ink px-3 py-1 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                        >
+                          {busy === st.busyKey ? "Pracuję…" : generated ? "Regeneruj" : "Generuj"}
+                        </button>
+                        {generated && !approved && row && (
+                          <button
+                            onClick={() => setStatus(row, "zatwierdzona")}
+                            disabled={busy !== null}
+                            className="border border-emerald-600 bg-emerald-600 px-3 py-1 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                          >
+                            Zatwierdź
+                          </button>
+                        )}
+                        {approved && row && (
+                          <button
+                            onClick={() => setStatus(row, "szkic")}
+                            disabled={busy !== null}
+                            className="border border-ink px-3 py-1 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                          >
+                            Cofnij
+                          </button>
+                        )}
+                        {generated && (
+                          <button
+                            onClick={() => setSection("rozdzialy")}
+                            className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline"
+                          >
+                            Edytuj tekst
+                          </button>
+                        )}
+                      </div>
+                      {st.note && <p className="mt-1 pl-7 text-[11px] italic text-inksoft">{st.note}</p>}
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">Podgląd dokumentu (kolejność I–VI)</h3>
         <div className="mb-4 flex flex-wrap gap-3 text-[11px] text-inksoft">
           <Legend cls="border-emerald-400" t="ugruntowane / zatwierdzone" />
           <Legend cls="border-amber-400" t="szkic — do weryfikacji" />
