@@ -19,7 +19,6 @@ import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 import OsintPanel from "./osint-panel";
 import PowiazaniaPanel from "./powiazania-panel";
-import RosterPanel from "./roster-panel";
 import TechniquesPanel from "./techniques-panel";
 
 type Metric = {
@@ -88,8 +87,9 @@ export default function OpinionView({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
-  const [section, setSection] = useState<"warsztat" | "rozdzialy" | "montaz" | "recenzent">("warsztat");
-  const [wsub, setWsub] = useState<"podmioty" | "techniki" | "powiazania" | "osint" | "liczby">("podmioty");
+  const [view, setView] = useState<
+    "techniki" | "powiazania" | "osint" | "rozdzialy" | "montaz" | "recenzent"
+  >("techniki");
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -111,7 +111,7 @@ export default function OpinionView({
 
   async function saveGenerated(result: SubResult | null, overwrite = false) {
     if (!result) {
-      setMsg("Brak danych do wygenerowania — najpierw policz wskaźniki na zakładce Sprawa.");
+      setMsg("Brak danych do wygenerowania — najpierw policz wskaźniki na zakładce Analiza liczbowa.");
       return;
     }
     setBusy("gen-" + result.kind);
@@ -311,64 +311,33 @@ export default function OpinionView({
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-1 border-b border-ink/20">
+      <div className="flex flex-wrap items-center gap-1 border-b border-ink/20">
+        <span className="px-1 py-2 text-[10px] uppercase tracking-wider text-inksoft">Warsztat:</span>
         {([
-          ["warsztat", "Warsztat dowodowy"],
+          ["techniki", "Techniki"],
+          ["powiazania", "Powiązania (dane)"],
+          ["osint", "OSINT"],
+        ] as const).map(([key, label]) => (
+          <NavBtn key={key} active={view === key} onClick={() => setView(key)} label={label} />
+        ))}
+        <span className="mx-2 hidden h-4 w-px bg-ink/20 sm:inline-block" />
+        <span className="px-1 py-2 text-[10px] uppercase tracking-wider text-inksoft">Redakcja:</span>
+        {([
           ["rozdzialy", "Rozdziały"],
           ["montaz", `Montaż · ${ready}/${opinion.chapters.length}`],
           ["recenzent", `Recenzent${revIssues ? ` · ${revIssues}` : ""}`],
         ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setSection(key)}
-            className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
-              section === key
-                ? "border-ink font-semibold text-ink"
-                : "border-transparent text-inksoft hover:text-ink"
-            }`}
-          >
-            {label}
-          </button>
+          <NavBtn key={key} active={view === key} onClick={() => setView(key)} label={label} />
         ))}
       </div>
 
-      {/* ── Warsztat dowodowy (Kroki 2–6) — pod-zakładki A1–A5 ── */}
-      {section === "warsztat" && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-1 border-b border-line">
-            {([
-              ["podmioty", "1 · Podmioty"],
-              ["techniki", "2 · Techniki"],
-              ["powiazania", "3 · Powiązania (dane)"],
-              ["osint", "4 · OSINT"],
-              ["liczby", "5 · Liczby"],
-            ] as const).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setWsub(key)}
-                className={`-mb-px border-b-2 px-3 py-1.5 text-xs transition-colors ${
-                  wsub === key ? "border-ink font-medium text-ink" : "border-transparent text-inksoft hover:text-ink"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {wsub === "podmioty" && <RosterPanel caseId={caseId} />}
-          {wsub === "techniki" && (
-            <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />
-          )}
-          {wsub === "powiazania" && (
-            <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />
-          )}
-          {wsub === "osint" && <OsintPanel caseId={caseId} stored={subanalyses} />}
-          {wsub === "liczby" && <LiczbyView metrics={metrics} />}
-        </div>
-      )}
+      {/* ── Warsztat dowodowy (Kroki 3–5) — Podmioty są w zakładce Sprawa, Liczby w Analizie liczbowej ── */}
+      {view === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />}
+      {view === "powiazania" && <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />}
+      {view === "osint" && <OsintPanel caseId={caseId} stored={subanalyses} />}
 
       {/* ── Rozdziały — drafty subanaliz ── */}
-      {section === "rozdzialy" && (
+      {view === "rozdzialy" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Rozdziały — drafty</h2>
@@ -530,7 +499,7 @@ export default function OpinionView({
       )}
 
       {/* ── Recenzent (QA#2) ── */}
-      {section === "recenzent" && (
+      {view === "recenzent" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Recenzent (QA#2)</h2>
@@ -570,7 +539,7 @@ export default function OpinionView({
       )}
 
       {/* ── Montaż opinii ── */}
-      {section === "montaz" && (
+      {view === "montaz" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -673,7 +642,7 @@ export default function OpinionView({
                         )}
                         {generated && (
                           <button
-                            onClick={() => setSection("rozdzialy")}
+                            onClick={() => setView("rozdzialy")}
                             className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline"
                           >
                             Edytuj tekst
@@ -822,62 +791,16 @@ function Legend({ cls, t }: { cls: string; t: string }) {
   );
 }
 
-// Zaślepka pod-zakładki warsztatu (A2–A4) — opis tego, co powstanie w danej fazie.
-function WarsztatStub({ title, body }: { title: string; body: string }) {
+// Przycisk nawigacji sekcji Opinii (jeden pasek: Warsztat · Redakcja).
+function NavBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
-    <section className="border border-ink/60 bg-card p-4">
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">{title}</h2>
-      <p className="text-sm text-inksoft">{body}</p>
-    </section>
-  );
-}
-
-// A5 Liczby — podgląd policzonych wskaźników (read-only; przelicznik jest na „Sprawa").
-function LiczbyView({ metrics }: { metrics: Metric[] }) {
-  if (!metrics.length)
-    return (
-      <WarsztatStub
-        title="Analiza liczbowa (Krok 6)"
-        body="Deterministyczna analiza danych transakcyjnych z UTP (GPW), docelowo także TREM (UKNF) — liczbowy fundament wszystkich wniosków, którym weryfikujemy ilościowe tezy z zawiadomienia KNF. Brak policzonych wskaźników: wgraj główny plik UTP i kliknij „Policz wskaźniki” na zakładce Sprawa."
-      />
-    );
-  const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
-  const peak = (p: string) =>
-    metrics.filter((m) => m.key.startsWith(p)).reduce<Metric | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
-  const fmtv = (m: Metric | null) =>
-    m && m.value != null ? (m.unit === "%" ? `${m.value}%` : m.value.toLocaleString("pl-PL")) : "—";
-  const gs = find("group_turnover_share");
-  const wp = peak("wash_");
-  const cp = peak("cancel_");
-  return (
-    <section className="border border-ink/60 bg-card p-4">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa — podgląd (silnik faktów)</h2>
-      <p className="mb-3 text-xs leading-relaxed text-inksoft">
-        Deterministyczna analiza danych transakcyjnych (Krok 6) z UTP (GPW), docelowo także TREM (UKNF). To liczbowy
-        fundament wszystkich wniosków — liczy silnik (LLM nigdy), a każda liczba jest odtwarzalna co do sztuki i grosza
-        z pliku źródłowego. Tu potwierdzasz lub obalasz ilościowe tezy z zawiadomienia KNF: udział Grupy w obrocie,
-        wolumen transakcji wewnątrzgrupowych (wash), skalę anulacji zleceń (layering), tabele per podmiot. Wyniki mogą
-        rozszerzać ustalenia KNF (dodatkowe dni czy podmioty) albo się z nimi rozmijać, gdy dane pokazują co innego.
-      </p>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-lg bg-card px-3 py-2">
-          <div className="text-xs text-inksoft">Udział Grupy w obrocie</div>
-          <div className="text-lg font-semibold tabular-nums">{fmtv(gs)}</div>
-        </div>
-        <div className="rounded-lg bg-card px-3 py-2">
-          <div className="text-xs text-inksoft">Wash — szczyt</div>
-          <div className="text-lg font-semibold tabular-nums">{fmtv(wp)}</div>
-          <div className="text-xs text-inksoft">{wp?.session_day ?? ""}</div>
-        </div>
-        <div className="rounded-lg bg-card px-3 py-2">
-          <div className="text-xs text-inksoft">Anulacje — szczyt</div>
-          <div className="text-lg font-semibold tabular-nums">{fmtv(cp)}</div>
-          <div className="text-xs text-inksoft">{cp?.session_day ?? ""}</div>
-        </div>
-      </div>
-      <p className="mt-3 text-xs text-inksoft">
-        Pełny przelicznik i wybór pliku UTP — na zakładce „Sprawa”. TREM (UKNF) w planie (Faza 4).
-      </p>
-    </section>
+    <button
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
+        active ? "border-ink font-semibold text-ink" : "border-transparent text-inksoft hover:text-ink"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

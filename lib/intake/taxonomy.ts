@@ -18,6 +18,7 @@ export const DOC_TYPES: Record<string, DocType> = {
   DANE_IP: { label: "Dane logowań / mapowanie IP", source: "UKNF / brokerzy", provenance: "wejście" },
   ZALACZNIK_OSOBOWY: { label: "Załącznik osobowy (dane identyfikacyjne)", source: "prokuratura", provenance: "wejście" },
   DANE_UTP: { label: "Źródłowe dane UTP (transakcje i zlecenia)", source: "GPW / prokuratura", provenance: "wejście" },
+  DANE_TREM: { label: "Dane TREM (transakcje doidentyfikowane)", source: "UKNF", provenance: "wejście" },
   DANE_BROKERSKIE: { label: "Dane z firm inwestycyjnych (rachunki)", source: "dom maklerski", provenance: "wejście" },
   STOR: { label: "Raport STOR (podejrzane zlecenia/transakcje)", source: "GPW", provenance: "wejście" },
   SPEC_TECHNICZNA: { label: "Specyfikacja formatu danych (UTP/FIX)", source: "GPW", provenance: "wejście" },
@@ -50,8 +51,11 @@ export const RULES: { phrases: string[]; code: string }[] = [
   { phrases: ["block trade", "block_trade", "blocktrade"], code: "DANE_UTP" },
   { phrases: ["zawiadomienie knf", "zawiadomienie hub", "zawiadomienie milis", "icm-lcn", "zawiadomienie 1", "zawiadomienie 2", "zawiadomienie 3"], code: "ZAWIADOMIENIE_KNF" },
   { phrases: ["output file specification", "fix_message", "fix message", "wse cde", "wse _cde"], code: "SPEC_TECHNICZNA" },
-  { phrases: ["os. fizyczne", "zał. 4", "intercapital", "bm ing", "bm alior", "dm boś", "dm bps", "dm millennium", "dm pekao", "bm mbank", "_mbank", "_ing", "santander", "_bdm", "histfin", "histpap", "histpod", "histap", "umowa brok", "pit 8c", "pit_8c", "historia rachunku", "zestawienie transakcji", "zestawienie zleceń", "zestawienie zlecen", "umowa cywilnoprawna", "_logi", "_zlec", "_trans"], code: "DANE_BROKERSKIE" },
+  // TREM przed UTP (nazwy zaczynają się od "UTP_TREM"), a UTP przed danymi
+  // brokerskimi — inaczej "_zlec" z reguły brokerskiej łapie "transakcje_i_zlecenia".
+  { phrases: ["utp_trem", "trem_id", "_trem"], code: "DANE_TREM" },
   { phrases: ["transakcje_i_zlecenia", "zlecenia i transakcje", "zlecenia_zrodlo", "utp_", "pliki transakcyjne", "mil_two_tko", "transakcje_pakietowe", "transakcje pakietowe"], code: "DANE_UTP" },
+  { phrases: ["os. fizyczne", "zał. 4", "intercapital", "bm ing", "bm alior", "dm boś", "dm bps", "dm millennium", "dm pekao", "bm mbank", "_mbank", "_ing", "santander", "_bdm", "histfin", "histpap", "histpod", "histap", "umowa brok", "pit 8c", "pit_8c", "historia rachunku", "zestawienie transakcji", "zestawienie zleceń", "zestawienie zlecen", "umowa cywilnoprawna", "_logi", "_zlec", "_trans"], code: "DANE_BROKERSKIE" },
   { phrases: ["stor"], code: "STOR" },
   { phrases: ["odpis_pelny", "odpis_pełny", "odpis pełny", "krs", "dane z rejestrów", "rejestrow", " eik", "eik ", "firma "], code: "KRS_REJESTR" },
   { phrases: ["sprawozdanie", "spr-zarzadu", "wyniki_", "plan_rozwoju", "plan rozwoju", "plan-rozwoju", "strategia", "aktualizacja_planow", "plany_rozwoju"], code: "SPRAWOZDANIE_FIN" },
@@ -60,5 +64,7 @@ export const RULES: { phrases: string[]; code: string }[] = [
   { phrases: ["notowania chemia", "stooq", "hub_d"], code: "NOTOWANIA_REF" },
 ];
 
-export const REQUIRED = ["POSTANOWIENIE", "ZAWIADOMIENIE_KNF", "OPINIA_UKNF", "DANE_UTP", "DANE_BROKERSKIE", "KRS_REJESTR"];
-export const RECOMMENDED = ["ANALIZA_OSINT", "DANE_IP", "SPRAWOZDANIE_FIN", "RAPORT_ESPI_EBI", "SPEC_TECHNICZNA", "ZALACZNIK_OSOBOWY"];
+// Double-check kompletności (proces.docx): DANE_IP wymagane (Krok 4 — korelacja IP);
+// TREM i notowania zalecane (Krok 6 — analiza liczbowa; IV.1 — dynamika kursu).
+export const REQUIRED = ["POSTANOWIENIE", "ZAWIADOMIENIE_KNF", "OPINIA_UKNF", "DANE_UTP", "DANE_BROKERSKIE", "KRS_REJESTR", "DANE_IP"];
+export const RECOMMENDED = ["ANALIZA_OSINT", "DANE_TREM", "NOTOWANIA_REF", "SPRAWOZDANIE_FIN", "RAPORT_ESPI_EBI", "SPEC_TECHNICZNA", "ZALACZNIK_OSOBOWY"];

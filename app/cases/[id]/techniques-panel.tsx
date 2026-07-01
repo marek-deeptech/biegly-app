@@ -80,7 +80,7 @@ export default function TechniquesPanel({
         <strong> zawiadomienia KNF</strong>: możesz potwierdzić technikę wskazaną przez KNF,
         <strong> dodać</strong> tę, której KNF nie podniósł, a którą widać w danych, albo <strong>odrzucić</strong>
         tę bez pokrycia w dowodach. Zatwierdzony zestaw buduje rozdziały uzasadnień. Brak sygnału? Policz wskaźniki
-        (zakładka Sprawa) lub dodaj technikę ręcznie.
+        (zakładka Analiza liczbowa) lub dodaj technikę ręcznie.
       </p>
       <div className="space-y-2">
         {TECH_KINDS.map((k) => {

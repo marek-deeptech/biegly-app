@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 // Zasada evidence-only: to zakres do potwierdzenia, nie ustalona koordynacja.
 // „fragment" = ciąg dopasowywany w nazwach właścicieli rachunków w danych UTP.
 
-type Entity = { name: string; fragment: string };
+type Entity = { name: string; fragment: string; kind?: "podmiot" | "osoba" };
 type Roster = { entities?: Entity[]; fragments?: string[]; source?: string; confirmed_at?: string | null };
 
 const fragOf = (name: string) => name.trim().toLowerCase().split(/\s+/)[0] ?? "";
@@ -45,8 +45,8 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
     };
   }, [caseId]);
 
-  function add() {
-    setEntities((e) => [...e, { name: "", fragment: "" }]);
+  function add(kind: "podmiot" | "osoba") {
+    setEntities((e) => [...e, { name: "", fragment: "", kind }]);
     setDirty(true);
   }
   function update(i: number, patch: Partial<Entity>) {
@@ -62,7 +62,11 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
     setBusy(true);
     setMsg("");
     const clean = entities
-      .map((e) => ({ name: e.name.trim(), fragment: (e.fragment.trim() || fragOf(e.name)).toLowerCase() }))
+      .map((e) => ({
+        name: e.name.trim(),
+        fragment: (e.fragment.trim() || fragOf(e.name)).toLowerCase(),
+        kind: e.kind ?? "podmiot",
+      }))
       .filter((e) => e.fragment);
     const roster: Roster = {
       entities: clean,
@@ -92,7 +96,7 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
     <section className="mb-8 border border-ink/60 bg-card p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">
-          Grupa — podmioty objęte zarzutami (Krok 2)
+          Podmioty i osoby podejrzane (Krok 2)
         </h2>
         {confirmedAt && (
           <span className="text-xs text-inksoft">
@@ -122,45 +126,63 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
         <>
           {entities.length === 0 && (
             <p className="mb-2 text-xs text-inksoft">
-              Brak podmiotów. Dodaj te objęte zarzutami w zawiadomieniu — bez nich silnik użyje fragmentów domyślnych.
+              Brak pozycji. Dodaj podmioty i osoby objęte zarzutami w zawiadomieniu — bez nich silnik użyje
+              fragmentów domyślnych.
             </p>
           )}
-          <div className="space-y-2">
-            {entities.map((e, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-2">
-                <input
-                  value={e.name}
-                  onChange={(ev) => update(i, { name: ev.target.value })}
-                  onBlur={() => {
-                    if (e.name && !e.fragment) update(i, { fragment: fragOf(e.name) });
-                  }}
-                  placeholder="Nazwa podmiotu (np. Joyfix Ltd)"
-                  className="min-w-0 flex-1 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
-                />
-                <input
-                  value={e.fragment}
-                  onChange={(ev) => update(i, { fragment: ev.target.value })}
-                  placeholder="fragment (np. joyfix)"
-                  className="w-40 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
-                />
-                <button
-                  onClick={() => remove(i)}
-                  className="text-xs text-red-600 transition-colors hover:text-red-800"
-                  aria-label="Usuń podmiot"
-                >
-                  Usuń
-                </button>
+          {(["podmiot", "osoba"] as const).map((k) => {
+            const rows = entities.map((e, i) => ({ e, i })).filter(({ e }) => (e.kind ?? "podmiot") === k);
+            return (
+              <div key={k} className="mb-3">
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-xs font-medium">
+                    {k === "podmiot"
+                      ? `Podmioty prawne podejrzane (${rows.length})`
+                      : `Osoby podejrzane (${rows.length})`}
+                  </p>
+                  <button onClick={() => add(k)} className="text-xs text-inksoft underline-offset-2 hover:underline">
+                    + dodaj {k === "podmiot" ? "podmiot" : "osobę"}
+                  </button>
+                </div>
+                {rows.length === 0 ? (
+                  <p className="text-[11px] text-inksoft">brak</p>
+                ) : (
+                  <div className="space-y-2">
+                    {rows.map(({ e, i }) => (
+                      <div key={i} className="flex flex-wrap items-center gap-2">
+                        <input
+                          value={e.name}
+                          onChange={(ev) => update(i, { name: ev.target.value })}
+                          onBlur={() => {
+                            if (e.name && !e.fragment) update(i, { fragment: fragOf(e.name) });
+                          }}
+                          placeholder={
+                            k === "podmiot" ? "Nazwa podmiotu (np. Joyfix Ltd)" : "Imię i nazwisko (np. Jan Kowalski)"
+                          }
+                          className="min-w-0 flex-1 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+                        />
+                        <input
+                          value={e.fragment}
+                          onChange={(ev) => update(i, { fragment: ev.target.value })}
+                          placeholder="fragment (np. joyfix)"
+                          className="w-40 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+                        />
+                        <button
+                          onClick={() => remove(i)}
+                          className="text-xs text-red-600 transition-colors hover:text-red-800"
+                          aria-label="Usuń pozycję"
+                        >
+                          Usuń
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
+            );
+          })}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              onClick={add}
-              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper"
-            >
-              Dodaj podmiot
-            </button>
             <button
               onClick={save}
               disabled={busy || !dirty}

@@ -82,7 +82,10 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
-  const [tab, setTab] = useState<"overview" | "files" | "opinion">("overview");
+  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "opinion">("overview");
+  const [docTypeFilter, setDocTypeFilter] = useState("");
+  const [provFilter, setProvFilter] = useState("");
+  const [docSort, setDocSort] = useState<"name" | "size" | "type" | "status">("name");
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
@@ -126,10 +129,10 @@ export default function CaseDetail({
 
   const checklistOk = checklist.every((c) => c.present);
   const phases = [
-    { t: "Dokumenty", done: documents.length > 0 },
-    { t: "Kompletność", done: documents.length > 0 && checklistOk },
-    { t: "Analiza liczbowa", done: metrics.length > 0 },
-    { t: "Opinia", done: false },
+    { t: "Dokumenty", done: documents.length > 0, goto: "files" as const },
+    { t: "Kompletność", done: documents.length > 0 && checklistOk, goto: "overview" as const },
+    { t: "Analiza liczbowa", done: metrics.length > 0, goto: "analysis" as const },
+    { t: "Opinia", done: subanalyses.some((s) => s.status === "zatwierdzona"), goto: "opinion" as const },
   ];
 
   const utpDocs = useMemo(
@@ -150,10 +153,28 @@ export default function CaseDetail({
   );
   const activeTrem = selectedTrem || tremDocs[0]?.storage_path || "";
 
+  const typeCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const d of documents) c[d.doc_type] = (c[d.doc_type] ?? 0) + 1;
+    return Object.entries(c).sort((a, b) => b[1] - a[1]);
+  }, [documents]);
+
   const visibleDocs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q ? documents.filter((d) => d.rel_path.toLowerCase().includes(q)) : documents;
-  }, [documents, search]);
+    let list = documents;
+    if (q) list = list.filter((d) => d.rel_path.toLowerCase().includes(q));
+    if (docTypeFilter) list = list.filter((d) => d.doc_type === docTypeFilter);
+    if (provFilter === "magazyn") list = list.filter((d) => !d.storage_path);
+    else if (provFilter) list = list.filter((d) => d.provenance === provFilter);
+    const by: Record<typeof docSort, (a: Doc, b: Doc) => number> = {
+      name: (a, b) => a.rel_path.localeCompare(b.rel_path, "pl"),
+      size: (a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0),
+      type: (a, b) => a.doc_type.localeCompare(b.doc_type, "pl") || a.rel_path.localeCompare(b.rel_path, "pl"),
+      status: (a, b) =>
+        (a.provenance ?? "").localeCompare(b.provenance ?? "") || a.rel_path.localeCompare(b.rel_path, "pl"),
+    };
+    return [...list].sort(by[docSort]);
+  }, [documents, search, docTypeFilter, provFilter, docSort]);
 
   const analysis = useMemo(() => {
     if (!metrics.length) return null;
@@ -545,8 +566,13 @@ export default function CaseDetail({
         )}
       </header>
 
-      <div className="mb-6 flex gap-1 border-b border-ink/20">
-        {(["overview", "files", "opinion"] as const).map((t) => (
+      <div className="mb-6 flex flex-wrap gap-1 border-b border-ink/20">
+        {([
+          ["overview", `1 · Sprawa${documents.length > 0 && checklistOk ? " ✓" : ""}`],
+          ["files", `2 · Pliki (${documents.length})`],
+          ["analysis", `3 · Analiza liczbowa${metrics.length > 0 ? " ✓" : ""}`],
+          ["opinion", `4 · Opinia${subanalyses.some((s) => s.status === "zatwierdzona") ? " ✓" : ""}`],
+        ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -556,7 +582,7 @@ export default function CaseDetail({
                 : "border-transparent text-inksoft hover:text-ink"
             }`}
           >
-            {t === "overview" ? "Sprawa" : t === "files" ? `Pliki (${documents.length})` : "Opinia"}
+            {label}
           </button>
         ))}
       </div>
@@ -564,23 +590,55 @@ export default function CaseDetail({
       {tab === "overview" && (
         <>
       <section className="mb-8">
+        <p className="mb-2 text-[11px] uppercase tracking-wider text-inksoft">Kroki workflow</p>
         <ol className="flex flex-wrap gap-2">
           {phases.map((p, i) => (
-            <li
-              key={p.t}
-              className={`rounded-lg border px-3 py-2 text-xs ${
-                p.done
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-ink/20 bg-card text-inksoft"
-              }`}
-            >
-              {i + 1}. {p.t}
-              {p.done ? " ✓" : ""}
+            <li key={p.t}>
+              <button
+                onClick={() => setTab(p.goto)}
+                className={`rounded-lg border px-3 py-2 text-xs transition-colors hover:border-ink ${
+                  p.done
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border-ink/20 bg-card text-inksoft"
+                }`}
+              >
+                {i + 1}. {p.t}
+                {p.done ? " ✓" : " →"}
+              </button>
             </li>
           ))}
         </ol>
       </section>
 
+      <section className="mb-8 grid grid-cols-3 gap-3">
+        <Stat n={documents.length} label="dokumentów" />
+        <Stat n={stats.wej} label="wejście (dowody)" color="text-emerald-700" />
+        <Stat n={stats.wyj} label="wyjście (biegły)" color="text-amber-700" />
+      </section>
+
+      <section className="mb-8 border border-ink/60 bg-card p-4">
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em]">Pliki wg klasyfikacji</h2>
+        <div className="grid gap-x-6 sm:grid-cols-2">
+          {typeCounts.map(([dt, n]) => (
+            <button
+              key={dt}
+              onClick={() => {
+                setDocTypeFilter(dt);
+                setTab("files");
+              }}
+              className="flex items-center justify-between border-b border-line py-1.5 text-left text-sm transition-colors last:border-0 hover:text-ink"
+            >
+              <span className="truncate">{DOC_TYPES[dt]?.label ?? dt}</span>
+              <span className="ml-2 shrink-0 rounded-full bg-ink/10 px-2 py-0.5 text-xs">{n}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-inksoft">Kliknij kategorię, aby zobaczyć jej pliki w zakładce Pliki.</p>
+      </section>
+        </>
+      )}
+
+      {tab === "files" && (
       <section className="mb-8 border border-ink/60 bg-card p-4">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">Wgraj akta sprawy</h2>
         <p className="mb-3 text-xs text-inksoft">
@@ -642,13 +700,10 @@ export default function CaseDetail({
           </div>
         )}
       </section>
+      )}
 
-      <section className="mb-8 grid grid-cols-3 gap-3">
-        <Stat n={documents.length} label="dokumentów" />
-        <Stat n={stats.wej} label="wejście (dowody)" color="text-emerald-700" />
-        <Stat n={stats.wyj} label="wyjście (biegły)" color="text-amber-700" />
-      </section>
-
+      {tab === "overview" && (
+        <>
       <section className="mb-8 border border-ink/60 bg-card p-4">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em]">
           Dokumenty wymagane{" "}
@@ -673,15 +728,52 @@ export default function CaseDetail({
 
       {tab === "files" && (
       <section className="mb-8 border border-ink/60 bg-card">
-        <div className="flex items-center justify-between gap-3 border-b border-line p-3">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Dokumenty ({documents.length})</h2>
+        <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
+          <h2 className="mr-auto text-xs font-semibold uppercase tracking-[0.12em]">
+            Dokumenty ({visibleDocs.length}/{documents.length})
+          </h2>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="szukaj w nazwach…"
             aria-label="Szukaj w nazwach plików"
-            className="w-48 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+            className="w-44 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
+          <select
+            value={docTypeFilter}
+            onChange={(e) => setDocTypeFilter(e.target.value)}
+            aria-label="Filtruj po klasyfikacji"
+            className="max-w-[190px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
+          >
+            <option value="">typ: wszystkie</option>
+            {typeCounts.map(([dt, n]) => (
+              <option key={dt} value={dt}>
+                {(DOC_TYPES[dt]?.label ?? dt).slice(0, 34)} ({n})
+              </option>
+            ))}
+          </select>
+          <select
+            value={provFilter}
+            onChange={(e) => setProvFilter(e.target.value)}
+            aria-label="Filtruj po statusie"
+            className="rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
+          >
+            <option value="">status: wszystkie</option>
+            <option value="wejście">wejście (dowody)</option>
+            <option value="wyjście">wyjście (biegły)</option>
+            <option value="magazyn">nie w magazynie</option>
+          </select>
+          <select
+            value={docSort}
+            onChange={(e) => setDocSort(e.target.value as typeof docSort)}
+            aria-label="Sortowanie"
+            className="rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
+          >
+            <option value="name">sortuj: nazwa</option>
+            <option value="size">sortuj: rozmiar ↓</option>
+            <option value="type">sortuj: typ</option>
+            <option value="status">sortuj: status</option>
+          </select>
         </div>
         {suspectCount > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -814,7 +906,7 @@ export default function CaseDetail({
 
       {tab === "overview" && <RosterPanel caseId={caseRow.id} />}
 
-      {tab === "overview" && (
+      {tab === "analysis" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa (silnik faktów)</h2>
