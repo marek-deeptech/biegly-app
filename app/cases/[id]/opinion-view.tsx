@@ -274,13 +274,13 @@ export default function OpinionView({
           {wsub === "powiazania" && (
             <WarsztatStub
               title="Powiązania — dane (Krok 4)"
-              body="Korelacja zleceń z tych samych adresów IP oraz transakcje między rachunkami domów maklerskich — deterministycznie z silnika. Zasila rozdział relacji między podmiotami. (Faza 4)"
+              body="Powiązania między podmiotami wyliczone z twardych danych: korelacja zleceń składanych z tych samych adresów IP, transakcje między rachunkami w domach maklerskich, zbieżność czasowa i inne wzorce. Każde powiązanie ma źródło w dokumentach (który plik, które rachunki/IP, które sesje) — widać, skąd wniosek. Służy potwierdzeniu lub obaleniu tezy o działaniu wspólnie i w porozumieniu z zawiadomienia KNF; może ją rozszerzyć o powiązania, których KNF nie wykazał. (Silnik korelacji IP — Faza 4.)"
             />
           )}
           {wsub === "osint" && (
             <WarsztatStub
               title="Powiązania — OSINT (Krok 5)"
-              body="Powiązania z publicznie dostępnych źródeł: KRS/rejestry, wspólne zarządy, umowy cywilnoprawne, media społecznościowe. Każde powiązanie z cytowanym źródłem i potwierdzeniem biegłego. (Faza 5)"
+              body="Miękkie powiązania z publicznie dostępnych źródeł: rejestry KRS i wspólne zarządy/rady, umowy cywilnoprawne, media społecznościowe, powiązania właścicielskie. Aplikacja przeszukuje otwarte zasoby i każde ustalenie opatruje cytowanym źródłem (link/rejestr) oraz datą — nic bez provenance, bo opinia dla prokuratury nie może stać na niezweryfikowanym powiązaniu; biegły zatwierdza każde. Uzupełnia obraz z zawiadomienia KNF o powiązania osobowo-biznesowe, których w nim nie podniesiono. (Web/KRS — Faza 5.)"
             />
           )}
           {wsub === "liczby" && <LiczbyView metrics={metrics} />}
@@ -645,7 +645,7 @@ function LiczbyView({ metrics }: { metrics: Metric[] }) {
     return (
       <WarsztatStub
         title="Analiza liczbowa (Krok 6)"
-        body="Brak policzonych wskaźników. Wgraj główny plik UTP i kliknij „Policz wskaźniki” na zakładce Sprawa."
+        body="Deterministyczna analiza danych transakcyjnych z UTP (GPW), docelowo także TREM (UKNF) — liczbowy fundament wszystkich wniosków, którym weryfikujemy ilościowe tezy z zawiadomienia KNF. Brak policzonych wskaźników: wgraj główny plik UTP i kliknij „Policz wskaźniki” na zakładce Sprawa."
       />
     );
   const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
@@ -659,6 +659,13 @@ function LiczbyView({ metrics }: { metrics: Metric[] }) {
   return (
     <section className="border border-ink/60 bg-card p-4">
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa — podgląd (silnik faktów)</h2>
+      <p className="mb-3 text-xs leading-relaxed text-inksoft">
+        Deterministyczna analiza danych transakcyjnych (Krok 6) z UTP (GPW), docelowo także TREM (UKNF). To liczbowy
+        fundament wszystkich wniosków — liczy silnik (LLM nigdy), a każda liczba jest odtwarzalna co do sztuki i grosza
+        z pliku źródłowego. Tu potwierdzasz lub obalasz ilościowe tezy z zawiadomienia KNF: udział Grupy w obrocie,
+        wolumen transakcji wewnątrzgrupowych (wash), skalę anulacji zleceń (layering), tabele per podmiot. Wyniki mogą
+        rozszerzać ustalenia KNF (dodatkowe dni czy podmioty) albo się z nimi rozmijać, gdy dane pokazują co innego.
+      </p>
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-lg bg-card px-3 py-2">
           <div className="text-xs text-inksoft">Udział Grupy w obrocie</div>

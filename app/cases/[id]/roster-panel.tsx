@@ -100,10 +100,15 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
           </span>
         )}
       </div>
-      <p className="mb-3 text-xs text-inksoft">
-        Wpisz podmioty <strong>z zawiadomienia</strong> (zakres do weryfikacji) — nie z opinii. „Fragment” to ciąg
-        dopasowywany w danych UTP (np. <code>joyfix</code>). Sama koordynacja „Grupy” jest potwierdzana analizą
-        dowodową (IP, transakcje, OSINT), nie zakładana. Roster zasila silnik przy „Przelicz wskaźniki”.
+      <p className="mb-3 text-xs leading-relaxed text-inksoft">
+        Krąg podmiotów do zbadania. Punktem wyjścia jest <strong>zakres zarzutów z zawiadomienia KNF</strong>
+        (kogo wskazano jako podejrzanych) — nie ustalenia gotowej opinii. Aplikacja koroboruje i uzupełnia tę listę
+        na podstawie <strong>sygnałów dowodowych</strong> (wspólne adresy IP, pary transakcji wewnątrzgrupowych,
+        zbieżność czasowa zleceń), więc może <strong>potwierdzić</strong> krąg z zawiadomienia,
+        <strong> rozszerzyć</strong> go o podmiot wykryty w danych, albo <strong>zawęzić</strong>, gdy dla kogoś brak
+        śladu w dowodach. „Fragment” to ciąg dopasowywany w nazwach właścicieli rachunków w danych UTP
+        (np. <code>joyfix</code>). Sama koordynacja („Grupa”) jest <strong>przedmiotem weryfikacji</strong> w
+        zakładkach 3–5, nie założeniem. Roster zasila silnik przy „Przelicz wskaźniki”.
       </p>
 
       {needMigration ? (

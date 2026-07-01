@@ -72,10 +72,15 @@ export default function TechniquesPanel({
   return (
     <section className="border border-ink/60 bg-card p-4">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">Techniki manipulacji (Krok 3)</h2>
-      <p className="mb-3 text-xs text-inksoft">
-        Propozycja z <strong>sygnałów dowodowych</strong> (z metryk silnika), w oparciu o katalog art. 12 MAR.
-        Potwierdź lub odrzuć — wybór buduje zestaw rozdziałów uzasadnień. Brak sygnału? Policz najpierw wskaźniki
-        (zakładka Sprawa) albo dodaj technikę ręcznie.
+      <p className="mb-3 text-xs leading-relaxed text-inksoft">
+        Które techniki z katalogu <strong>art. 12 MAR</strong> faktycznie wystąpiły. Aplikacja
+        <strong> proponuje je z sygnałów dowodowych</strong> policzonych przez silnik (np. wysoki udział anulacji
+        zleceń → layering &amp; spoofing; wolumen transakcji wewnątrzgrupowych → wash trades) — każda propozycja
+        pokazuje swój <strong>sygnał liczbowy i dzień</strong>, więc widać, skąd wniosek. To weryfikacja hipotez z
+        <strong> zawiadomienia KNF</strong>: możesz potwierdzić technikę wskazaną przez KNF,
+        <strong> dodać</strong> tę, której KNF nie podniósł, a którą widać w danych, albo <strong>odrzucić</strong>
+        tę bez pokrycia w dowodach. Zatwierdzony zestaw buduje rozdziały uzasadnień. Brak sygnału? Policz wskaźniki
+        (zakładka Sprawa) lub dodaj technikę ręcznie.
       </p>
       <div className="space-y-2">
         {TECH_KINDS.map((k) => {
