@@ -17,6 +17,7 @@ import {
 } from "@/lib/opinion/build";
 import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
+import OsintPanel from "./osint-panel";
 import PowiazaniaPanel from "./powiazania-panel";
 import RosterPanel from "./roster-panel";
 import TechniquesPanel from "./techniques-panel";
@@ -329,12 +330,7 @@ export default function OpinionView({
           {wsub === "powiazania" && (
             <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />
           )}
-          {wsub === "osint" && (
-            <WarsztatStub
-              title="Powiązania — OSINT (Krok 5)"
-              body="Miękkie powiązania z publicznie dostępnych źródeł: rejestry KRS i wspólne zarządy/rady, umowy cywilnoprawne, media społecznościowe, powiązania właścicielskie. Aplikacja przeszukuje otwarte zasoby i każde ustalenie opatruje cytowanym źródłem (link/rejestr) oraz datą — nic bez provenance, bo opinia dla prokuratury nie może stać na niezweryfikowanym powiązaniu; biegły zatwierdza każde. Uzupełnia obraz z zawiadomienia KNF o powiązania osobowo-biznesowe, których w nim nie podniesiono. (Web/KRS — Faza 5.)"
-            />
-          )}
+          {wsub === "osint" && <OsintPanel caseId={caseId} stored={subanalyses} />}
           {wsub === "liczby" && <LiczbyView metrics={metrics} />}
         </div>
       )}
@@ -397,7 +393,7 @@ export default function OpinionView({
         )}
 
         <div className="space-y-4">
-          {subanalyses.filter((s) => !["techniki", "powiazania_dane"].includes(s.kind)).map((s) => {
+          {subanalyses.filter((s) => !["techniki", "powiazania_dane", "powiazania_osint"].includes(s.kind)).map((s) => {
             const approved = s.status === "zatwierdzona";
             return (
               <div key={s.id} className="border border-line bg-paper p-3">
