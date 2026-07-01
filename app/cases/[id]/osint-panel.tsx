@@ -24,6 +24,9 @@ type Krs = {
   source: string;
 };
 
+type SuggItem = { value: string; source?: string; why?: string };
+type Sugg = { krs: SuggItem[]; persons: SuggItem[]; entities: SuggItem[]; queries: SuggItem[] };
+
 const TYPES = [
   "wspólny zarząd / rada",
   "umowa cywilnoprawna",
@@ -53,10 +56,34 @@ export default function OsintPanel({
   const [wbusy, setWbusy] = useState(false);
   const [wmsg, setWmsg] = useState("");
   const [results, setResults] = useState<{ title: string; url: string; description: string }[]>([]);
+  const [sugg, setSugg] = useState<Sugg | null>(null);
+  const [sbusy, setSbusy] = useState(false);
+  const [smsg, setSmsg] = useState("");
 
-  async function searchWeb() {
-    const query = q.trim();
+  // Podpowiedzi z akt: model typuje KRS/nazwiska/podmioty/zapytania wyłącznie
+  // z danych sprawy (roster, nazwy plików, podmioty z metryk) — z podaniem źródła.
+  async function fetchSuggestions() {
+    setSbusy(true);
+    setSmsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/osint/suggest`);
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
+      setSugg(j.suggestions as Sugg);
+      const s = j.suggestions as Sugg;
+      if (!s.krs.length && !s.persons.length && !s.entities.length && !s.queries.length)
+        setSmsg("Model nie wytypował pozycji z dostępnych danych.");
+    } catch (e) {
+      setSmsg(`Podpowiedzi: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSbusy(false);
+    }
+  }
+
+  async function searchWeb(qArg?: string) {
+    const query = (qArg ?? q).trim();
     if (!query) return;
+    if (qArg) setQ(qArg);
     setWbusy(true);
     setWmsg("");
     try {
@@ -84,8 +111,8 @@ export default function OsintPanel({
     ]);
   }
 
-  async function lookupKrs() {
-    const n = krs.replace(/\D/g, "");
+  async function lookupKrs(numArg?: string) {
+    const n = (numArg ?? krs).replace(/\D/g, "");
     if (!n) return;
     setKbusy(true);
     setKmsg("");
@@ -191,6 +218,39 @@ export default function OsintPanel({
       </p>
 
       <div className="mb-4 rounded-lg border border-line bg-paper p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium">Wytypowane z akt (podpowiedzi modelu)</p>
+          <button
+            onClick={fetchSuggestions}
+            disabled={sbusy}
+            className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+          >
+            {sbusy ? "Typuję…" : sugg ? "Wytypuj ponownie" : "Wytypuj z dokumentacji"}
+          </button>
+        </div>
+        <p className="mb-2 text-[11px] text-inksoft">
+          Model typuje wyłącznie z danych sprawy (roster, nazwy plików akt, podmioty z danych transakcyjnych) —
+          każda pozycja wskazuje źródło. To punkt wyjścia do weryfikacji, nie ustalenie. Kliknięcie od razu
+          uruchamia sprawdzenie w KRS albo wyszukiwanie w sieci.
+        </p>
+        {smsg && <p className="mb-2 text-xs text-inksoft">{smsg}</p>}
+        {sugg && (
+          <div className="space-y-3">
+            <SuggGroup
+              title="1 · Numery KRS do sprawdzenia"
+              items={sugg.krs}
+              action="Sprawdź w KRS"
+              onAction={(v) => lookupKrs(v)}
+              empty="model nie znalazł jawnych numerów KRS w danych — wpisz numer ręcznie poniżej"
+            />
+            <SuggGroup title="2 · Nazwiska — powiązania w sieci" items={sugg.persons} action="Szukaj" onAction={(v) => searchWeb(v)} />
+            <SuggGroup title="3 · Podmioty — powiązania w sieci" items={sugg.entities} action="Szukaj" onAction={(v) => searchWeb(v)} />
+            <SuggGroup title="4 · Predefiniowane zapytania OSINT" items={sugg.queries} action="Szukaj" onAction={(v) => searchWeb(v)} />
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4 rounded-lg border border-line bg-paper p-3">
         <p className="mb-2 text-xs font-medium">Auto z KRS (oficjalny rejestr, bez klucza)</p>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <input
@@ -200,7 +260,7 @@ export default function OsintPanel({
             className="w-48 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
           <button
-            onClick={lookupKrs}
+            onClick={() => lookupKrs()}
             disabled={kbusy}
             className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
           >
@@ -256,7 +316,7 @@ export default function OsintPanel({
             <input type="checkbox" checked={social} onChange={(e) => setSocial(e.target.checked)} /> social
           </label>
           <button
-            onClick={searchWeb}
+            onClick={() => searchWeb()}
             disabled={wbusy}
             className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
           >
@@ -364,5 +424,43 @@ export default function OsintPanel({
         {msg && <span className="text-xs text-inksoft">{msg}</span>}
       </div>
     </section>
+  );
+}
+
+function SuggGroup({
+  title,
+  items,
+  action,
+  onAction,
+  empty,
+}: {
+  title: string;
+  items: SuggItem[];
+  action: string;
+  onAction: (value: string) => void;
+  empty?: string;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium">{title}</p>
+      {items.length === 0 ? (
+        <p className="text-[11px] text-inksoft">{empty ?? "brak pozycji"}</p>
+      ) : (
+        <div className="space-y-1">
+          {items.map((it, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 border border-line p-2 text-xs">
+              <div className="min-w-0 flex-1">
+                <span className="font-medium">{it.value}</span>
+                {it.why && <span className="text-inksoft"> — {it.why}</span>}
+                {it.source && <div className="truncate text-[11px] text-inksoft">źródło: {it.source}</div>}
+              </div>
+              <button onClick={() => onAction(it.value)} className="shrink-0 text-emerald-700 hover:underline">
+                {action}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
