@@ -17,6 +17,7 @@ import {
 } from "@/lib/opinion/build";
 import { casePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
+import RosterPanel from "./roster-panel";
 
 type Metric = {
   key: string;
@@ -84,7 +85,8 @@ export default function OpinionView({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
-  const [subtab, setSubtab] = useState<"warsztat" | "recenzent" | "montaz">("warsztat");
+  const [section, setSection] = useState<"warsztat" | "rozdzialy" | "montaz" | "recenzent">("warsztat");
+  const [wsub, setWsub] = useState<"podmioty" | "techniki" | "powiazania" | "osint" | "liczby">("podmioty");
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -218,15 +220,16 @@ export default function OpinionView({
     <div className="space-y-6">
       <div className="flex gap-1 border-b border-ink/20">
         {([
-          ["warsztat", "Warsztat"],
-          ["recenzent", `Recenzent${revIssues ? ` · ${revIssues}` : ""}`],
+          ["warsztat", "Warsztat dowodowy"],
+          ["rozdzialy", "Rozdziały"],
           ["montaz", `Montaż · ${ready}/${opinion.chapters.length}`],
+          ["recenzent", `Recenzent${revIssues ? ` · ${revIssues}` : ""}`],
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => setSubtab(key)}
+            onClick={() => setSection(key)}
             className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
-              subtab === key
+              section === key
                 ? "border-ink font-semibold text-ink"
                 : "border-transparent text-inksoft hover:text-ink"
             }`}
@@ -236,11 +239,57 @@ export default function OpinionView({
         ))}
       </div>
 
-      {/* ── Panel subanaliz (warsztat) ── */}
-      {subtab === "warsztat" && (
+      {/* ── Warsztat dowodowy (Kroki 2–6) — pod-zakładki A1–A5 ── */}
+      {section === "warsztat" && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-1 border-b border-line">
+            {([
+              ["podmioty", "1 · Podmioty"],
+              ["techniki", "2 · Techniki"],
+              ["powiazania", "3 · Powiązania (dane)"],
+              ["osint", "4 · OSINT"],
+              ["liczby", "5 · Liczby"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setWsub(key)}
+                className={`-mb-px border-b-2 px-3 py-1.5 text-xs transition-colors ${
+                  wsub === key ? "border-ink font-medium text-ink" : "border-transparent text-inksoft hover:text-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {wsub === "podmioty" && <RosterPanel caseId={caseId} />}
+          {wsub === "techniki" && (
+            <WarsztatStub
+              title="Techniki manipulacji (Krok 3)"
+              body="Aplikacja zaproponuje techniki z katalogu MAR art. 12 na podstawie sygnałów dowodowych (np. anulacje → layering, wolumen wewnątrzgrupowy → wash trades), do potwierdzenia przez biegłego. Wybór zbuduje zestaw rozdziałów uzasadnień. (Faza 2)"
+            />
+          )}
+          {wsub === "powiazania" && (
+            <WarsztatStub
+              title="Powiązania — dane (Krok 4)"
+              body="Korelacja zleceń z tych samych adresów IP oraz transakcje między rachunkami domów maklerskich — deterministycznie z silnika. Zasila rozdział relacji między podmiotami. (Faza 4)"
+            />
+          )}
+          {wsub === "osint" && (
+            <WarsztatStub
+              title="Powiązania — OSINT (Krok 5)"
+              body="Powiązania z publicznie dostępnych źródeł: KRS/rejestry, wspólne zarządy, umowy cywilnoprawne, media społecznościowe. Każde powiązanie z cytowanym źródłem i potwierdzeniem biegłego. (Faza 5)"
+            />
+          )}
+          {wsub === "liczby" && <LiczbyView metrics={metrics} />}
+        </div>
+      )}
+
+      {/* ── Rozdziały — drafty subanaliz ── */}
+      {section === "rozdzialy" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Subanalizy (warsztat)</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Rozdziały — drafty</h2>
           <div className="flex flex-wrap gap-2">
             {plan.map((p) =>
               generated.has(p.kind) ? null : (
@@ -288,8 +337,8 @@ export default function OpinionView({
 
         {subanalyses.length === 0 && !msg && (
           <p className="text-xs text-inksoft">
-            Brak subanaliz. Wygeneruj subanalizę ilościową z policzonych wskaźników — następnie możesz
-            ją edytować i zatwierdzić. Opinia montuje się wyłącznie z zatwierdzonych subanaliz.
+            Brak rozdziałów. Wygeneruj rozdziały z policzonych wskaźników i dowodów — następnie możesz je
+            edytować i zatwierdzić. Opinia montuje się wyłącznie z zatwierdzonych rozdziałów.
           </p>
         )}
 
@@ -389,7 +438,7 @@ export default function OpinionView({
       )}
 
       {/* ── Recenzent (QA#2) ── */}
-      {subtab === "recenzent" && (
+      {section === "recenzent" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Recenzent (QA#2)</h2>
@@ -429,7 +478,7 @@ export default function OpinionView({
       )}
 
       {/* ── Montaż opinii ── */}
-      {subtab === "montaz" && (
+      {section === "montaz" && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -575,5 +624,58 @@ function Legend({ cls, t }: { cls: string; t: string }) {
       <span className={`inline-block h-3 w-1 border-l-2 ${cls}`} />
       {t}
     </span>
+  );
+}
+
+// Zaślepka pod-zakładki warsztatu (A2–A4) — opis tego, co powstanie w danej fazie.
+function WarsztatStub({ title, body }: { title: string; body: string }) {
+  return (
+    <section className="border border-ink/60 bg-card p-4">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">{title}</h2>
+      <p className="text-sm text-inksoft">{body}</p>
+    </section>
+  );
+}
+
+// A5 Liczby — podgląd policzonych wskaźników (read-only; przelicznik jest na „Sprawa").
+function LiczbyView({ metrics }: { metrics: Metric[] }) {
+  if (!metrics.length)
+    return (
+      <WarsztatStub
+        title="Analiza liczbowa (Krok 6)"
+        body="Brak policzonych wskaźników. Wgraj główny plik UTP i kliknij „Policz wskaźniki” na zakładce Sprawa."
+      />
+    );
+  const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
+  const peak = (p: string) =>
+    metrics.filter((m) => m.key.startsWith(p)).reduce<Metric | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
+  const fmtv = (m: Metric | null) =>
+    m && m.value != null ? (m.unit === "%" ? `${m.value}%` : m.value.toLocaleString("pl-PL")) : "—";
+  const gs = find("group_turnover_share");
+  const wp = peak("wash_");
+  const cp = peak("cancel_");
+  return (
+    <section className="border border-ink/60 bg-card p-4">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa — podgląd (silnik faktów)</h2>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg bg-card px-3 py-2">
+          <div className="text-xs text-inksoft">Udział Grupy w obrocie</div>
+          <div className="text-lg font-semibold tabular-nums">{fmtv(gs)}</div>
+        </div>
+        <div className="rounded-lg bg-card px-3 py-2">
+          <div className="text-xs text-inksoft">Wash — szczyt</div>
+          <div className="text-lg font-semibold tabular-nums">{fmtv(wp)}</div>
+          <div className="text-xs text-inksoft">{wp?.session_day ?? ""}</div>
+        </div>
+        <div className="rounded-lg bg-card px-3 py-2">
+          <div className="text-xs text-inksoft">Anulacje — szczyt</div>
+          <div className="text-lg font-semibold tabular-nums">{fmtv(cp)}</div>
+          <div className="text-xs text-inksoft">{cp?.session_day ?? ""}</div>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-inksoft">
+        Pełny przelicznik i wybór pliku UTP — na zakładce „Sprawa”. TREM (UKNF) w planie (Faza 4).
+      </p>
+    </section>
   );
 }
