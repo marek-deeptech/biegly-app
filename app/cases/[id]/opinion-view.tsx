@@ -17,6 +17,7 @@ import {
 } from "@/lib/opinion/build";
 import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
+import PowiazaniaPanel from "./powiazania-panel";
 import RosterPanel from "./roster-panel";
 import TechniquesPanel from "./techniques-panel";
 
@@ -326,10 +327,7 @@ export default function OpinionView({
             <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />
           )}
           {wsub === "powiazania" && (
-            <WarsztatStub
-              title="Powiązania — dane (Krok 4)"
-              body="Powiązania między podmiotami wyliczone z twardych danych: korelacja zleceń składanych z tych samych adresów IP, transakcje między rachunkami w domach maklerskich, zbieżność czasowa i inne wzorce. Każde powiązanie ma źródło w dokumentach (który plik, które rachunki/IP, które sesje) — widać, skąd wniosek. Służy potwierdzeniu lub obaleniu tezy o działaniu wspólnie i w porozumieniu z zawiadomienia KNF; może ją rozszerzyć o powiązania, których KNF nie wykazał. (Silnik korelacji IP — Faza 4.)"
-            />
+            <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />
           )}
           {wsub === "osint" && (
             <WarsztatStub
@@ -399,7 +397,7 @@ export default function OpinionView({
         )}
 
         <div className="space-y-4">
-          {subanalyses.filter((s) => s.kind !== "techniki").map((s) => {
+          {subanalyses.filter((s) => !["techniki", "powiazania_dane"].includes(s.kind)).map((s) => {
             const approved = s.status === "zatwierdzona";
             return (
               <div key={s.id} className="border border-line bg-paper p-3">
