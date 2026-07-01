@@ -1,6 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { buildRedactPrompt, REDACT_META, type RedactChapter } from "@/lib/opinion/redact";
+import {
+  buildIvRedactPrompt,
+  buildRedactPrompt,
+  IV_REDACT_KINDS,
+  REDACT_META,
+  type IvRedactKind,
+  type RedactChapter,
+} from "@/lib/opinion/redact";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -30,8 +37,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   } catch {
     /* puste ciało */
   }
-  const chapter = body.chapter as RedactChapter;
-  if (!chapter || !REDACT_META[chapter])
+  const chapter = (body.chapter || "") as string;
+  const isIv = (IV_REDACT_KINDS as readonly string[]).includes(chapter);
+  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv))
     return Response.json({ ok: false, reason: "Nieznany rozdział." }, { status: 400 });
 
   const { data: caseRow } = await supabase.from("cases").select("name,signature").eq("id", id).single();
@@ -43,50 +51,85 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .eq("case_id", id);
   const { data: subs } = await supabase
     .from("subanalyses")
-    .select("title,status,data,chapter_no")
+    .select("kind,title,status,data,chapter_no")
     .eq("case_id", id);
 
   const m: MetricRow[] = metricsData ?? [];
-  const find = (k: string) => m.find((x) => x.key === k);
-  const peak = (p: string) =>
-    m.filter((x) => x.key.startsWith(p)).reduce<MetricRow | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
   const days = [...new Set(m.filter((x) => x.session_day).map((x) => x.session_day as string))].sort();
   const period = days.length ? `od ${days[0]} do ${days[days.length - 1]}` : null;
-  const num = (v: number | null | undefined, u: string) => (v == null ? "—" : u === "%" ? `${v}%` : `${v} ${u}`);
 
-  const facts: string[] = [];
-  const gs = find("group_turnover_share");
-  if (gs) facts.push(`Udział Grupy w wartości obrotu: ${num(gs.value, "%")}.`);
-  const wp = peak("wash_");
-  if (wp) facts.push(`Maksymalny udział transakcji wzajemnych w wolumenie sesji: ${num(wp.value, "%")} (sesja ${wp.session_day}).`);
-  const cp = peak("cancel_");
-  if (cp) facts.push(`Maksymalny udział anulacji zleceń kupna Grupy: ${num(cp.value, "%")} (sesja ${cp.session_day}).`);
+  let system: string;
+  let userPrompt: string;
+  let meta: unknown;
 
-  const approved = (subs ?? [])
-    .filter((s) => s.status === "zatwierdzona" && String(s.chapter_no).startsWith("IV"))
-    .map((s) => ({ title: s.title as string, findings: ((s.data?.findings ?? []) as string[]) }));
-
-  const legalBasis = [
-    "art. 12 rozporządzenia MAR (UE) 596/2014",
-    "rozporządzenie delegowane (UE) 2016/522, załącznik II",
-    "art. 183 ustawy o obrocie instrumentami finansowymi",
-  ];
-
-  const { system, user: userPrompt } = buildRedactPrompt({
-    chapter,
-    caseName: caseRow.name,
-    signature: caseRow.signature,
-    period,
-    facts,
-    approved,
-    legalBasis,
-  });
+  if (isIv) {
+    const sub = (subs ?? []).find((s) => s.kind === chapter);
+    if (!sub)
+      return Response.json({ ok: false, reason: "Najpierw wygeneruj ten rozdział (Generuj), potem rozwiń prozą." });
+    const table = sub.data?.table as { head?: string[]; rows?: string[][] } | null | undefined;
+    let tableText: string | null = null;
+    if (table?.head && table.rows?.length) {
+      const head = table.head.join(" | ");
+      const rows = table.rows.slice(0, 120).map((r) => r.join(" | ")).join("\n");
+      tableText = `${head}\n${rows}`;
+    }
+    const { data: docsData } = await supabase.from("documents").select("doc_type").eq("case_id", id);
+    const counts: Record<string, number> = {};
+    for (const d of docsData ?? []) counts[d.doc_type as string] = (counts[d.doc_type as string] ?? 0) + 1;
+    const inventory = Object.entries(counts).map(([k, v]) => `${v} × ${k}`);
+    const p = buildIvRedactPrompt({
+      kind: chapter as IvRedactKind,
+      title: (sub.title as string) || chapter,
+      caseName: caseRow.name,
+      signature: caseRow.signature,
+      period,
+      tableText,
+      findings: (sub.data?.findings ?? []) as string[],
+      inventory,
+      legalRefs: (sub.data?.legalRefs ?? []) as string[],
+    });
+    system = p.system;
+    userPrompt = p.user;
+    meta = { kind: chapter };
+  } else {
+    const find = (k: string) => m.find((x) => x.key === k);
+    const peak = (pfx: string) =>
+      m.filter((x) => x.key.startsWith(pfx)).reduce<MetricRow | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
+    const num = (v: number | null | undefined, u: string) => (v == null ? "—" : u === "%" ? `${v}%` : `${v} ${u}`);
+    const facts: string[] = [];
+    const gs = find("group_turnover_share");
+    if (gs) facts.push(`Udział Grupy w wartości obrotu: ${num(gs.value, "%")}.`);
+    const wp = peak("wash_");
+    if (wp) facts.push(`Maksymalny udział transakcji wzajemnych w wolumenie sesji: ${num(wp.value, "%")} (sesja ${wp.session_day}).`);
+    const cp = peak("cancel_");
+    if (cp) facts.push(`Maksymalny udział anulacji zleceń kupna Grupy: ${num(cp.value, "%")} (sesja ${cp.session_day}).`);
+    const approved = (subs ?? [])
+      .filter((s) => s.status === "zatwierdzona" && String(s.chapter_no).startsWith("IV"))
+      .map((s) => ({ title: s.title as string, findings: ((s.data?.findings ?? []) as string[]) }));
+    const legalBasis = [
+      "art. 12 rozporządzenia MAR (UE) 596/2014",
+      "rozporządzenie delegowane (UE) 2016/522, załącznik II",
+      "art. 183 ustawy o obrocie instrumentami finansowymi",
+    ];
+    const p = buildRedactPrompt({
+      chapter: chapter as RedactChapter,
+      caseName: caseRow.name,
+      signature: caseRow.signature,
+      period,
+      facts,
+      approved,
+      legalBasis,
+    });
+    system = p.system;
+    userPrompt = p.user;
+    meta = REDACT_META[chapter as RedactChapter];
+  }
 
   try {
     const client = new Anthropic();
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 2500,
+      max_tokens: isIv ? 4000 : 2500,
       system,
       messages: [{ role: "user", content: userPrompt }],
     });
@@ -96,7 +139,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .join("\n")
       .trim();
     if (!text) return Response.json({ ok: false, reason: "Model nie zwrócił treści." });
-    return Response.json({ ok: true, text, meta: REDACT_META[chapter] });
+    return Response.json({ ok: true, text, meta });
   } catch (e) {
     return Response.json({ ok: false, reason: "Błąd modelu: " + (e as Error).message });
   }

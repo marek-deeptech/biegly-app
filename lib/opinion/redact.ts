@@ -65,3 +65,70 @@ export function buildRedactPrompt(inp: RedactInput): { system: string; user: str
   parts.push("Objętość: 2–4 akapity. Styl: formalny, bezosobowy, prawniczy. Zwróć samą treść rozdziału.");
   return { system: SYSTEM, user: parts.join("\n\n") };
 }
+
+// ── Redakcja rozdziałów IV (analiza) — narracja wokół liczb z silnika ──
+export const IV_REDACT_KINDS = [
+  "ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump",
+] as const;
+export type IvRedactKind = (typeof IV_REDACT_KINDS)[number];
+
+const IV_PURPOSE: Record<IvRedactKind, string> = {
+  ekofin:
+    "Analiza ekonomiczno-finansowa i otoczenie rynkowe — czy zmiana kursu i wolumenu znajduje uzasadnienie w sytuacji finansowej spółki oraz informacjach publicznych, czy jest oderwana od fundamentów (test falsyfikacji).",
+  espi:
+    "Analiza raportów bieżących ESPI/EBI — czy komunikaty spółki były cenotwórcze, czy wypełniały definicję informacji poufnej, czy nosiły znamiona manipulacji informacją.",
+  aktywnosc:
+    "Aktywność podmiotów z Grupy — skala i koncentracja obecności Grupy w obrocie instrumentem, z omówieniem zestawienia per podmiot.",
+  relacje:
+    "Identyfikacja relacji między podmiotami Grupy — powiązania osobowe, zbieżność adresów IP, wspólni pełnomocnicy — jako przesłanki działania wspólnie i w porozumieniu.",
+  wash:
+    "Wash trades (sztuczny obrót) — transakcje wewnątrzgrupowe generujące pozorny obrót; omów udziały dzień po dniu.",
+  imo:
+    "Improper matched orders — składanie zleceń o zbliżonych parametrach i czasie prowadzące do wzajemnego dopasowania.",
+  layering:
+    "Layering & spoofing — składanie i anulowanie zleceń bez zamiaru realizacji; omów anulacje sesja po sesji.",
+  pumpdump:
+    "Pump and dump — faza pompowania kursu i późniejszej wyprzedaży pakietu.",
+};
+
+export type IvRedactInput = {
+  kind: IvRedactKind;
+  title: string;
+  caseName: string;
+  signature: string | null;
+  period: string | null;
+  tableText: string | null; // wygenerowana tabela jako tekst (dzień/podmiot × wartość)
+  findings: string[];
+  inventory: string[]; // inwentarz dokumentów w aktach
+  legalRefs: string[];
+};
+
+export function buildIvRedactPrompt(inp: IvRedactInput): { system: string; user: string } {
+  const parts: string[] = [];
+  parts.push(`Zredaguj rozdział analizy (część IV opinii biegłego): „${inp.title}".`);
+  parts.push(`Sprawa: ${inp.caseName}${inp.signature ? ` (sygn. ${inp.signature})` : ""}.`);
+  if (inp.period) parts.push(`Okres objęty analizą: ${inp.period}.`);
+  parts.push(`Cel rozdziału: ${IV_PURPOSE[inp.kind]}`);
+  if (inp.legalRefs.length) parts.push(`Odniesienia prawne do wplecenia: ${inp.legalRefs.join("; ")}.`);
+  if (inp.tableText)
+    parts.push(
+      "Dane liczbowe z deterministycznego silnika (przepisz wartości DOKŁADNIE; omów je pozycja po pozycji — " +
+        "dzień po dniu / podmiot po podmiocie — wskazując wartości szczytowe i ich znaczenie):\n" +
+        inp.tableText,
+    );
+  if (inp.findings.length)
+    parts.push("Ustalenia cząstkowe do rozwinięcia w prozę:\n" + inp.findings.map((f) => "- " + f).join("\n"));
+  if (inp.inventory.length)
+    parts.push(
+      "Dokumenty w aktach (możesz się na nie powołać rodzajowo; nie zmyślaj innych):\n" +
+        inp.inventory.map((f) => "- " + f).join("\n"),
+    );
+  parts.push(
+    "Napisz gęstą analizę w stylu opinii biegłego: (1) wprowadzenie z odesłaniem do rozdziału III (ujęcie teoretyczne), " +
+      "(2) omówienie danych pozycja po pozycji z interpretacją (dni/podmioty szczytowe, tendencje), " +
+      "(3) zakotwiczenie w art. 12 MAR oraz załączniku II do rozporządzenia 2016/522, (4) wniosek cząstkowy. " +
+      "Objętość: 6–12 akapitów. Liczby wyłącznie z podanych danych — nie wymyślaj żadnych; czego brak, oznacz [do uzupełnienia]. " +
+      "Nie przesądzaj o winie ani zamiarze. Zwróć samą treść rozdziału, bez nagłówka.",
+  );
+  return { system: SYSTEM, user: parts.join("\n\n") };
+}

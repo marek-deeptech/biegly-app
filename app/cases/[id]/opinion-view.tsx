@@ -197,6 +197,38 @@ export default function OpinionView({
       setMsg("Błąd sieci przy redakcji.");
     }
   }
+  // Rozwinięcie rozdziału IV w prozę przez model — aktualizuje TYLKO body_md,
+  // zachowując dane (tabela/findings). Model pisze narrację wokół liczb z silnika.
+  async function expandChapter(kind: string) {
+    setBusy("expand-" + kind);
+    setMsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/redact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapter: kind }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setMsg(j.reason || "Błąd redakcji.");
+        setBusy(null);
+        return;
+      }
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("subanalyses")
+        .update({ body_md: j.text, status: "szkic", approved_at: null })
+        .eq("case_id", caseId)
+        .eq("kind", kind);
+      setBusy(null);
+      if (error) setMsg(migrationHint(error.message));
+      else router.refresh();
+    } catch {
+      setBusy(null);
+      setMsg("Błąd sieci przy redakcji.");
+    }
+  }
+
   const hasKind = (k: string) => subanalyses.some((s) => s.kind === k);
 
   async function saveBody(s: SubRow) {
@@ -454,6 +486,16 @@ export default function OpinionView({
                           className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
                         >
                           {s.kind === "wnioski" ? "Odśwież z subanaliz" : "Odśwież z danych"}
+                        </button>
+                      )}
+                      {["ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump"].includes(s.kind) && (
+                        <button
+                          onClick={() => expandChapter(s.kind)}
+                          disabled={busy !== null}
+                          className="text-xs uppercase tracking-wider text-inksoft underline-offset-2 hover:underline disabled:opacity-40"
+                          title="Model rozwija rozdział w prozę wokół liczb z silnika (liczb nie zmienia)"
+                        >
+                          {busy === "expand-" + s.kind ? "Redaguję…" : "Rozwiń prozą (model)"}
                         </button>
                       )}
                       {s.kind.startsWith("proza_") && (
