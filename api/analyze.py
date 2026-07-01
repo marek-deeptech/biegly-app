@@ -49,7 +49,21 @@ class handler(BaseHTTPRequestHandler):
                              "'Transakcje_i_Zlecenia ... prok.xlsx'.",
                 })
                 return
-            rows = compute_all(tx, zo)
+
+            # Krok 2: roster „Grupy" per sprawa (z zawiadomienia) → group_fragments.
+            # Brak kolumny/rostera = fallback do None (domyślne fragmenty z settings).
+            fragments = None
+            try:
+                _, rb = _req("GET", f"{BASE}/rest/v1/cases?id=eq.{case_id}&select=group_roster")
+                arr = json.loads(rb or b"[]")
+                gr = (arr[0].get("group_roster") if arr else None) or {}
+                frs = gr.get("fragments")
+                if isinstance(frs, list) and frs:
+                    fragments = [str(x).strip().lower() for x in frs if str(x).strip()]
+            except Exception:  # noqa: BLE001
+                fragments = None
+
+            rows = compute_all(tx, zo, fragments)
 
             _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}",
                  headers={"Prefer": "return=minimal"})

@@ -9,6 +9,7 @@ import { DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
+import RosterPanel from "./roster-panel";
 import Zenek from "./zenek";
 
 type CaseRow = { id: string; name: string; signature: string | null };
@@ -783,6 +784,8 @@ export default function CaseDetail({
         )}
       </section>
       )}
+
+      {tab === "overview" && <RosterPanel caseId={caseRow.id} />}
 
       {tab === "overview" && (
       <section className="border border-ink/60 bg-card p-4">
