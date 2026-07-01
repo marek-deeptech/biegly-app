@@ -10,6 +10,19 @@ import { createClient } from "@/lib/supabase/client";
 // źródła wpis nie jest zapisywany — opinia nie może stać na niezweryfikowanym linku.
 
 type Link = { typ: string; podmioty: string; opis: string; zrodlo: string; data: string };
+type Krs = {
+  nazwa: string;
+  forma: string;
+  krs: string;
+  nip: string;
+  regon: string;
+  adres: string;
+  email: string;
+  www: string;
+  stanZDnia: string;
+  persons: { funkcja: string; osoba: string }[];
+  source: string;
+};
 
 const TYPES = [
   "wspólny zarząd / rada",
@@ -31,6 +44,44 @@ export default function OsintPanel({
   const [links, setLinks] = useState<Link[]>((existing?.data as { osint?: Link[] } | null)?.osint ?? []);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [krs, setKrs] = useState("");
+  const [kbusy, setKbusy] = useState(false);
+  const [kmsg, setKmsg] = useState("");
+  const [fetched, setFetched] = useState<Krs[]>([]);
+
+  async function lookupKrs() {
+    const n = krs.replace(/\D/g, "");
+    if (!n) return;
+    setKbusy(true);
+    setKmsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/osint/krs?krs=${n}`);
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
+      const c: Krs = { ...j.company, persons: j.persons ?? [], source: j.source };
+      setFetched((f) => [c, ...f.filter((x) => x.krs !== c.krs)]);
+      setKrs("");
+    } catch (e) {
+      setKmsg(`KRS: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setKbusy(false);
+    }
+  }
+  function addFromKrs(c: Krs) {
+    const org = c.persons.length
+      ? ` · organy (dane zamaskowane w rejestrze publicznym): ${c.persons.slice(0, 6).map((p) => `${p.osoba} (${p.funkcja})`).join(", ")}`
+      : "";
+    setLinks((l) => [
+      ...l,
+      {
+        typ: "powiązania właścicielskie",
+        podmioty: c.nazwa,
+        opis: `KRS ${c.krs}, NIP ${c.nip}, adres: ${c.adres}${org}`,
+        zrodlo: c.source,
+        data: c.stanZDnia,
+      },
+    ]);
+  }
 
   function add() {
     setLinks((l) => [...l, { typ: TYPES[0], podmioty: "", opis: "", zrodlo: "", data: "" }]);
@@ -91,6 +142,9 @@ export default function OsintPanel({
     router.refresh();
   }
 
+  const addrCount = new Map<string, number>();
+  fetched.forEach((c) => c.adres && addrCount.set(c.adres, (addrCount.get(c.adres) ?? 0) + 1));
+
   return (
     <section className="border border-ink/60 bg-card p-4">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">Powiązania — OSINT (Krok 5)</h2>
@@ -98,8 +152,61 @@ export default function OsintPanel({
         Miękkie powiązania z <strong>publicznie dostępnych źródeł</strong>: rejestry KRS i wspólne zarządy/rady, umowy
         cywilnoprawne, media społecznościowe, powiązania właścicielskie. <strong>Każdy wpis wymaga cytowanego źródła</strong>
         {" "}(URL/rejestr) — bez niego nie zostaje zapisany. Uzupełnia obraz z zawiadomienia KNF o powiązania, których w
-        nim nie podniesiono; biegły zatwierdza każde. (Auto-podpowiedzi z web/KRS — kolejny krok Fazy 5.)
+        nim nie podniesiono; biegły zatwierdza każde. (KRS — poniżej; web i media społecznościowe — kolejny krok.)
       </p>
+
+      <div className="mb-4 rounded-lg border border-line bg-paper p-3">
+        <p className="mb-2 text-xs font-medium">Auto z KRS (oficjalny rejestr, bez klucza)</p>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <input
+            value={krs}
+            onChange={(e) => setKrs(e.target.value)}
+            placeholder="numer KRS (10 cyfr)"
+            className="w-48 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+          />
+          <button
+            onClick={lookupKrs}
+            disabled={kbusy}
+            className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+          >
+            {kbusy ? "Pobieram…" : "Pobierz z KRS"}
+          </button>
+          {kmsg && <span className="text-xs text-red-600">{kmsg}</span>}
+        </div>
+        <p className="mb-2 text-[11px] text-inksoft">
+          Dane spółki są jawne; skład organów w rejestrze publicznym jest zamaskowany (pełne dane — w odpisie z akt
+          sądowych). Wspólny adres kilku podmiotów bywa sygnałem powiązania.
+        </p>
+        {fetched.map((c) => {
+          const shared = !!c.adres && (addrCount.get(c.adres) ?? 0) >= 2;
+          return (
+            <div key={c.krs} className="mb-2 border border-line p-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                  {c.nazwa || "(bez nazwy)"} <span className="text-inksoft">· KRS {c.krs}</span>
+                </span>
+                <button onClick={() => addFromKrs(c)} className="shrink-0 text-emerald-700 hover:underline">
+                  Dodaj do powiązań
+                </button>
+              </div>
+              <div className="text-inksoft">
+                {c.forma}
+                {c.nip ? ` · NIP ${c.nip}` : ""}
+              </div>
+              <div className="text-inksoft">
+                Adres: {c.adres || "—"}{" "}
+                {shared && <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">wspólny adres</span>}
+              </div>
+              {c.persons.length > 0 && (
+                <div className="mt-1 text-inksoft">
+                  Organy (zamaskowane): {c.persons.slice(0, 6).map((p) => `${p.osoba} (${p.funkcja})`).join(", ")}
+                  {c.persons.length > 6 ? "…" : ""}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {links.length === 0 && (
         <p className="mb-2 text-xs text-inksoft">Brak powiązań. Dodaj pierwsze — pamiętaj o źródle.</p>
