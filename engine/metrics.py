@@ -139,6 +139,32 @@ def per_entity_breakdown(transactions: list[dict], group_fragments: list[str] | 
     return out
 
 
+def per_day_breakdown(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
+    """Rozbicie per sesja: wolumen/wartość sesji, obrót z udziałem Grupy oraz
+    obrót wewnątrzgrupowy (obie strony w Grupie). Źródło tabel dziennych (Tab 24–28)."""
+    agg: dict[str, dict] = defaultdict(
+        lambda: {"sv": 0.0, "sval": 0.0, "gv": 0.0, "gval": 0.0, "iv": 0.0, "ival": 0.0, "cnt": 0, "icnt": 0}
+    )
+    for r in transactions:
+        d = session_date(r.get("DATA_SESJI"))
+        vol = r.get("WOLUMEN") or 0
+        val = r.get("WARTOSC_TR") or 0
+        a = agg[d]
+        a["sv"] += vol
+        a["sval"] += val
+        a["cnt"] += 1
+        gb = is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+        gs = is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if gb or gs:
+            a["gv"] += vol
+            a["gval"] += val
+        if gb and gs:
+            a["iv"] += vol
+            a["ival"] += val
+            a["icnt"] += 1
+    return [{"day": d, **a} for d, a in sorted(agg.items())]
+
+
 def per_session_layering(
     orders: list[dict], owner_map: dict, group_fragments: list[str] | None = None
 ) -> list[dict]:

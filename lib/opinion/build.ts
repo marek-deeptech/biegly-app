@@ -148,14 +148,18 @@ function cap(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-// Pivot metryk per podmiot (ent_sell_share:: / ent_sell_vol::) → lista podmiotów.
-function pivotEntities(metrics: Metric[]): { entity: string; share: number | null; vol: number | null }[] {
-  const map = new Map<string, { share: number | null; vol: number | null }>();
-  const get = (e: string) => map.get(e) ?? { share: null, vol: null };
+// Pivot metryk per podmiot (ent_sell_share/val/vol::) → lista podmiotów.
+type EntRow = { entity: string; share: number | null; val: number | null; vol: number | null };
+function pivotEntities(metrics: Metric[]): EntRow[] {
+  const map = new Map<string, { share: number | null; val: number | null; vol: number | null }>();
+  const get = (e: string) => map.get(e) ?? { share: null, val: null, vol: null };
   for (const m of metrics) {
     if (m.key.startsWith("ent_sell_share::")) {
       const e = m.key.split("::")[1];
       map.set(e, { ...get(e), share: m.value });
+    } else if (m.key.startsWith("ent_sell_val::")) {
+      const e = m.key.split("::")[1];
+      map.set(e, { ...get(e), val: m.value });
     } else if (m.key.startsWith("ent_sell_vol::")) {
       const e = m.key.split("::")[1];
       map.set(e, { ...get(e), vol: m.value });
@@ -170,15 +174,40 @@ function entityTable(metrics: Metric[]): OpTable | null {
   const ents = pivotEntities(metrics);
   if (!ents.length) return null;
   return {
-    caption: "Tabela. Zestawienie per podmiot z Grupy — udział i wolumen sprzedaży",
-    head: ["Podmiot", "Udział sprzedaży", "Wolumen sprzedaży"],
-    rows: ents.map((e) => [cap(e.entity), plnum(e.share, "%"), plnum(e.vol, "szt")]),
+    caption: "Tabela. Zestawienie per podmiot z Grupy — wartość, udział i wolumen sprzedaży",
+    head: ["Podmiot", "Wartość sprzedaży (zł)", "Udział sprzedaży", "Wolumen sprzedaży"],
+    rows: ents.map((e) => [cap(e.entity), plnum(e.val, "zł"), plnum(e.share, "%"), plnum(e.vol, "szt")]),
   };
 }
 
-function topSeller(metrics: Metric[]): { entity: string; share: number | null; vol: number | null } | null {
+function topSeller(metrics: Metric[]): EntRow | null {
   const ents = pivotEntities(metrics);
   return ents.length ? ents[0] : null;
+}
+
+// Bogata tabela dzienna wash (odpowiednik Tab 24–28): sesja × wolumen/wartość/udziały.
+function washDailyTable(metrics: Metric[]): OpTable | null {
+  const days = [...new Set(metrics.filter((m) => m.key === "day_sess_vol").map((m) => m.session_day as string))].sort();
+  if (!days.length) return null;
+  const at = (k: string, d: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  const washOf = (d: string) => metrics.find((m) => m.session_day === d && m.key.startsWith("wash_"))?.value ?? null;
+  return {
+    caption: "Tabela. Obrót Grupy i wewnątrzgrupowy per sesja (wolumen, wartość, udziały)",
+    head: ["Sesja", "Wolumen sesji", "Wolumen wewnątrzgr.", "Wash %", "Wartość Grupy (zł)", "Udział Grupy wart."],
+    rows: days.map((d) => {
+      const sval = at("day_sess_val", d);
+      const gval = at("day_grp_val", d);
+      const gshare = gval != null && sval ? Math.round((gval / sval) * 10000) / 100 : null;
+      return [
+        d,
+        plnum(at("day_sess_vol", d), "szt"),
+        plnum(at("day_intra_vol", d), "szt"),
+        plnum(washOf(d), "%"),
+        plnum(gval, "zł"),
+        plnum(gshare, "%"),
+      ];
+    }),
+  };
 }
 
 // Pivot layering per sesja i podmiot (lay_share:: / lay_cancelled::) → tabela.
@@ -267,12 +296,14 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table: dailyTable(
-        metrics,
-        "wash_",
-        "Tabela. Udział transakcji wewnątrzgrupowych (wash trades) w wolumenie sesji",
-        "Wash-trades (% wolumenu)",
-      ),
+      table:
+        washDailyTable(metrics) ??
+        dailyTable(
+          metrics,
+          "wash_",
+          "Tabela. Udział transakcji wewnątrzgrupowych (wash trades) w wolumenie sesji",
+          "Wash-trades (% wolumenu)",
+        ),
       findings,
       legalRefs: [t.mar, t.rd, LEGAL_REFS.manipulacja],
     },

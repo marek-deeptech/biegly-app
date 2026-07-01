@@ -71,3 +71,16 @@ def test_per_session_layering_matches_cancelled():
     day_total = sum(r["cancelled_volume"] for r in rows if r["day"] == "2020-10-08")
     cbs = metrics.cancelled_buy_share(orders, owner_map, "2020-10-08", FRAGS)
     assert round(day_total) == round(cbs["cancelled_volume"])
+
+
+def test_per_day_breakdown():
+    tx = [
+        {**_tx("Alfa Ltd", "Beta Ltd", 100, 1000), "DATA_SESJI": "2022-05-02"},   # obie strony Grupa
+        {**_tx("Outsider", "Alfa Ltd", 50, 500), "DATA_SESJI": "2022-05-02"},      # jedna strona Grupa
+        {**_tx("Outsider", "Outsider2", 10, 100), "DATA_SESJI": "2022-05-02"},     # spoza Grupy
+    ]
+    d = metrics.per_day_breakdown(tx, FRAGS)[0]
+    assert d["day"] == "2022-05-02"
+    assert d["sv"] == 160 and round(d["sval"]) == 1600      # sesja
+    assert d["gv"] == 150 and round(d["gval"]) == 1500      # >=1 strona Grupa
+    assert d["iv"] == 100 and round(d["ival"]) == 1000      # obie strony Grupa (wash)
