@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 
 import { classify } from "@/lib/intake/classify";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
@@ -128,11 +128,12 @@ export default function CaseDetail({
   }, [documents]);
 
   const checklistOk = checklist.every((c) => c.present);
-  const phases = [
-    { t: "Dokumenty", done: documents.length > 0, goto: "files" as const },
-    { t: "Kompletność", done: documents.length > 0 && checklistOk, goto: "overview" as const },
-    { t: "Analiza liczbowa", done: metrics.length > 0, goto: "analysis" as const },
-    { t: "Opinia", done: subanalyses.some((s) => s.status === "zatwierdzona"), goto: "opinion" as const },
+  // Kroki procesu = główna nawigacja (stepper): Sprawa → Pliki → Analiza → Opinia.
+  const steps = [
+    { key: "overview" as const, label: "Sprawa", done: documents.length > 0 && checklistOk },
+    { key: "files" as const, label: `Pliki · ${documents.length}`, done: documents.length > 0 },
+    { key: "analysis" as const, label: "Analiza liczbowa", done: metrics.length > 0 },
+    { key: "opinion" as const, label: "Opinia", done: subanalyses.some((s) => s.status === "zatwierdzona") },
   ];
 
   const utpDocs = useMemo(
@@ -493,7 +494,7 @@ export default function CaseDetail({
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-3 flex items-center justify-between">
         <Link href="/" className="text-sm text-inksoft transition-colors hover:text-ink">
           ← Sprawy
@@ -566,50 +567,43 @@ export default function CaseDetail({
         )}
       </header>
 
-      <div className="mb-6 flex flex-wrap gap-1 border-b border-ink/20">
-        {([
-          ["overview", `1 · Sprawa${documents.length > 0 && checklistOk ? " ✓" : ""}`],
-          ["files", `2 · Pliki (${documents.length})`],
-          ["analysis", `3 · Analiza liczbowa${metrics.length > 0 ? " ✓" : ""}`],
-          ["opinion", `4 · Opinia${subanalyses.some((s) => s.status === "zatwierdzona") ? " ✓" : ""}`],
-        ] as const).map(([t, label]) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
-              tab === t
-                ? "border-ink font-semibold text-ink"
-                : "border-transparent text-inksoft hover:text-ink"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-8 flex flex-wrap items-center gap-y-2 border-b border-ink/20 pb-5">
+        {steps.map((s, i) => {
+          const active = tab === s.key;
+          return (
+            <Fragment key={s.key}>
+              {i > 0 && <span className="mx-2 hidden h-px min-w-6 flex-1 bg-ink/20 sm:block" />}
+              <button
+                onClick={() => setTab(s.key)}
+                className="group flex items-center gap-2 pr-3 focus-visible:outline-none sm:pr-0"
+                aria-current={active ? "step" : undefined}
+              >
+                <span
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-ink text-paper"
+                      : s.done
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "border border-ink/30 text-inksoft group-hover:border-ink"
+                  }`}
+                >
+                  {s.done && !active ? "✓" : i + 1}
+                </span>
+                <span
+                  className={`text-sm transition-colors ${
+                    active ? "font-semibold text-ink" : s.done ? "text-ink/80" : "text-inksoft group-hover:text-ink"
+                  }`}
+                >
+                  {s.label}
+                </span>
+              </button>
+            </Fragment>
+          );
+        })}
       </div>
 
       {tab === "overview" && (
         <>
-      <section className="mb-8">
-        <p className="mb-2 text-[11px] uppercase tracking-wider text-inksoft">Kroki workflow</p>
-        <ol className="flex flex-wrap gap-2">
-          {phases.map((p, i) => (
-            <li key={p.t}>
-              <button
-                onClick={() => setTab(p.goto)}
-                className={`rounded-lg border px-3 py-2 text-xs transition-colors hover:border-ink ${
-                  p.done
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : "border-ink/20 bg-card text-inksoft"
-                }`}
-              >
-                {i + 1}. {p.t}
-                {p.done ? " ✓" : " →"}
-              </button>
-            </li>
-          ))}
-        </ol>
-      </section>
-
       <section className="mb-8 grid grid-cols-3 gap-3">
         <Stat n={documents.length} label="dokumentów" />
         <Stat n={stats.wej} label="wejście (dowody)" color="text-emerald-700" />

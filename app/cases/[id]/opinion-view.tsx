@@ -309,27 +309,62 @@ export default function OpinionView({
   ];
   const stepsApproved = steps.filter((s) => isApproved(s.kind)).length;
 
+  const navGroups: {
+    group: string;
+    items: { key: typeof view; label: string; badge?: string; badgeCls?: string }[];
+  }[] = [
+    {
+      group: "Warsztat dowodowy",
+      items: [
+        { key: "techniki", label: "Techniki" },
+        { key: "powiazania", label: "Powiązania (dane)" },
+        { key: "osint", label: "OSINT" },
+      ],
+    },
+    {
+      group: "Redakcja opinii",
+      items: [
+        { key: "rozdzialy", label: "Rozdziały" },
+        {
+          key: "montaz",
+          label: "Montaż",
+          badge: `${ready}/${opinion.chapters.length}`,
+          badgeCls:
+            ready === opinion.chapters.length ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
+        },
+        {
+          key: "recenzent",
+          label: "Recenzent",
+          badge: revIssues ? String(revIssues) : undefined,
+          badgeCls: "bg-red-100 text-red-800",
+        },
+      ],
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-1 border-b border-ink/20">
-        <span className="px-1 py-2 text-[10px] uppercase tracking-wider text-inksoft">Warsztat:</span>
-        {([
-          ["techniki", "Techniki"],
-          ["powiazania", "Powiązania (dane)"],
-          ["osint", "OSINT"],
-        ] as const).map(([key, label]) => (
-          <NavBtn key={key} active={view === key} onClick={() => setView(key)} label={label} />
+    <div className="flex flex-col gap-6 md:flex-row">
+      <nav className="md:w-48 md:shrink-0" aria-label="Sekcje opinii">
+        {navGroups.map((g) => (
+          <div key={g.group} className="mb-4">
+            <p className="px-3 pb-1 text-[11px] uppercase tracking-wider text-inksoft">{g.group}</p>
+            <div className="flex flex-wrap gap-1 md:flex-col">
+              {g.items.map((it) => (
+                <SideItem
+                  key={it.key}
+                  active={view === it.key}
+                  onClick={() => setView(it.key)}
+                  label={it.label}
+                  badge={it.badge}
+                  badgeCls={it.badgeCls}
+                />
+              ))}
+            </div>
+          </div>
         ))}
-        <span className="mx-2 hidden h-4 w-px bg-ink/20 sm:inline-block" />
-        <span className="px-1 py-2 text-[10px] uppercase tracking-wider text-inksoft">Redakcja:</span>
-        {([
-          ["rozdzialy", "Rozdziały"],
-          ["montaz", `Montaż · ${ready}/${opinion.chapters.length}`],
-          ["recenzent", `Recenzent${revIssues ? ` · ${revIssues}` : ""}`],
-        ] as const).map(([key, label]) => (
-          <NavBtn key={key} active={view === key} onClick={() => setView(key)} label={label} />
-        ))}
-      </div>
+      </nav>
+
+      <div className="min-w-0 flex-1 space-y-6">
 
       {/* ── Warsztat dowodowy (Kroki 3–5) — Podmioty są w zakładce Sprawa, Liczby w Analizie liczbowej ── */}
       {view === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />}
@@ -749,6 +784,8 @@ export default function OpinionView({
         </ol>
       </section>
       )}
+
+      </div>
     </div>
   );
 }
@@ -791,16 +828,38 @@ function Legend({ cls, t }: { cls: string; t: string }) {
   );
 }
 
-// Przycisk nawigacji sekcji Opinii (jeden pasek: Warsztat · Redakcja).
-function NavBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+// Pozycja bocznego menu sekcji Opinii (grupy: Warsztat dowodowy / Redakcja opinii).
+function SideItem({
+  active,
+  onClick,
+  label,
+  badge,
+  badgeCls,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  badge?: string;
+  badgeCls?: string;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`-mb-px border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
-        active ? "border-ink font-semibold text-ink" : "border-transparent text-inksoft hover:text-ink"
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors md:w-full ${
+        active ? "bg-ink text-paper" : "text-inksoft hover:bg-ink/5 hover:text-ink"
       }`}
     >
-      {label}
+      <span>{label}</span>
+      {badge && (
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] ${
+            active ? "bg-paper/20 text-paper" : badgeCls ?? "bg-ink/10 text-inksoft"
+          }`}
+        >
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
