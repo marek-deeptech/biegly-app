@@ -6,8 +6,10 @@ w tabeli `metrics`.
 """
 from __future__ import annotations
 
+from collections import defaultdict
+
 from . import metrics
-from .identity import build_account_owner_map
+from .identity import build_account_owner_map, canonical_group, is_group
 from .loader import session_date
 
 
@@ -59,4 +61,53 @@ def compute_all(
         out.append(_m(f"lay_cancelled::{r['entity']}", f"Anulowano — {r['entity']}",
                       round(r["cancelled_volume"]), "szt", r["day"]))
 
+    return out
+
+
+def compute_trem(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
+    """Metryki transakcyjne z pliku TREM (arkusz IAD_C_TREM) — jednoprzebiegowo.
+
+    TREM nie zawiera pełnej książki zleceń, więc bez anulacji/layeringu: liczba
+    transakcji, wartość, wolumen, udział Grupy, wash/dzień oraz tabela per podmiot.
+    Klucze te same co przy UTP, więc zasilają te same rozdziały. Definicje zgodne
+    z metrics.py (wash = wolumen, gdy obie strony należą do Grupy)."""
+    out: list[dict] = []
+    n = len(transactions)
+    total_val = 0.0
+    total_vol = 0.0
+    group_val = 0.0
+    sess_vol: dict[str, float] = defaultdict(float)
+    intra_vol: dict[str, float] = defaultdict(float)
+    ent: dict[str, dict] = defaultdict(lambda: {"sv": 0.0, "svol": 0.0})
+    for r in transactions:
+        val = r.get("WARTOSC_TR") or 0
+        vol = r.get("WOLUMEN") or 0
+        total_val += val
+        total_vol += vol
+        d = session_date(r.get("DATA_SESJI"))
+        sess_vol[d] += vol
+        gb = is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+        gs = is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if gb or gs:
+            group_val += val
+        if gb and gs:
+            intra_vol[d] += vol
+        cs = canonical_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if cs:
+            ent[cs]["sv"] += val
+            ent[cs]["svol"] += vol
+
+    out.append(_m("totals_transactions", "Liczba transakcji", n, "szt"))
+    out.append(_m("totals_value", "Wartość obrotu", round(total_val, 2), "zł"))
+    out.append(_m("totals_volume", "Wolumen obrotu", round(total_vol), "szt"))
+    out.append(_m("group_turnover_value", "Obrót z udziałem Grupy", round(group_val, 2), "zł"))
+    out.append(_m("group_turnover_share", "Udział Grupy w wartości obrotu",
+                  round(group_val / total_val * 100, 2) if total_val else 0.0, "%"))
+    for d in sorted(sess_vol):
+        share = intra_vol[d] / sess_vol[d] * 100 if sess_vol[d] else 0.0
+        out.append(_m(f"wash_{d}", "Wash-trades (udział w wolumenie sesji)", round(share, 2), "%", d))
+    for e, agg in sorted(ent.items(), key=lambda x: -x[1]["sv"]):
+        out.append(_m(f"ent_sell_share::{e}", f"Udział sprzedaży — {e}",
+                      round(agg["sv"] / total_val * 100, 2) if total_val else 0.0, "%"))
+        out.append(_m(f"ent_sell_vol::{e}", f"Wolumen sprzedaży — {e}", round(agg["svol"]), "szt"))
     return out

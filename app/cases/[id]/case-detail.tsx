@@ -73,6 +73,7 @@ export default function CaseDetail({
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
   const [selectedUtp, setSelectedUtp] = useState("");
+  const [selectedTrem, setSelectedTrem] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(caseRow.name);
   const [sigVal, setSigVal] = useState(caseRow.signature ?? "");
@@ -143,6 +144,11 @@ export default function CaseDetail({
     [documents],
   );
   const activeUtp = selectedUtp || utpDocs[0]?.storage_path || "";
+  const tremDocs = useMemo(
+    () => documents.filter((d) => /trem/i.test(d.rel_path) && d.storage_path && /\.xls[mx]$/i.test(d.rel_path)),
+    [documents],
+  );
+  const activeTrem = selectedTrem || tremDocs[0]?.storage_path || "";
 
   const visibleDocs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -439,6 +445,27 @@ export default function CaseDetail({
       router.refresh();
     } catch (e) {
       setAnalyzeMsg(`Błąd analizy: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  async function runTrem() {
+    if (!activeTrem) return;
+    setAnalyzing(true);
+    setAnalyzeMsg("");
+    try {
+      const res = await fetch("/api/trem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId: caseRow.id, storagePath: activeTrem }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      notify(`Policzono z TREM: ${data.metrics} wskaźników`);
+      router.refresh();
+    } catch (e) {
+      setAnalyzeMsg(`Błąd analizy TREM: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setAnalyzing(false);
     }
@@ -808,9 +835,27 @@ export default function CaseDetail({
             <button onClick={runAnalysis} disabled={!activeUtp || analyzing} className={BTN_PRIMARY}>
               {analyzing ? "Liczę…" : metrics.length > 0 ? "Przelicz wskaźniki" : "Policz wskaźniki"}
             </button>
+            {tremDocs.length > 0 && (
+              <>
+                <select
+                  value={activeTrem}
+                  onChange={(e) => setSelectedTrem(e.target.value)}
+                  className="max-w-[200px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
+                >
+                  {tremDocs.map((d) => (
+                    <option key={d.id} value={d.storage_path ?? ""}>
+                      {basename(d.rel_path)}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={runTrem} disabled={!activeTrem || analyzing} className={BTN_SECONDARY}>
+                  {analyzing ? "Liczę…" : "Policz z TREM"}
+                </button>
+              </>
+            )}
           </div>
         </div>
-        {!activeUtp && (
+        {!activeUtp && tremDocs.length === 0 && (
           <p className="text-xs text-inksoft">
             {otherUtpCount > 0
               ? "Wgrane pliki UTP to dane źródłowe per-dzień — silnik liczy z głównego pliku łączonego. Wgraj „Transakcje_i_Zlecenia … prok.xlsx”, aby policzyć wskaźniki."
