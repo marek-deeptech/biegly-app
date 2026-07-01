@@ -1,5 +1,20 @@
 import * as tus from "tus-js-client";
 
+// Klucz obiektu w Supabase Storage musi być ASCII — klucze z polskimi znakami
+// (ł, ą, ż, ó, ń, ś, ć, ę, ź…) są odrzucane, przez co upload cicho pada.
+// Transliterujemy diakrytyki i zamieniamy pozostałe znaki spoza ASCII na „_”.
+// Oryginalna nazwa/ścieżka zostaje w `rel_path` (do wyświetlania).
+const PL: Record<string, string> = {
+  ą: "a", ć: "c", ę: "e", ł: "l", ń: "n", ó: "o", ś: "s", ź: "z", ż: "z",
+  Ą: "A", Ć: "C", Ę: "E", Ł: "L", Ń: "N", Ó: "O", Ś: "S", Ź: "Z", Ż: "Z",
+};
+export function storageKey(path: string): string {
+  let s = path.replace(/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/g, (c) => PL[c] ?? c);
+  s = s.normalize("NFKD").replace(/[̀-ͯ]/g, ""); // pozostałe diakrytyki
+  s = s.replace(/[^\x20-\x7E]/g, "_"); // cokolwiek jeszcze spoza ASCII → „_”
+  return s;
+}
+
 // Upload wznawialny (TUS) do Supabase Storage — niezawodny dla dużych plików
 // i daje realny postęp w bajtach.
 export function uploadResumable(opts: {

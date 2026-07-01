@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from "react";
 import { classify } from "@/lib/intake/classify";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
-import { uploadResumable } from "@/lib/upload";
+import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import RosterPanel from "./roster-panel";
 import Zenek from "./zenek";
@@ -229,7 +229,7 @@ export default function CaseDetail({
     for (let i = 0; i < toUpload.length; i++) {
       const f = toUpload[i];
       const rel = relOf(f);
-      const storagePath = `${caseRow.id}/${rel}`;
+      const storagePath = storageKey(`${caseRow.id}/${rel}`);
       let uploaded = true;
       try {
         if (!token) throw new Error("brak sesji");
@@ -284,7 +284,7 @@ export default function CaseDetail({
     const supabase = createClient();
     const token = await authToken();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const storagePath = doc.storage_path || `${caseRow.id}/${doc.rel_path}`;
+    const storagePath = doc.storage_path || storageKey(`${caseRow.id}/${doc.rel_path}`);
     let uploaded = true;
     try {
       if (!token) throw new Error("brak sesji");
@@ -376,7 +376,7 @@ export default function CaseDetail({
     for (let i = 0; i < matched.length; i++) {
       const f = matched[i];
       const doc = byBase.get(f.name)!;
-      const storagePath = doc.storage_path || `${caseRow.id}/${doc.rel_path}`;
+      const storagePath = doc.storage_path || storageKey(`${caseRow.id}/${doc.rel_path}`);
       let ok = true;
       try {
         if (!token) throw new Error("brak sesji");
