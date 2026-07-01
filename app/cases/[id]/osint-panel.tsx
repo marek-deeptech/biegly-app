@@ -48,6 +48,41 @@ export default function OsintPanel({
   const [kbusy, setKbusy] = useState(false);
   const [kmsg, setKmsg] = useState("");
   const [fetched, setFetched] = useState<Krs[]>([]);
+  const [q, setQ] = useState("");
+  const [social, setSocial] = useState(false);
+  const [wbusy, setWbusy] = useState(false);
+  const [wmsg, setWmsg] = useState("");
+  const [results, setResults] = useState<{ title: string; url: string; description: string }[]>([]);
+
+  async function searchWeb() {
+    const query = q.trim();
+    if (!query) return;
+    setWbusy(true);
+    setWmsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/osint/web?q=${encodeURIComponent(query)}&social=${social ? "1" : "0"}`);
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
+      setResults(j.results ?? []);
+      if (!j.results?.length) setWmsg("Brak wyników.");
+    } catch (e) {
+      setWmsg(`Web: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setWbusy(false);
+    }
+  }
+  function addFromWeb(res: { title: string; url: string; description: string }) {
+    setLinks((l) => [
+      ...l,
+      {
+        typ: social ? "media społecznościowe" : "inne",
+        podmioty: q.trim(),
+        opis: res.title || res.description,
+        zrodlo: res.url,
+        data: new Date().toISOString().slice(0, 10),
+      },
+    ]);
+  }
 
   async function lookupKrs() {
     const n = krs.replace(/\D/g, "");
@@ -206,6 +241,51 @@ export default function OsintPanel({
             </div>
           );
         })}
+      </div>
+
+      <div className="mb-4 rounded-lg border border-line bg-paper p-3">
+        <p className="mb-2 text-xs font-medium">Szukaj w sieci (Brave)</p>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="zapytanie (np. „Joyfix Ltd Pawlikowski”)"
+            className="min-w-0 flex-1 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
+          />
+          <label className="flex items-center gap-1 text-xs text-inksoft">
+            <input type="checkbox" checked={social} onChange={(e) => setSocial(e.target.checked)} /> social
+          </label>
+          <button
+            onClick={searchWeb}
+            disabled={wbusy}
+            className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+          >
+            {wbusy ? "Szukam…" : "Szukaj"}
+          </button>
+          {wmsg && <span className="text-xs text-inksoft">{wmsg}</span>}
+        </div>
+        <p className="mb-2 text-[11px] text-inksoft">
+          „social” zawęża do LinkedIn/X/Facebook/Instagram. Dodaj trafny wynik do powiązań — URL trafia jako źródło.
+        </p>
+        {results.map((res, i) => (
+          <div key={i} className="mb-2 border border-line p-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <a
+                href={res.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 flex-1 truncate font-medium text-ink underline-offset-2 hover:underline"
+              >
+                {res.title || res.url}
+              </a>
+              <button onClick={() => addFromWeb(res)} className="shrink-0 text-emerald-700 hover:underline">
+                Dodaj do powiązań
+              </button>
+            </div>
+            <div className="truncate text-inksoft">{res.url}</div>
+            {res.description && <div className="mt-0.5 text-inksoft">{res.description}</div>}
+          </div>
+        ))}
       </div>
 
       {links.length === 0 && (
