@@ -112,11 +112,27 @@ export default function OpinionView({
   const canWnioski = subanalyses.some((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"));
   const draftFor = (s: SubRow) => drafts[s.id] ?? s.body_md;
 
+  // Zabezpieczenie przed utratą treści: generator zapisuje krótki szkic z silnika,
+  // więc nadpisanie rozwiniętej/zatwierdzonej prozy wymaga potwierdzenia.
+  function confirmOverwrite(kind: string, newLen: number): boolean {
+    const ex = subanalyses.find((s) => s.kind === kind);
+    if (!ex) return true;
+    const approved = ex.status === "zatwierdzona";
+    const losingProse = ex.body_md.length > 1500 && ex.body_md.length > newLen * 1.5;
+    if (!approved && !losingProse) return true;
+    return window.confirm(
+      `„${ex.title}”: obecna treść (${ex.body_md.length.toLocaleString("pl-PL")} zn.${approved ? ", ZATWIERDZONA" : ""}) ` +
+        `zostanie zastąpiona szkicem z silnika (${newLen.toLocaleString("pl-PL")} zn.). Rozwinięta proza przepadnie.\n\n` +
+        `Kontynuować? Po odświeżeniu użyj „Rozwiń prozą (model)”, aby odtworzyć narrację.`,
+    );
+  }
+
   async function saveGenerated(result: SubResult | null, overwrite = false) {
     if (!result) {
       setMsg("Brak danych do wygenerowania — najpierw policz wskaźniki na zakładce Analiza liczbowa.");
       return;
     }
+    if (!confirmOverwrite(result.kind, result.bodyMd.length)) return;
     setBusy("gen-" + result.kind);
     setMsg("");
     const supabase = createClient();
@@ -164,6 +180,16 @@ export default function OpinionView({
   // Redakcja rozdziału miękkiego przez model (Claude API). Model redaguje prozę —
   // liczby i fakty wstrzykiwane są z silnika po stronie serwera.
   async function redact(chapter: "I" | "III" | "V") {
+    // Zatwierdzona treść (np. rozdz. I z danymi sprawy) — ponowna redakcja nadpisze ją.
+    const exR = subanalyses.find((s) => s.kind === `proza_${chapter.toLowerCase()}`);
+    if (
+      exR?.status === "zatwierdzona" &&
+      !window.confirm(
+        `Rozdział ${chapter} ma ZATWIERDZONĄ treść (${exR.body_md.length.toLocaleString("pl-PL")} zn.). ` +
+          `Ponowna redakcja modelem nadpisze ją i cofnie status do szkicu.\n\nKontynuować?`,
+      )
+    )
+      return;
     setBusy("redact-" + chapter);
     setMsg("");
     try {
@@ -203,6 +229,16 @@ export default function OpinionView({
   // Rozwinięcie rozdziału IV w prozę przez model — aktualizuje TYLKO body_md,
   // zachowując dane (tabela/findings). Model pisze narrację wokół liczb z silnika.
   async function expandChapter(kind: string) {
+    // Rozwinięcie prozą nadpisuje treść — przy zatwierdzonym rozdziale potwierdź.
+    const exE = subanalyses.find((s) => s.kind === kind);
+    if (
+      exE?.status === "zatwierdzona" &&
+      !window.confirm(
+        `„${exE.title}” jest ZATWIERDZONY (${exE.body_md.length.toLocaleString("pl-PL")} zn.). ` +
+          `Rozwinięcie prozą nadpisze treść nową wersją modelu i cofnie status do szkicu.\n\nKontynuować?`,
+      )
+    )
+      return;
     setBusy("expand-" + kind);
     setMsg("");
     try {
