@@ -119,6 +119,38 @@ def compute_all(
         for k, v in mo["thresholds"].items():
             out.append(_m(f"imo_thr_{k}s", f"Zlecenia dopasowane ≤{k}s (wewnątrzgr.)", v, "szt"))
 
+    # Fixing (zał. I lit. g MAR) — udział Grupy przy ustalaniu kursów otwarcia/zamknięcia.
+    for r in metrics.fixing_activity(transactions, group_fragments):
+        d = r["day"]
+        if r["open_vol"]:
+            out.append(_m("fix_open_share", "Udział Grupy w fixingu otwarcia", round(r["open_share"] * 100, 2), "%", d))
+        if r["close_vol"]:
+            out.append(_m("fix_close_share", "Udział Grupy w fixingu zamknięcia", round(r["close_share"] * 100, 2), "%", d))
+            out.append(_m("fix_close_vol", "Wolumen fixingu zamknięcia", round(r["close_vol"]), "szt", d))
+    for r in metrics.prefixing_cancelled_orders(orders, owner_map, group_fragments):
+        out.append(_m("fix_pre_cancel_cnt", "Zlecenia Grupy 16:50–17:00 niezrealizowane", r["count"], "szt", r["day"]))
+        out.append(_m("fix_pre_cancel_vol", "Wolumen zleceń 16:50–17:00 niezrealizowanych", round(r["volume"]), "szt", r["day"]))
+
+    # Odwrócenie pozycji w krótkim okresie (zał. I lit. d MAR) — per (sesja, podmiot).
+    for r in metrics.position_reversals(transactions, group_fragments)[:40]:
+        out.append(_m(f"rev_val::{r['entity']}", f"Odwrócenie pozycji — {r['entity']}",
+                      round(r["reversal_value"], 2), "zł", r["day"]))
+
+    # Koncentracja śródsesyjna (zał. I lit. e MAR) — szczytowy kubełek 15-min Grupy.
+    for r in metrics.intraday_concentration(transactions, group_fragments):
+        out.append(_m("conc_peak_share", f"Koncentracja Grupy {r['window']}",
+                      round(r["share_of_session"] * 100, 2), "%", r["day"]))
+
+    # Fazy pump/dump (metodyka Nowak 2024, rozdz. 5.4) — na kursach zamknięcia.
+    pd = metrics.pump_dump_phases(transactions, group_fragments)
+    if pd and pd["pump_pct"] is not None:
+        out.append(_m("phase_pump_pct", "Faza pump (zamknięcie początkowe → szczyt)", round(pd["pump_pct"], 2), "%", pd["peak_day"]))
+        out.append(_m("phase_dump_pct", "Faza dump (szczyt → zamknięcie końcowe)", round(pd["dump_pct"], 2), "%", pd["last_day"]))
+        out.append(_m("phase_total_pct", "Zmiana zamknięcie → zamknięcie (całość)", round(pd["total_pct"], 2), "%", pd["last_day"]))
+        out.append(_m("phase_close_first", "Kurs zamknięcia — początek okresu", round(pd["close_first"], 4), "zł", pd["first_day"]))
+        out.append(_m("phase_close_peak", "Kurs zamknięcia — szczyt", round(pd["close_peak"], 4), "zł", pd["peak_day"]))
+        out.append(_m("phase_close_last", "Kurs zamknięcia — koniec okresu", round(pd["close_last"], 4), "zł", pd["last_day"]))
+
     # Layering per sesja i podmiot — tylko podmioty z faktycznymi anulacjami.
     for r in metrics.per_session_layering(orders, owner_map, group_fragments):
         if r["cancelled_volume"] <= 0:
@@ -247,4 +279,23 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
             continue
         out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
         out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
+    # Detektory zał. I MAR (lit. d/e/g) + fazy pump/dump — odporne na brak pól czasu.
+    for r in metrics.fixing_activity(transactions, group_fragments):
+        d = r["day"]
+        if r["open_vol"]:
+            out.append(_m("fix_open_share", "Udział Grupy w fixingu otwarcia", round(r["open_share"] * 100, 2), "%", d))
+        if r["close_vol"]:
+            out.append(_m("fix_close_share", "Udział Grupy w fixingu zamknięcia", round(r["close_share"] * 100, 2), "%", d))
+            out.append(_m("fix_close_vol", "Wolumen fixingu zamknięcia", round(r["close_vol"]), "szt", d))
+    for r in metrics.position_reversals(transactions, group_fragments)[:40]:
+        out.append(_m(f"rev_val::{r['entity']}", f"Odwrócenie pozycji — {r['entity']}",
+                      round(r["reversal_value"], 2), "zł", r["day"]))
+    for r in metrics.intraday_concentration(transactions, group_fragments):
+        out.append(_m("conc_peak_share", f"Koncentracja Grupy {r['window']}",
+                      round(r["share_of_session"] * 100, 2), "%", r["day"]))
+    pd = metrics.pump_dump_phases(transactions, group_fragments)
+    if pd and pd["pump_pct"] is not None:
+        out.append(_m("phase_pump_pct", "Faza pump (zamknięcie początkowe → szczyt)", round(pd["pump_pct"], 2), "%", pd["peak_day"]))
+        out.append(_m("phase_dump_pct", "Faza dump (szczyt → zamknięcie końcowe)", round(pd["dump_pct"], 2), "%", pd["last_day"]))
+        out.append(_m("phase_total_pct", "Zmiana zamknięcie → zamknięcie (całość)", round(pd["total_pct"], 2), "%", pd["last_day"]))
     return out

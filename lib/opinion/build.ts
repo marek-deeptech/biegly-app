@@ -7,6 +7,7 @@
 // pokazuje miejsce w strukturze oznaczone jako „do wygenerowania".
 
 import {
+  annexIRef,
   LEGAL_REFS,
   PROSECUTOR_QUESTIONS,
   TECHNIQUES,
@@ -288,6 +289,45 @@ function saldoTable(metrics: Metric[]): OpTable | null {
   };
 }
 
+// Fixing (zał. I lit. A pkt g MAR) — udział Grupy przy ustalaniu kursów otwarcia
+// i zamknięcia per sesja + zlecenia „zachęcające" 16:50–17:00 niezrealizowane.
+function fixingTable(metrics: Metric[]): OpTable | null {
+  const days = [
+    ...new Set(
+      metrics.filter((m) => m.key === "fix_close_share" || m.key === "fix_open_share").map((m) => m.session_day as string),
+    ),
+  ].sort();
+  if (!days.length) return null;
+  const at = (k: string, d: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  return {
+    caption:
+      "Tabela. Aktywność Grupy przy ustalaniu kursów odniesienia (fixing) — udział w wolumenie fixingu otwarcia i zamknięcia oraz zlecenia z fazy przed zamknięciem niezrealizowane",
+    head: ["Sesja", "Fixing otwarcia — udział Grupy", "Fixing zamknięcia — udział Grupy", "Wolumen fix. zamknięcia", "Zlec. 16:50–17:00 niezreal. (szt)"],
+    rows: days.map((d) => [
+      d,
+      plnum(at("fix_open_share", d), "%"),
+      plnum(at("fix_close_share", d), "%"),
+      plnum(at("fix_close_vol", d), "szt"),
+      plnum(at("fix_pre_cancel_cnt", d)),
+    ]),
+  };
+}
+
+// Odwrócenie pozycji w krótkim okresie (zał. I lit. A pkt d MAR) — podmioty Grupy
+// kupujące i sprzedające w tej samej sesji (min z wartości kupna i sprzedaży).
+function reversalTable(metrics: Metric[]): OpTable | null {
+  const rows = metrics
+    .filter((m) => m.key.startsWith("rev_val::") && m.session_day)
+    .map((m) => ({ day: m.session_day as string, entity: m.key.split("::")[1], value: m.value }))
+    .sort((a, b) => (a.day === b.day ? (b.value ?? 0) - (a.value ?? 0) : a.day.localeCompare(b.day)));
+  if (!rows.length) return null;
+  return {
+    caption: "Tabela. Odwrócenie pozycji w tej samej sesji — podmioty Grupy kupujące i sprzedające (wartość odwrócenia)",
+    head: ["Sesja", "Podmiot", "Odwrócenie pozycji (zł)"],
+    rows: rows.map((r) => [r.day, cap(r.entity), plnum(r.value, "zł")]),
+  };
+}
+
 // Improper matched orders per sesja — liczba i wartość zleceń wewnątrzgrupowych
 // dopasowanych w czasie (≤ próg s). Źródło: metryki imo_day_count / imo_day_value.
 function imoSessionTable(metrics: Metric[]): OpTable | null {
@@ -454,6 +494,16 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
     );
   if (groupShare?.value != null)
     findings.push(`Udział Grupy w wartości obrotu: ${plnum(groupShare.value, "%")}.`);
+  // Odwrócenie pozycji w tej samej sesji (zał. I lit. A pkt d MAR).
+  const revTop = metrics
+    .filter((m) => m.key.startsWith("rev_val::"))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
+  if (revTop?.value != null)
+    findings.push(
+      `Odwrócenie pozycji w jednej sesji (${annexIRef("d")}): największe — ` +
+        `${cap(revTop.key.split("::")[1])}, ${plnum(revTop.value, "zł")} (${revTop.session_day}).`,
+    );
+
   const washTables = [
     washDailyTable(metrics) ??
       dailyTable(
@@ -463,6 +513,7 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
         "Wash-trades (% wolumenu)",
       ),
     perSessionEntityTable(metrics),
+    reversalTable(metrics),
   ].filter((x): x is OpTable => x != null);
   return {
     kind: "wash",
@@ -473,7 +524,7 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
       table: washTables[0] ?? null,
       tables: washTables.length ? washTables : undefined,
       findings,
-      legalRefs: [t.mar, t.rd, LEGAL_REFS.manipulacja],
+      legalRefs: [t.mar, t.rd, annexIRef("c"), annexIRef("d"), LEGAL_REFS.manipulacja],
     },
   };
 }
@@ -527,7 +578,7 @@ function buildLayeringSubanaliza(caseName: string, metrics: Metric[], perSession
           "Anulacje kupna (%)",
         ),
       findings,
-      legalRefs: [t.mar, t.rd],
+      legalRefs: [t.mar, t.rd, annexIRef("f")],
     },
   };
 }
@@ -599,7 +650,7 @@ function buildImoSubanaliza(caseName: string, metrics: Metric[]): SubResult {
       table: tables[0] ?? null,
       tables: tables.length ? tables : undefined,
       findings,
-      legalRefs: [t.mar, t.rd, LEGAL_REFS.manipulacja],
+      legalRefs: [t.mar, t.rd, annexIRef("c"), LEGAL_REFS.manipulacja],
     },
   };
 }
@@ -722,6 +773,27 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents
     );
   }
 
+  // Fixing (lit. g) i koncentracja śródsesyjna (lit. e) — z detektorów silnika.
+  const fixPeak = mpeak(metrics, "fix_close_share");
+  const fixOpenPeak = mpeak(metrics, "fix_open_share");
+  const concPeak = mpeak(metrics, "conc_peak_share");
+  if (fixPeak?.value != null)
+    sec.push(
+      `Aktywność przy ustalaniu kursów odniesienia (${annexIRef("g")}). Udział Grupy w wolumenie ` +
+        `transakcji fixingu zamknięcia sięgał ${plnum(fixPeak.value, "%")} (sesja ${fixPeak.session_day})` +
+        (fixOpenPeak?.value != null
+          ? `, a w fixingu otwarcia — ${plnum(fixOpenPeak.value, "%")} (${fixOpenPeak.session_day})`
+          : ``) +
+      `. Poniższa tabela fixingu zestawia udziały per sesja wraz z liczbą zleceń Grupy składanych ` +
+        `w fazie przed zamknięciem (16:50–17:00) i niezrealizowanych — obraz oddziaływania na kurs ` +
+        `teoretyczny bez wejścia do obrotu.`,
+    );
+  if (concPeak?.value != null)
+    sec.push(
+      `Koncentracja śródsesyjna (${annexIRef("e")}). Największa koncentracja aktywności Grupy w oknie ` +
+        `15-minutowym odpowiadała ${plnum(concPeak.value, "%")} wolumenu całej sesji (${concPeak.session_day}).`,
+    );
+
   // Zbieżność czasowa skoków kursu z raportami bieżącymi (cross-link do IV.2).
   const espi = byType(documents, "RAPORT_ESPI_EBI");
   if (espi.length)
@@ -741,10 +813,14 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents
   if (closeHi?.value != null)
     findings.push(`Kurs maksymalny w okresie: ${plnum(closeHi.value, "zł")} (${closeHi.session_day}).`);
   if (cumCash != null) findings.push(`Skumulowany przychód Grupy w okresie: ${plnum(cumCash, "zł")}${lastDay ? ` (${lastDay})` : ""}.`);
+  if (fixPeak?.value != null)
+    findings.push(`Udział Grupy w fixingu zamknięcia do ${plnum(fixPeak.value, "%")} (${fixPeak.session_day}) — ${annexIRef("g")}.`);
+  if (concPeak?.value != null)
+    findings.push(`Koncentracja śródsesyjna Grupy do ${plnum(concPeak.value, "%")} wolumenu sesji w oknie 15 min (${concPeak.session_day}) — ${annexIRef("e")}.`);
   if (espi.length)
     findings.push(`W aktach ${espi.length} raportów ESPI/EBI do zestawienia czasowego ze skokami kursu (rozdz. IV.2).`);
 
-  const tables = [ohlcTable(metrics), entityTable(metrics), entityBuyTable(metrics), saldoTable(metrics)].filter(
+  const tables = [ohlcTable(metrics), entityTable(metrics), entityBuyTable(metrics), saldoTable(metrics), fixingTable(metrics)].filter(
     (t): t is OpTable => t != null,
   );
   return {
@@ -763,7 +839,7 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents
         ),
       tables: tables.length ? tables : undefined,
       findings,
-      legalRefs: [LEGAL_REFS.manipulacja],
+      legalRefs: [LEGAL_REFS.manipulacja, annexIRef("a"), annexIRef("b"), annexIRef("g"), annexIRef("e")],
     },
   };
 }
@@ -799,6 +875,25 @@ export function buildEkofinSubanaliza(
             : `Brak w aktach danych notowań. `) +
           `[Do uzupełnienia: kurs początkowy, maksymalny, procentowa zmiana, data szczytu.]`),
   );
+
+  // Fazy pump/dump na kursach zamknięcia (deterministyczny silnik; metodyka
+  // empirycznych badań manipulacji — analiza faz wzrostowej i spadkowej).
+  const pump = mfind(metrics, "phase_pump_pct");
+  const dump = mfind(metrics, "phase_dump_pct");
+  const tot = mfind(metrics, "phase_total_pct");
+  const cf = mfind(metrics, "phase_close_first");
+  const cpk = mfind(metrics, "phase_close_peak");
+  const clast = mfind(metrics, "phase_close_last");
+  if (pump?.value != null)
+    sec.push(
+      `Fazy zmiany kursu (na kursach zamknięcia, z danych transakcyjnych). Faza wzrostowa („pump"): ` +
+        `od ${plnum(cf?.value, "zł")} (${cf?.session_day}) do szczytu ${plnum(cpk?.value, "zł")} ` +
+        `(${cpk?.session_day}) — zmiana ${pump.value > 0 ? "+" : ""}${plnum(pump.value, "%")}. ` +
+        `Faza spadkowa („dump"): do ${plnum(clast?.value, "zł")} (${clast?.session_day}) — ` +
+        `${plnum(dump?.value, "%")}. Zmiana łączna w okresie: ${tot?.value != null && tot.value > 0 ? "+" : ""}${plnum(tot?.value, "%")}. ` +
+        `Sekwencja silnego wzrostu i następującej po nim wyprzedaży podlega ocenie łącznie z saldem ` +
+        `Grupy (rozdz. aktywności) oraz wskaźnikami ${annexIRef("a")} i ${annexIRef("b")}.`,
+    );
   sec.push(
     `Sytuacja finansowa spółki. ` +
       (fin.length
@@ -817,6 +912,12 @@ export function buildEkofinSubanaliza(
   );
 
   const findings: string[] = [];
+  if (pump?.value != null)
+    findings.push(
+      `Fazy kursu (zamknięcia): pump ${pump.value > 0 ? "+" : ""}${plnum(pump.value, "%")} ` +
+        `(${cf?.session_day} → ${cpk?.session_day}), dump ${plnum(dump?.value, "%")} (→ ${clast?.session_day}); ` +
+        `łącznie ${tot?.value != null && tot.value > 0 ? "+" : ""}${plnum(tot?.value, "%")}.`,
+    );
   if (quotes)
     findings.push(
       `Kurs wzrósł o ${plnum(quotes.changeStartMaxPct, "%")} (z ${plnum(quotes.start, "zł")} do ` +

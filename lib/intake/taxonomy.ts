@@ -31,11 +31,15 @@ export const DOC_TYPES: Record<string, DocType> = {
   OPINIA_BIEGLEGO: { label: "Opinia biegłego sądowego (robocza/finalna)", source: "biegły sądowy", provenance: "wyjście" },
   SUBANALIZA: { label: "Subanaliza / analiza robocza", source: "biegły sądowy", provenance: "wyjście" },
   RECENZJA_UWAGI: { label: "Recenzja / uwagi do opinii", source: "biegły sądowy / zespół", provenance: "wyjście" },
+  LITERATURA: { label: "Literatura / akty prawne (materiał referencyjny)", source: "referencje", provenance: "wejście" },
   UNKNOWN: { label: "Niesklasyfikowany (do ręcznej oceny)", source: "?", provenance: "?" },
 };
 
 // Reguły: pierwsze trafienie wygrywa, od szczegółu do ogółu (jak w Pythonie).
 export const RULES: { phrases: string[]; code: string }[] = [
+  // Literatura i akty prawne (materiał referencyjny, nie dowód) — przed resztą,
+  // żeby CELEX/rozprawa nie wpadały w UNKNOWN ani w reguły dowodowe.
+  { phrases: ["celex", "rozprawa doktorska", "doktorat", "praca doktorska", "podręcznik", "podrecznik", "monografia", "eur-lex"], code: "LITERATURA" },
   { phrases: ["uwagi"], code: "RECENZJA_UWAGI" },
   { phrases: ["kupis", "odpwiedź uknf", "odpowiedź uknf", "odpowiedz uknf"], code: "OPINIA_UKNF" },
   // Wytwory Krzysztofa Michrowskiego (WYJŚCIE) — tylko z wyraźnym oznaczeniem autorstwa (KM / Michrowski).

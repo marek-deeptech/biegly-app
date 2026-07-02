@@ -309,6 +309,168 @@ def matched_orders(transactions: list[dict], group_fragments: list[str] | None =
     }
 
 
+def _tx_time(r: dict) -> str | None:
+    """Czas transakcji HH:MM:SS — z TRANSACTTIME_TXT (string) lub CZAS_TR (time)."""
+    t = r.get("TRANSACTTIME_TXT")
+    if isinstance(t, str) and len(t) >= 19:
+        return t[11:19]
+    c = r.get("CZAS_TR")
+    if c is not None and hasattr(c, "strftime"):
+        return c.strftime("%H:%M:%S")
+    return None
+
+
+def fixing_activity(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
+    """Aktywność przy ustalaniu kursów odniesienia (zał. I lit. g MAR; dokt. Nowak 3.3.2).
+
+    Fixing otwarcia = transakcje 09:00:00–09:00:59 (rozliczenie fazy przed otwarciem),
+    fixing zamknięcia = transakcje 17:00:00–17:04:59 (fixing + dogrywka). Per sesja:
+    wolumen fixingu oraz wolumen transakcji z udziałem Grupy (dowolna strona) i udział %.
+    """
+    per_day: dict[str, dict] = defaultdict(lambda: {"open_vol": 0.0, "open_grp": 0.0, "close_vol": 0.0, "close_grp": 0.0})
+    for r in transactions:
+        ts = _tx_time(r)
+        if ts is None:
+            continue
+        phase = "open" if ts.startswith("09:00") else ("close" if "17:00:00" <= ts < "17:05:00" else None)
+        if phase is None:
+            continue
+        d = session_date(r.get("DATA_SESJI"))
+        vol = r.get("WOLUMEN") or 0
+        a = per_day[d]
+        a[phase + "_vol"] += vol
+        if is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments) or is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments):
+            a[phase + "_grp"] += vol
+    out: list[dict] = []
+    for d, a in sorted(per_day.items()):
+        out.append(
+            {
+                "day": d,
+                **a,
+                "open_share": a["open_grp"] / a["open_vol"] if a["open_vol"] else 0.0,
+                "close_share": a["close_grp"] / a["close_vol"] if a["close_vol"] else 0.0,
+            }
+        )
+    return out
+
+
+def prefixing_cancelled_orders(orders: list[dict], owner_map: dict, group_fragments: list[str] | None = None) -> list[dict]:
+    """Zlecenia „zachęcające" przed fixingiem zamknięcia (dokt. Nowak 3.3.2; zał. I lit. f/g MAR).
+
+    Zlecenia Grupy złożone w fazie przed zamknięciem (16:50–17:00) TEGO SAMEGO dnia
+    sesyjnego i niezrealizowane (Wolumen zreal. = 0) — wpływają na kurs teoretyczny,
+    nie wchodząc do obrotu. Per sesja: liczba i wolumen."""
+    per_day: dict[str, dict] = defaultdict(lambda: {"count": 0, "volume": 0.0})
+    for r in orders:
+        oe = r.get("OrderEntryTime")
+        if not isinstance(oe, str) or len(oe) < 19:
+            continue
+        d = session_date(r.get("Data"))
+        if not d or oe[:10] != d:
+            continue
+        ts = oe[11:19]
+        if not ("16:50:00" <= ts < "17:00:00"):
+            continue
+        if r.get("Wolumen zreal.") or 0:
+            continue
+        owner = owner_map.get((norm_acct(r.get("Biuro")), norm_acct(r.get("Konto"))))
+        if not is_group(owner, group_fragments):
+            continue
+        per_day[d]["count"] += 1
+        per_day[d]["volume"] += r.get("Wolumen") or 0
+    return [{"day": d, **a} for d, a in sorted(per_day.items())]
+
+
+def position_reversals(transactions: list[dict], group_fragments: list[str] | None = None, min_value: float = 50000.0) -> list[dict]:
+    """Odwrócenie pozycji w krótkim okresie (zał. I lit. d MAR): podmiot Grupy kupuje
+    i sprzedaje w TEJ SAMEJ sesji. reversal = min(wartość kupna, wartość sprzedaży);
+    emitowane pozycje >= min_value [zł] (próg odcina szum detaliczny)."""
+    out: list[dict] = []
+    for r in per_day_entity(transactions, group_fragments):
+        rev_val = min(r["bval"], r["sval"])
+        if rev_val < min_value:
+            continue
+        out.append(
+            {
+                "day": r["day"],
+                "entity": r["entity"],
+                "reversal_value": rev_val,
+                "reversal_volume": min(r["bvol"], r["svol"]),
+                "buy_value": r["bval"],
+                "sell_value": r["sval"],
+            }
+        )
+    out.sort(key=lambda x: (x["day"], -x["reversal_value"]))
+    return out
+
+
+def intraday_concentration(transactions: list[dict], group_fragments: list[str] | None = None, bucket_min: int = 15) -> list[dict]:
+    """Koncentracja aktywności Grupy w krótkim przedziale sesji (zał. I lit. e MAR):
+    kubełki 15-minutowe; per sesja szczytowy kubełek wg wolumenu Grupy — jego udział
+    w wolumenie całej sesji + okno czasowe."""
+    day_b: dict[str, dict] = defaultdict(lambda: defaultdict(lambda: {"grp": 0.0, "tot": 0.0}))
+    day_tot: dict[str, float] = defaultdict(float)
+    for r in transactions:
+        ts = _tx_time(r)
+        if ts is None:
+            continue
+        d = session_date(r.get("DATA_SESJI"))
+        vol = r.get("WOLUMEN") or 0
+        b = int(ts[:2]) * 60 + (int(ts[3:5]) // bucket_min) * bucket_min
+        day_tot[d] += vol
+        day_b[d][b]["tot"] += vol
+        if is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments) or is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments):
+            day_b[d][b]["grp"] += vol
+    out: list[dict] = []
+    for d, buckets in sorted(day_b.items()):
+        bb, vals = max(buckets.items(), key=lambda kv: kv[1]["grp"])
+        if vals["grp"] <= 0:
+            continue
+        h1, m1 = divmod(bb, 60)
+        h2, m2 = divmod(bb + bucket_min, 60)
+        out.append(
+            {
+                "day": d,
+                "window": f"{h1:02d}:{m1:02d}–{h2:02d}:{m2:02d}",
+                "grp_volume": vals["grp"],
+                "share_of_session": vals["grp"] / day_tot[d] if day_tot[d] else 0.0,
+            }
+        )
+    return out
+
+
+def pump_dump_phases(transactions: list[dict], group_fragments: list[str] | None = None) -> dict | None:
+    """Fazy pump/dump wg metodyki empirycznej (Nowak 2024, rozdz. 5.4): faza pump =
+    kurs zamknięcia pierwszej sesji z aktywnością Grupy → maksymalny kurs zamknięcia;
+    faza dump = maksimum → zamknięcie ostatniej sesji z aktywnością Grupy."""
+    ohlc = {r["day"]: r for r in per_day_ohlc(transactions)}
+    grp_days = sorted(
+        {
+            session_date(r.get("DATA_SESJI"))
+            for r in transactions
+            if is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+            or is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        }
+    )
+    grp_days = [d for d in grp_days if d in ohlc]
+    if not grp_days:
+        return None
+    first, last = grp_days[0], grp_days[-1]
+    peak = max(grp_days, key=lambda d: ohlc[d]["close"])
+    c0, cm, cl = ohlc[first]["close"], ohlc[peak]["close"], ohlc[last]["close"]
+    return {
+        "first_day": first,
+        "peak_day": peak,
+        "last_day": last,
+        "close_first": c0,
+        "close_peak": cm,
+        "close_last": cl,
+        "pump_pct": (cm / c0 - 1) * 100 if c0 else None,
+        "dump_pct": (cl / cm - 1) * 100 if cm else None,
+        "total_pct": (cl / c0 - 1) * 100 if c0 else None,
+    }
+
+
 def per_session_layering(
     orders: list[dict], owner_map: dict, group_fragments: list[str] | None = None
 ) -> list[dict]:

@@ -106,3 +106,38 @@ export function techniqueRef(id: TechniqueId): string {
   const t = TECHNIQUES[id];
   return `${t.mar}; ${t.rd}`;
 }
+
+// ── Załącznik I lit. A do MAR — wskaźniki manipulacji (verbatim PL) ───────────
+// Źródło: skonsolidowany tekst 596/2014 (CELEX 02014R0596-20240109, PL) w aktach.
+// Mapowanie metryk silnika na litery wskaźników: wash→c, matched→c, layering→f,
+// odwrócenie pozycji→d, koncentracja śródsesyjna→e, fixing→g, udział w obrocie→a/b.
+export type AnnexILetter = "a" | "b" | "c" | "d" | "e" | "f" | "g";
+
+export const MAR_ANNEX_I_A: Record<AnnexILetter, string> = {
+  a:
+    "udział złożonych zleceń lub zawieranych transakcji w dziennym wolumenie obrotu danym " +
+    "instrumentem finansowym, w szczególności jeżeli czynności te prowadzą do istotnej zmiany ich cen",
+  b:
+    "zakres, w jakim zlecenia składane lub transakcje zawierane przez osoby o istotnej pozycji " +
+    "kupna lub sprzedaży danego instrumentu finansowego prowadzą do istotnej zmiany ceny tego instrumentu",
+  c: "czy podejmowane transakcje nie prowadzą do zmiany rzeczywistych beneficjentów instrumentu finansowego",
+  d:
+    "zakres, w jakim składane zlecenia lub zawierane transakcje lub anulowane zlecenia obejmują " +
+    "odwrócenie pozycji w krótkim okresie i reprezentują istotną część dziennych transakcji danym " +
+    "instrumentem finansowym oraz mogą mieć związek z istotną zmianą ceny instrumentu",
+  e:
+    "zakres, w jakim składane zlecenia lub zawierane transakcje skoncentrowane są w krótkookresowym " +
+    "przedziale wskazań sesji i prowadzą do zmiany ceny, która następnie zostaje odwrócona",
+  f:
+    "zakres, w jakim składane zlecenia wpływają na zmianę w zakresie najlepszych pod względem ceny " +
+    "ofert kupna i sprzedaży instrumentu finansowego, lub bardziej ogólnie reprezentację arkusza zleceń " +
+    "dostępną uczestnikom rynku, i zostają usunięte przed wykonaniem",
+  g:
+    "zakres, w jakim zlecenia są składane lub transakcje zawierane w czasie lub około konkretnego " +
+    "czasu, w którym ustalane są ceny odniesienia, kursy rozliczeniowe oraz wyceny, i prowadzi to do " +
+    "zmiany cen, co ma wpływ na te ceny i wyceny",
+};
+
+export function annexIRef(letter: AnnexILetter): string {
+  return `zał. I lit. A pkt ${letter}) MAR`;
+}
