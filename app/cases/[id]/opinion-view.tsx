@@ -90,6 +90,9 @@ export default function OpinionView({
   const [reFindings, setReFindings] = useState<
     { gap: string; chapter: string; sources: string[]; note: string; found: boolean }[] | null
   >(null);
+  const [exBusy, setExBusy] = useState<string | null>(null);
+  const [exMsg, setExMsg] = useState("");
+  const [exTable, setExTable] = useState<{ caption: string; head: string[]; rows: string[][] } | null>(null);
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -230,6 +233,48 @@ export default function OpinionView({
   }
 
   const hasKind = (k: string) => subanalyses.some((s) => s.kind === k);
+
+  // Wyciąganie danych ze źródeł PDF (ESPI/KRS) → zasila rozdziały IV.3 / IV.7.
+  async function extractSource(kind: "espi" | "krs") {
+    setExBusy(kind);
+    setExMsg("");
+    setExTable(null);
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/extract-${kind}`, { method: "POST" });
+      const j = await r.json();
+      if (!j.ok) {
+        setExMsg(j.reason || "Błąd wyciągania.");
+        return;
+      }
+      setExMsg(j.message ?? "");
+      if (kind === "espi" && Array.isArray(j.events))
+        setExTable({
+          caption: "Zdarzenia ESPI/EBI (wyciąg z PDF)",
+          head: ["Data", "Rodzaj", "Temat", "Sesja"],
+          rows: j.events.map((e: { date?: string; type?: string; subject?: string; session?: string }) => [
+            e.date || "—",
+            e.type || "—",
+            (e.subject || "—").slice(0, 70),
+            e.session || "—",
+          ]),
+        });
+      if (kind === "krs" && Array.isArray(j.persons))
+        setExTable({
+          caption: "Osoby w organach / reprezentanci (wyciąg z KRS)",
+          head: ["Podmiot", "Osoba", "Funkcja"],
+          rows: j.persons.map((p: { entity?: string; name?: string; role?: string }) => [
+            p.entity || "—",
+            p.name || "—",
+            p.role || "—",
+          ]),
+        });
+      router.refresh();
+    } catch {
+      setExMsg("Błąd sieci przy wyciąganiu.");
+    } finally {
+      setExBusy(null);
+    }
+  }
 
   // „Przeanalizuj ponownie" — przeszukuje dokumenty akt pod kątem braków [do uzupełnienia].
   async function reanalyze() {
@@ -614,6 +659,55 @@ export default function OpinionView({
           )}
           {reFindings && reFindings.length === 0 && (
             <p className="mt-3 text-xs text-inksoft">Brak pozycji „[do uzupełnienia]” do przeszukania.</p>
+          )}
+        </div>
+
+        {/* Automatyczne wyciąganie danych ze źródeł PDF (ESPI → IV.3, KRS → IV.7) */}
+        <div className="mt-4 border-t border-line pt-3">
+          <p className="mb-2 text-xs font-medium">Wyciągnij dane ze źródeł (odczyt PDF z akt)</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => extractSource("espi")}
+              disabled={exBusy !== null}
+              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+            >
+              {exBusy === "espi" ? "Czytam PDF…" : "Zdarzenia ESPI → IV.3"}
+            </button>
+            <button
+              onClick={() => extractSource("krs")}
+              disabled={exBusy !== null}
+              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+            >
+              {exBusy === "krs" ? "Czytam PDF…" : "Zarządy z KRS → IV.7"}
+            </button>
+            {exMsg && <span className="text-xs text-inksoft">{exMsg}</span>}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-inksoft">
+            Odczytuje wgrane PDF‑y (raporty ESPI/EBI, odpisy KRS), wyodrębnia datowane zdarzenia i osoby w organach,
+            zapisuje jako materiał zasilający cross‑link kursu (IV.3) i analizę powiązań (IV.7). Wyłącznie z treści akt.
+          </p>
+          {exTable && (
+            <div className="mt-3">
+              <p className="mb-1 text-[11px] italic text-inksoft">{exTable.caption}</p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[11px] text-inksoft">
+                    {exTable.head.map((h, i) => (
+                      <th key={i} className={i === 0 ? "py-1 text-left" : "py-1 text-left"}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {exTable.rows.map((r, ri) => (
+                    <tr key={ri} className="border-b border-line last:border-0">
+                      {r.map((c, ci) => (
+                        <td key={ci} className="py-1 pr-2 align-top">{c}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </section>

@@ -80,13 +80,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const counts: Record<string, number> = {};
     for (const d of docsData ?? []) counts[d.doc_type as string] = (counts[d.doc_type as string] ?? 0) + 1;
     const inventory = Object.entries(counts).map(([k, v]) => `${v} × ${k}`);
-    // Aktywność: dołącz nazwy raportów ESPI/EBI (cross-link czasowy skoków kursu → rozdz. IV.2).
-    if (chapter === "aktywnosc") {
-      const espi = (docsData ?? [])
-        .filter((d) => d.doc_type === "RAPORT_ESPI_EBI")
-        .map((d) => "ESPI/EBI: " + String(d.rel_path).split("/").pop())
-        .slice(0, 15);
-      inventory.push(...espi);
+    // Aktywność/ESPI: dołącz zdarzenia ESPI/EBI do cross-linku czasowego. Jeśli wyciągnięto
+    // datowane zdarzenia z PDF (subanaliza espi_events) — użyj ich; inaczej same nazwy plików.
+    if (chapter === "aktywnosc" || chapter === "espi") {
+      const ev = (subs ?? []).find((s) => s.kind === "espi_events");
+      const events =
+        (ev?.data?.events as { date?: string; type?: string; subject?: string; session?: string }[] | undefined) ?? [];
+      if (events.length) {
+        inventory.push(
+          ...events
+            .slice(0, 15)
+            .map(
+              (e) =>
+                `ESPI zdarzenie: ${e.date || "—"} — ${(e.type || "").trim()}${e.subject ? " — " + e.subject : ""}` +
+                (e.session ? ` (zbieżne z sesją ${e.session})` : ""),
+            ),
+        );
+      } else {
+        inventory.push(
+          ...(docsData ?? [])
+            .filter((d) => d.doc_type === "RAPORT_ESPI_EBI")
+            .map((d) => "ESPI/EBI: " + String(d.rel_path).split("/").pop())
+            .slice(0, 15),
+        );
+      }
+    }
+    // Relacje: dołącz osoby pełniące funkcje w wielu podmiotach (z wyciągu KRS).
+    if (chapter === "relacje") {
+      const kb = (subs ?? []).find((s) => s.kind === "krs_boards");
+      const shared = (kb?.data?.shared as { name?: string; entities?: string[] }[] | undefined) ?? [];
+      inventory.push(
+        ...shared
+          .slice(0, 15)
+          .map((sh) => `KRS — osoba w wielu podmiotach: ${sh.name} (${(sh.entities || []).join(", ")})`),
+      );
     }
     const p = buildIvRedactPrompt({
       kind: chapter as IvRedactKind,
