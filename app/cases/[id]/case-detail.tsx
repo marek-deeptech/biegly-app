@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import RosterPanel from "./roster-panel";
+import WarsztatView from "./warsztat-view";
 import Zenek from "./zenek";
 
 type CaseRow = { id: string; name: string; signature: string | null };
@@ -82,7 +83,7 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
-  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "opinion">("overview");
+  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "warsztat" | "opinion">("overview");
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [provFilter, setProvFilter] = useState("");
   const [docSort, setDocSort] = useState<"name" | "size" | "type" | "status">("name");
@@ -133,6 +134,13 @@ export default function CaseDetail({
     { key: "overview" as const, label: "Sprawa", done: documents.length > 0 && checklistOk },
     { key: "files" as const, label: `Pliki · ${documents.length}`, done: documents.length > 0 },
     { key: "analysis" as const, label: "Analiza liczbowa", done: metrics.length > 0 },
+    {
+      key: "warsztat" as const,
+      label: "Warsztat dowodowy",
+      done:
+        subanalyses.some((s) => s.kind === "techniki") &&
+        subanalyses.some((s) => s.kind === "powiazania_dane"),
+    },
     { key: "opinion" as const, label: "Opinia", done: subanalyses.some((s) => s.status === "zatwierdzona") },
   ];
 
@@ -1007,6 +1015,10 @@ export default function CaseDetail({
           </>
         )}
       </section>
+      )}
+
+      {tab === "warsztat" && (
+        <WarsztatView caseId={caseRow.id} metrics={metrics} documents={documents} subanalyses={subanalyses} />
       )}
 
       {tab === "opinion" && (

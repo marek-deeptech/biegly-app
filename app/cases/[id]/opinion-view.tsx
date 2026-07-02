@@ -17,9 +17,6 @@ import {
 } from "@/lib/opinion/build";
 import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
-import OsintPanel from "./osint-panel";
-import PowiazaniaPanel from "./powiazania-panel";
-import TechniquesPanel from "./techniques-panel";
 
 type Metric = {
   key: string;
@@ -87,9 +84,7 @@ export default function OpinionView({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
-  const [view, setView] = useState<
-    "techniki" | "powiazania" | "osint" | "rozdzialy" | "montaz" | "recenzent"
-  >("techniki");
+  const [view, setView] = useState<"rozdzialy" | "montaz" | "recenzent">("rozdzialy");
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -309,67 +304,36 @@ export default function OpinionView({
   ];
   const stepsApproved = steps.filter((s) => isApproved(s.kind)).length;
 
-  const navGroups: {
-    group: string;
-    items: { key: typeof view; label: string; badge?: string; badgeCls?: string }[];
-  }[] = [
+  const redakcja: { key: typeof view; label: string; badge?: string; badgeCls?: string }[] = [
+    { key: "rozdzialy", label: "Rozdziały" },
     {
-      group: "Warsztat dowodowy",
-      items: [
-        { key: "techniki", label: "Techniki" },
-        { key: "powiazania", label: "Powiązania (dane)" },
-        { key: "osint", label: "OSINT" },
-      ],
+      key: "montaz",
+      label: "Montaż",
+      badge: `${ready}/${opinion.chapters.length}`,
+      badgeCls: ready === opinion.chapters.length ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
     },
     {
-      group: "Redakcja opinii",
-      items: [
-        { key: "rozdzialy", label: "Rozdziały" },
-        {
-          key: "montaz",
-          label: "Montaż",
-          badge: `${ready}/${opinion.chapters.length}`,
-          badgeCls:
-            ready === opinion.chapters.length ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
-        },
-        {
-          key: "recenzent",
-          label: "Recenzent",
-          badge: revIssues ? String(revIssues) : undefined,
-          badgeCls: "bg-red-100 text-red-800",
-        },
-      ],
+      key: "recenzent",
+      label: "Recenzent",
+      badge: revIssues ? String(revIssues) : undefined,
+      badgeCls: "bg-red-100 text-red-800",
     },
   ];
 
   return (
-    <div className="flex flex-col gap-6 md:flex-row">
-      <nav className="md:w-48 md:shrink-0" aria-label="Sekcje opinii">
-        {navGroups.map((g) => (
-          <div key={g.group} className="mb-4">
-            <p className="px-3 pb-1 text-[11px] uppercase tracking-wider text-inksoft">{g.group}</p>
-            <div className="flex flex-wrap gap-1 md:flex-col">
-              {g.items.map((it) => (
-                <SideItem
-                  key={it.key}
-                  active={view === it.key}
-                  onClick={() => setView(it.key)}
-                  label={it.label}
-                  badge={it.badge}
-                  badgeCls={it.badgeCls}
-                />
-              ))}
-            </div>
-          </div>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-1 border-b border-ink/20">
+        {redakcja.map((it) => (
+          <NavBtn
+            key={it.key}
+            active={view === it.key}
+            onClick={() => setView(it.key)}
+            label={it.label}
+            badge={it.badge}
+            badgeCls={it.badgeCls}
+          />
         ))}
-      </nav>
-
-      <div className="min-w-0 flex-1 space-y-6">
-
-      {/* ── Warsztat dowodowy (Kroki 3–5) — Podmioty są w zakładce Sprawa, Liczby w Analizie liczbowej ── */}
-      {view === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />}
-      {view === "powiazania" && <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />}
-      {view === "osint" && <OsintPanel caseId={caseId} metrics={metrics} stored={subanalyses} />}
+      </div>
 
       {/* ── Rozdziały — drafty subanaliz ── */}
       {view === "rozdzialy" && (
@@ -784,8 +748,6 @@ export default function OpinionView({
         </ol>
       </section>
       )}
-
-      </div>
     </div>
   );
 }
@@ -828,8 +790,8 @@ function Legend({ cls, t }: { cls: string; t: string }) {
   );
 }
 
-// Pozycja bocznego menu sekcji Opinii (grupy: Warsztat dowodowy / Redakcja opinii).
-function SideItem({
+// Górny pasek pod-zakładek Redakcji opinii (Rozdziały · Montaż · Recenzent).
+function NavBtn({
   active,
   onClick,
   label,
@@ -846,17 +808,13 @@ function SideItem({
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors md:w-full ${
-        active ? "bg-ink text-paper" : "text-inksoft hover:bg-ink/5 hover:text-ink"
+      className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-xs uppercase tracking-wider transition-colors ${
+        active ? "border-ink font-semibold text-ink" : "border-transparent text-inksoft hover:text-ink"
       }`}
     >
-      <span>{label}</span>
+      {label}
       {badge && (
-        <span
-          className={`rounded-full px-2 py-0.5 text-[11px] ${
-            active ? "bg-paper/20 text-paper" : badgeCls ?? "bg-ink/10 text-inksoft"
-          }`}
-        >
+        <span className={`rounded-full px-2 py-0.5 text-[11px] normal-case ${badgeCls ?? "bg-ink/10 text-inksoft"}`}>
           {badge}
         </span>
       )}
