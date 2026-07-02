@@ -693,13 +693,13 @@ export default function OpinionView({
                 ))}
               </div>
 
-              {ch.table && (
-                <div className="mt-3">
-                  <p className="mb-1 text-[11px] italic text-inksoft">{ch.table.caption}</p>
+              {(ch.tables ?? (ch.table ? [ch.table] : [])).map((tbl, ti) => (
+                <div key={ti} className="mt-3">
+                  <p className="mb-1 text-[11px] italic text-inksoft">{tbl.caption}</p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-xs text-inksoft">
-                        {ch.table.head.map((h, i) => (
+                        {tbl.head.map((h, i) => (
                           <th key={i} className={i === 0 ? "py-1 text-left" : "py-1 text-right"}>
                             {h}
                           </th>
@@ -707,7 +707,7 @@ export default function OpinionView({
                       </tr>
                     </thead>
                     <tbody>
-                      {ch.table.rows.map((r, ri) => (
+                      {tbl.rows.map((r, ri) => (
                         <tr key={ri} className="border-b border-line last:border-0">
                           {r.map((c, ci) => (
                             <td key={ci} className={ci === 0 ? "py-1.5" : "py-1.5 text-right tabular-nums"}>
@@ -719,7 +719,7 @@ export default function OpinionView({
                     </tbody>
                   </table>
                 </div>
-              )}
+              ))}
 
               {ch.findings && ch.findings.length > 0 && (
                 <div className="mt-3">

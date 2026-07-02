@@ -33,6 +33,7 @@ export type Chapter = {
   source?: string;
   paras: Para[];
   table?: OpTable;
+  tables?: OpTable[]; // wiele tabel numerowanych w jednym rozdziale (np. OHLC + sprzedaż + kupno)
   findings?: Para[];
   attachments?: string[];
 };
@@ -51,7 +52,7 @@ export type SubResult = {
   chapterNo: string;
   title: string;
   bodyMd: string;
-  data: { table: OpTable | null; findings: string[]; legalRefs: string[] };
+  data: { table: OpTable | null; tables?: OpTable[]; findings: string[]; legalRefs: string[] };
 };
 export type QuantResult = SubResult;
 
@@ -62,7 +63,7 @@ export type StoredSub = {
   title: string;
   status: string; // 'szkic' | 'zatwierdzona'
   body_md: string;
-  data: { table?: OpTable | null; findings?: string[]; legalRefs?: string[] } | null;
+  data: { table?: OpTable | null; tables?: OpTable[]; findings?: string[]; legalRefs?: string[] } | null;
 };
 
 type Metric = {
@@ -174,7 +175,7 @@ function entityTable(metrics: Metric[]): OpTable | null {
   const ents = pivotEntities(metrics);
   if (!ents.length) return null;
   return {
-    caption: "Tabela. Zestawienie per podmiot z Grupy — wartość, udział i wolumen sprzedaży",
+    caption: "Tabela. Zestawienie per podmiot z Grupy — strona sprzedaży (wartość, udział i wolumen)",
     head: ["Podmiot", "Wartość sprzedaży (zł)", "Udział sprzedaży", "Wolumen sprzedaży"],
     rows: ents.map((e) => [cap(e.entity), plnum(e.val, "zł"), plnum(e.share, "%"), plnum(e.vol, "szt")]),
   };
@@ -183,6 +184,66 @@ function entityTable(metrics: Metric[]): OpTable | null {
 function topSeller(metrics: Metric[]): EntRow | null {
   const ents = pivotEntities(metrics);
   return ents.length ? ents[0] : null;
+}
+
+// Pivot per podmiot po stronie KUPNA (ent_buy_share/val/vol::), sortowany wartością.
+function pivotEntitiesBuy(metrics: Metric[]): EntRow[] {
+  const map = new Map<string, { share: number | null; val: number | null; vol: number | null }>();
+  const get = (e: string) => map.get(e) ?? { share: null, val: null, vol: null };
+  for (const m of metrics) {
+    if (m.key.startsWith("ent_buy_share::")) {
+      const e = m.key.split("::")[1];
+      map.set(e, { ...get(e), share: m.value });
+    } else if (m.key.startsWith("ent_buy_val::")) {
+      const e = m.key.split("::")[1];
+      map.set(e, { ...get(e), val: m.value });
+    } else if (m.key.startsWith("ent_buy_vol::")) {
+      const e = m.key.split("::")[1];
+      map.set(e, { ...get(e), vol: m.value });
+    }
+  }
+  return [...map.entries()]
+    .map(([entity, v]) => ({ entity, ...v }))
+    .sort((a, b) => (b.val ?? -1) - (a.val ?? -1));
+}
+
+function entityBuyTable(metrics: Metric[]): OpTable | null {
+  const ents = pivotEntitiesBuy(metrics).filter((e) => (e.val ?? 0) > 0);
+  if (!ents.length) return null;
+  return {
+    caption: "Tabela. Zestawienie per podmiot z Grupy — strona kupna (wartość, udział i wolumen)",
+    head: ["Podmiot", "Wartość kupna (zł)", "Udział kupna", "Wolumen kupna"],
+    rows: ents.map((e) => [cap(e.entity), plnum(e.val, "zł"), plnum(e.share, "%"), plnum(e.vol, "szt")]),
+  };
+}
+
+function topBuyer(metrics: Metric[]): EntRow | null {
+  const ents = pivotEntitiesBuy(metrics);
+  return ents.length ? ents[0] : null;
+}
+
+// Kurs (OHLC) i wolumen instrumentu per sesja — odpowiednik „Tabeli nr 8" z opinii.
+function ohlcTable(metrics: Metric[]): OpTable | null {
+  const days = [...new Set(metrics.filter((m) => m.key === "day_close").map((m) => m.session_day as string))].sort();
+  if (!days.length) return null;
+  const at = (k: string, d: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  return {
+    caption:
+      "Tabela. Kurs (OHLC) i wolumen instrumentu per sesja — zmiana kursu zamknięcia względem poprzedniej sesji objętej analizą",
+    head: ["Sesja", "Otwarcie", "Najwyższy", "Najniższy", "Zamknięcie", "Zmiana", "Wolumen sesji"],
+    rows: days.map((d) => {
+      const pct = at("day_change_pct", d);
+      return [
+        d,
+        plnum(at("day_open", d), "zł"),
+        plnum(at("day_high", d), "zł"),
+        plnum(at("day_low", d), "zł"),
+        plnum(at("day_close", d), "zł"),
+        pct == null ? "—" : `${pct > 0 ? "+" : ""}${plnum(pct, "%")}`,
+        plnum(at("day_sess_vol", d), "szt"),
+      ];
+    }),
+  };
 }
 
 // Bogata tabela dzienna wash (odpowiednik Tab 24–28): sesja × wolumen/wartość/udziały.
@@ -415,7 +476,7 @@ function buildPumpDumpSubanaliza(caseName: string, metrics: Metric[], quotes?: Q
   };
 }
 
-// IV.x — Aktywność podmiotów z Grupy (skala obecności Grupy w obrocie).
+// IV.x — Aktywność podmiotów z Grupy (skala obecności Grupy w obrocie + dynamika kursu).
 function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResult {
   const { no, title } = ivMeta(caseName, "aktywnosc");
   const nTx = mfind(metrics, "totals_transactions");
@@ -429,19 +490,65 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResul
     `Udział rachunków powiązanych (Grupy) w wartości obrotu wyniósł ${plnum(groupShare?.value, "%")}` +
       (groupVal?.value != null ? ` (${plnum(groupVal.value, "zł")})` : ``) +
       `, co wskazuje na zdolność wywierania dominującego wpływu na kształtowanie kursu instrumentu.`,
-    `Poniższa tabela zestawia podmioty z Grupy według udziału w wartości sprzedaży i wolumenu ` +
-      `(„Tabela per podmiot").`,
   ];
+
+  // Dynamika kursu (OHLC) — skrajne zamknięcia i największe dzienne zmiany.
+  const closeHi = mpeak(metrics, "day_high");
+  const chgUps = metrics
+    .filter((m) => m.key === "day_change_pct" && (m.value ?? 0) > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  const chgDn = metrics
+    .filter((m) => m.key === "day_change_pct")
+    .sort((a, b) => (a.value ?? 0) - (b.value ?? 0))[0];
+  if (closeHi?.value != null) {
+    const ups = chgUps
+      .slice(0, 2)
+      .map((m) => `${m.session_day} (+${plnum(m.value, "%")})`)
+      .join(" oraz ");
+    sec.push(
+      `Dynamika kursu. Poniższa tabela OHLC prezentuje kurs otwarcia, najwyższy, najniższy i zamknięcia ` +
+        `oraz wolumen w kolejnych sesjach. Kurs maksymalny w okresie wyniósł ${plnum(closeHi.value, "zł")} ` +
+        `(sesja ${closeHi.session_day}).` +
+        (ups ? ` Największe dzienne wzrosty kursu zamknięcia odnotowano w sesjach ${ups}` : ``) +
+        (chgDn?.value != null && chgDn.value < 0
+          ? `, po których wystąpił wyraźny spadek — ${chgDn.session_day} (${plnum(chgDn.value, "%")}).`
+          : `.`) +
+        ` Taka sekwencja skokowych ruchów cenowych w krótkich odstępach czasu wymaga zestawienia ze ` +
+        `skalą obecności podmiotów Grupy w obrocie.`,
+    );
+  }
+
+  sec.push(
+    `Zestawienie per podmiot. Poniższe tabele zestawiają podmioty z Grupy według wartości, udziału i ` +
+      `wolumenu — odrębnie po stronie sprzedaży i po stronie kupna.`,
+  );
   const top = topSeller(metrics);
+  const buy = topBuyer(metrics);
   if (top)
     sec.push(
-      `Największy udział w wartości sprzedaży miał podmiot ${cap(top.entity)} ` +
-        `(${plnum(top.share, "%")}, wolumen ${plnum(top.vol, "szt")}).`,
+      `Po stronie sprzedaży największy udział w wartości obrotu miał podmiot ${cap(top.entity)} ` +
+        `(${plnum(top.share, "%")}; ${plnum(top.val, "zł")}; wolumen ${plnum(top.vol, "szt")}), co stanowi ` +
+        `pozycję szczytową w zestawieniu.`,
     );
+  if (buy && buy.entity !== top?.entity)
+    sec.push(
+      `Po stronie kupna dominującą pozycję zajął podmiot ${cap(buy.entity)} ` +
+        `(${plnum(buy.share, "%")}; ${plnum(buy.val, "zł")}; wolumen ${plnum(buy.vol, "szt")}). ` +
+        `Aktywność Grupy była zatem obecna po obu stronach obrotu — zarówno w budowaniu, jak i w ` +
+        `redukcji pozycji.`,
+    );
+
   const findings: string[] = [];
   if (groupShare?.value != null)
     findings.push(`Udział Grupy w wartości obrotu: ${plnum(groupShare.value, "%")}.`);
   if (top) findings.push(`Największy sprzedawca z Grupy: ${cap(top.entity)} (${plnum(top.share, "%")}).`);
+  if (buy) findings.push(`Największy kupujący z Grupy: ${cap(buy.entity)} (${plnum(buy.share, "%")}).`);
+  if (closeHi?.value != null)
+    findings.push(`Kurs maksymalny w okresie: ${plnum(closeHi.value, "zł")} (${closeHi.session_day}).`);
+
+  const tables = [ohlcTable(metrics), entityTable(metrics), entityBuyTable(metrics)].filter(
+    (t): t is OpTable => t != null,
+  );
   return {
     kind: "aktywnosc",
     chapterNo: no,
@@ -449,13 +556,14 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResul
     bodyMd: sec.join("\n\n"),
     data: {
       table:
-        entityTable(metrics) ??
+        tables[0] ??
         dailyTable(
           metrics,
           "wash_",
           "Tabela. Obecność Grupy w obrocie — udział transakcji wewnątrzgrupowych w wolumenie sesji",
           "Udział wewnątrzgrupowy (% wolumenu)",
         ),
+      tables: tables.length ? tables : undefined,
       findings,
       legalRefs: [LEGAL_REFS.manipulacja],
     },
@@ -785,8 +893,15 @@ function chapterFromStored(s: StoredSub, noOverride?: string, titleOverride?: st
       (s.status === "zatwierdzona" ? " · zatwierdzona" : " · szkic"),
     paras: splitParas(s.body_md).map((t) => ({ text: t, conf })),
     table: s.data?.table ?? undefined,
+    tables: s.data?.tables && s.data.tables.length ? s.data.tables : undefined,
     findings: (s.data?.findings ?? []).map((t) => ({ text: t, conf: "grounded" as Conf })),
   };
+}
+
+// Wszystkie tabele rozdziału (wiele numerowanych albo pojedyncza) w kolejności.
+function chapterTables(c: Chapter): OpTable[] {
+  if (c.tables && c.tables.length) return c.tables;
+  return c.table ? [c.table] : [];
 }
 
 export function buildOpinion(
@@ -812,7 +927,7 @@ export function buildOpinion(
       paras: [{ conf: "todo" as Conf, text: `Rozdział do wygenerowania (subanaliza: ${SUB_LABEL[p.kind] ?? p.kind}).` }],
     };
   });
-  const tablesIV = ivChapters.filter((c) => c.table);
+  const tablesIV = ivChapters.flatMap((c) => chapterTables(c).map((t) => ({ no: c.no, table: t })));
 
   // III — z biblioteki (chyba że zapisano redakcję modelu proza_iii).
   const storedIII = byKind.get("proza_iii");
@@ -881,7 +996,7 @@ export function buildOpinion(
       title: "Spis tabel i wykresów oraz wykaz załączników",
       status: tablesIV.length || inputDocs.length ? "ready" : "todo",
       paras: tablesIV.length
-        ? tablesIV.map((c, i) => ({ conf: "grounded" as Conf, text: `Tabela ${i + 1}. ${c.table!.caption.replace(/^Tabela\.\s*/, "")} (rozdz. ${c.no}).` }))
+        ? tablesIV.map((c, i) => ({ conf: "grounded" as Conf, text: `Tabela ${i + 1}. ${c.table.caption.replace(/^Tabela\.\s*/, "")} (rozdz. ${c.no}).` }))
         : [{ conf: "todo", text: "Spis tabel zostanie uzupełniony po wykonaniu analiz." }],
       attachments: inputDocs.slice(0, 300).map((d) => basename(d.rel_path)),
     },

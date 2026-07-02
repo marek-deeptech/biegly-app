@@ -45,7 +45,7 @@ def compute_all(
         out.append(_m(f"cancel_{d}", "Anulacje kupna Grupy (layering/spoofing)",
                       round(c["share"] * 100, 2), "%", d))
 
-    # Tabela per podmiot (Grupa) — udział, wartość i wolumen sprzedaży.
+    # Tabela per podmiot (Grupa) — udział, wartość i wolumen po stronie sprzedaży i kupna.
     for e in metrics.per_entity_breakdown(transactions, group_fragments):
         out.append(_m(f"ent_sell_share::{e['entity']}", f"Udział sprzedaży — {e['entity']}",
                       round(e["sell_value_share"] * 100, 2), "%"))
@@ -53,6 +53,23 @@ def compute_all(
                       round(e["sell_value"], 2), "zł"))
         out.append(_m(f"ent_sell_vol::{e['entity']}", f"Wolumen sprzedaży — {e['entity']}",
                       round(e["sell_volume"]), "szt"))
+        out.append(_m(f"ent_buy_share::{e['entity']}", f"Udział kupna — {e['entity']}",
+                      round(e["buy_value_share"] * 100, 2), "%"))
+        out.append(_m(f"ent_buy_val::{e['entity']}", f"Wartość kupna — {e['entity']}",
+                      round(e["buy_value"], 2), "zł"))
+        out.append(_m(f"ent_buy_vol::{e['entity']}", f"Wolumen kupna — {e['entity']}",
+                      round(e["buy_volume"]), "szt"))
+
+    # Kurs i wolumen instrumentu per sesja (OHLC + zmiana) — „Tabela nr 8".
+    for r in metrics.per_day_ohlc(transactions):
+        d = r["day"]
+        out.append(_m("day_open", "Kurs otwarcia", round(r["open"], 4), "zł", d))
+        out.append(_m("day_high", "Kurs najwyższy", round(r["high"], 4), "zł", d))
+        out.append(_m("day_low", "Kurs najniższy", round(r["low"], 4), "zł", d))
+        out.append(_m("day_close", "Kurs zamknięcia", round(r["close"], 4), "zł", d))
+        if r["change_pct"] is not None:
+            out.append(_m("day_change_pct", "Zmiana kursu (zamk.)", round(r["change_pct"], 2), "%", d))
+            out.append(_m("day_change_pln", "Zmiana kursu (zł)", round(r["change_pln"], 4), "zł", d))
 
     # Rozbicie per sesja (Tab 24–28): wolumen/wartość sesji, obrót Grupy i wewnątrzgrupowy.
     for r in metrics.per_day_breakdown(transactions, group_fragments):
@@ -97,7 +114,7 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
     grp_vol: dict[str, float] = defaultdict(float)
     grp_val: dict[str, float] = defaultdict(float)
     intra_vol: dict[str, float] = defaultdict(float)
-    ent: dict[str, dict] = defaultdict(lambda: {"sv": 0.0, "svol": 0.0})
+    ent: dict[str, dict] = defaultdict(lambda: {"sv": 0.0, "svol": 0.0, "bv": 0.0, "bvol": 0.0})
     for r in transactions:
         val = r.get("WARTOSC_TR") or 0
         vol = r.get("WOLUMEN") or 0
@@ -118,6 +135,10 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
         if cs:
             ent[cs]["sv"] += val
             ent[cs]["svol"] += vol
+        cb = canonical_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+        if cb:
+            ent[cb]["bv"] += val
+            ent[cb]["bvol"] += vol
 
     out.append(_m("totals_transactions", "Liczba transakcji", n, "szt"))
     out.append(_m("totals_value", "Wartość obrotu", round(total_val, 2), "zł"))
@@ -138,6 +159,20 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
                       round(agg["sv"] / total_val * 100, 2) if total_val else 0.0, "%"))
         out.append(_m(f"ent_sell_val::{e}", f"Wartość sprzedaży — {e}", round(agg["sv"], 2), "zł"))
         out.append(_m(f"ent_sell_vol::{e}", f"Wolumen sprzedaży — {e}", round(agg["svol"]), "szt"))
+        out.append(_m(f"ent_buy_share::{e}", f"Udział kupna — {e}",
+                      round(agg["bv"] / total_val * 100, 2) if total_val else 0.0, "%"))
+        out.append(_m(f"ent_buy_val::{e}", f"Wartość kupna — {e}", round(agg["bv"], 2), "zł"))
+        out.append(_m(f"ent_buy_vol::{e}", f"Wolumen kupna — {e}", round(agg["bvol"]), "szt"))
+    # OHLC per sesja — tylko jeśli TREM zawiera kurs transakcyjny (inaczej pusto).
+    for r in metrics.per_day_ohlc(transactions):
+        d = r["day"]
+        out.append(_m("day_open", "Kurs otwarcia", round(r["open"], 4), "zł", d))
+        out.append(_m("day_high", "Kurs najwyższy", round(r["high"], 4), "zł", d))
+        out.append(_m("day_low", "Kurs najniższy", round(r["low"], 4), "zł", d))
+        out.append(_m("day_close", "Kurs zamknięcia", round(r["close"], 4), "zł", d))
+        if r["change_pct"] is not None:
+            out.append(_m("day_change_pct", "Zmiana kursu (zamk.)", round(r["change_pct"], 2), "%", d))
+            out.append(_m("day_change_pln", "Zmiana kursu (zł)", round(r["change_pln"], 4), "zł", d))
     for p in metrics.per_pair_intra(transactions, group_fragments)[:60]:
         out.append(_m(f"pair_intra::{p['a']}|{p['b']}", f"Wash-pary — {p['a']} ↔ {p['b']}",
                       round(p["value"], 2), "zł"))

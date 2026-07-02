@@ -165,6 +165,45 @@ def per_day_breakdown(transactions: list[dict], group_fragments: list[str] | Non
     return [{"day": d, **a} for d, a in sorted(agg.items())]
 
 
+def per_day_ohlc(transactions: list[dict]) -> list[dict]:
+    """OHLC + zmiana kursu per sesja — wprost z ceny transakcyjnej (KURS) i czasu.
+
+    Otwarcie = kurs pierwszej transakcji dnia, zamknięcie = ostatniej (kolejność wg
+    TRANSACTTIME_TXT); najwyższy/najniższy = skrajne kursy sesji. Zmiana liczona
+    względem kursu zamknięcia z poprzedniej sesji (łańcuchowo) — zgodnie z ujęciem
+    z opinii (kurs odniesienia = zamknięcie dnia poprzedniego). Źródło „Tabeli nr 8"
+    (kurs i wolumen instrumentu). Cena rynkowa — z całości obrotu, nie tylko Grupy."""
+    days: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for r in transactions:
+        price = r.get("KURS")
+        if not price:  # None lub 0 — brak ceny
+            continue
+        d = session_date(r.get("DATA_SESJI"))
+        if not d:
+            continue
+        sk = r.get("TRANSACTTIME_TXT") or r.get("CZAS_TR") or r.get("UTPEXID") or ""
+        days[d].append((str(sk), float(price)))
+    out: list[dict] = []
+    prev_close: float | None = None
+    for d in sorted(days):
+        rows = sorted(days[d], key=lambda x: x[0])
+        prices = [p for _, p in rows]
+        close = rows[-1][1]
+        out.append(
+            {
+                "day": d,
+                "open": rows[0][1],
+                "high": max(prices),
+                "low": min(prices),
+                "close": close,
+                "change_pln": (close - prev_close) if prev_close is not None else None,
+                "change_pct": ((close - prev_close) / prev_close * 100) if prev_close else None,
+            }
+        )
+        prev_close = close
+    return out
+
+
 def per_pair_intra(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
     """Pary podmiotów Grupy handlujących ze sobą (transakcje wewnątrzgrupowe).
 

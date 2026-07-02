@@ -66,13 +66,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const sub = (subs ?? []).find((s) => s.kind === chapter);
     if (!sub)
       return Response.json({ ok: false, reason: "Najpierw wygeneruj ten rozdział (Generuj), potem rozwiń prozą." });
-    const table = sub.data?.table as { head?: string[]; rows?: string[][] } | null | undefined;
-    let tableText: string | null = null;
-    if (table?.head && table.rows?.length) {
-      const head = table.head.join(" | ");
-      const rows = table.rows.slice(0, 120).map((r) => r.join(" | ")).join("\n");
-      tableText = `${head}\n${rows}`;
-    }
+    type Tbl = { caption?: string; head?: string[]; rows?: string[][] };
+    const many = (sub.data?.tables as Tbl[] | undefined) ?? [];
+    const tbls: Tbl[] = many.length ? many : sub.data?.table ? [sub.data.table as Tbl] : [];
+    const asText = (t: Tbl) =>
+      t.head && t.rows?.length
+        ? `${t.caption ? t.caption.replace(/^Tabela\.\s*/, "") + ":\n" : ""}${t.head.join(" | ")}\n` +
+          t.rows.slice(0, 120).map((r) => r.join(" | ")).join("\n")
+        : null;
+    const blocks = tbls.map(asText).filter((s): s is string => !!s);
+    const tableText = blocks.length ? blocks.join("\n\n") : null;
     const { data: docsData } = await supabase.from("documents").select("doc_type").eq("case_id", id);
     const counts: Record<string, number> = {};
     for (const d of docsData ?? []) counts[d.doc_type as string] = (counts[d.doc_type as string] ?? 0) + 1;

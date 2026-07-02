@@ -65,13 +65,13 @@ export function renderOpinionDocx(op: Opinion): Document {
         }),
       );
     }
-    if (ch.table) {
+    for (const tbl of ch.tables ?? (ch.table ? [ch.table] : [])) {
       children.push(
         new Paragraph({
           spacing: { before: 80 },
-          children: [new TextRun({ text: ch.table.caption, italics: true, size: 18 })],
+          children: [new TextRun({ text: tbl.caption, italics: true, size: 18 })],
         }),
-        docxTable(ch.table.head, ch.table.rows),
+        docxTable(tbl.head, tbl.rows),
       );
     }
     if (ch.findings?.length) {

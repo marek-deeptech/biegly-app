@@ -78,7 +78,7 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
   espi:
     "Analiza raportów bieżących ESPI/EBI — czy komunikaty spółki były cenotwórcze, czy wypełniały definicję informacji poufnej, czy nosiły znamiona manipulacji informacją.",
   aktywnosc:
-    "Aktywność podmiotów z Grupy — skala i koncentracja obecności Grupy w obrocie instrumentem, z omówieniem zestawienia per podmiot.",
+    "Aktywność podmiotów z Grupy — dynamika kursu (OHLC) i wolumenu w powiązaniu ze skalą i koncentracją obecności Grupy w obrocie; omów tabelę kursu sesja po sesji (wzrosty, spadki, kurs maksymalny) oraz zestawienia per podmiot odrębnie po stronie sprzedaży i po stronie kupna.",
   relacje:
     "Identyfikacja relacji między podmiotami Grupy — powiązania osobowe, zbieżność adresów IP, wspólni pełnomocnicy — jako przesłanki działania wspólnie i w porozumieniu.",
   wash:
@@ -112,8 +112,9 @@ export function buildIvRedactPrompt(inp: IvRedactInput): { system: string; user:
   if (inp.legalRefs.length) parts.push(`Odniesienia prawne do wplecenia: ${inp.legalRefs.join("; ")}.`);
   if (inp.tableText)
     parts.push(
-      "Dane liczbowe z deterministycznego silnika (przepisz wartości DOKŁADNIE; omów je pozycja po pozycji — " +
-        "dzień po dniu / podmiot po podmiocie — wskazując wartości szczytowe i ich znaczenie):\n" +
+      "Dane liczbowe z deterministycznego silnika — poniżej jedna lub kilka tabel (każda z własnym tytułem). " +
+        "Przepisz wartości DOKŁADNIE; omów KAŻDĄ tabelę pozycja po pozycji — dzień po dniu / podmiot po " +
+        "podmiocie — wskazując wartości szczytowe i ich znaczenie; możesz odwoływać się do tabel po ich tytule:\n" +
         inp.tableText,
     );
   if (inp.findings.length)
