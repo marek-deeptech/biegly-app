@@ -4,7 +4,9 @@
 import {
   AlignmentType,
   Document,
+  Footer,
   HeadingLevel,
+  PageNumber,
   Paragraph,
   Table,
   TableCell,
@@ -108,7 +110,23 @@ export function renderOpinionDocx(op: Opinion): Document {
     new Paragraph({ spacing: { before: 240 }, children: [new TextRun({ text: op.expert })] }),
   );
 
-  return new Document({ sections: [{ children }] });
+  return new Document({
+    sections: [
+      {
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ children: ["Strona ", PageNumber.CURRENT, " / ", PageNumber.TOTAL_PAGES], size: 16 })],
+              }),
+            ],
+          }),
+        },
+        children,
+      },
+    ],
+  });
 }
 
 function docxTable(head: string[], rows: string[][]): Table {

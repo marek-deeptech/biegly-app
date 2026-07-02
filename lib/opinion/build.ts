@@ -1071,6 +1071,24 @@ export function buildOpinion(
   );
   const merged = chapters.map((c) => (exact.has(c.no) ? chapterFromStored(exact.get(c.no)!, c.no, c.title) : c));
 
+  // Globalna numeracja tabel (Tabela nr N) w kolejności rozdziałów — spójna dla
+  // podpisów w rozdziałach i spisu tabel w rozdziale VI. Rozdział VI (spis) pomijany.
+  let tno = 0;
+  const toc: { n: number; caption: string; chNo: string }[] = [];
+  for (const c of merged) {
+    if (c.no === "VI") continue;
+    for (const t of chapterTables(c)) {
+      tno++;
+      t.caption = t.caption.replace(/^Tabela(\s+nr\s+\d+)?\.\s*/, `Tabela nr ${tno}. `);
+      toc.push({ n: tno, caption: t.caption.replace(/^Tabela nr \d+\.\s*/, ""), chNo: c.no });
+    }
+  }
+  const vi = merged.find((c) => c.no === "VI");
+  if (vi && toc.length) {
+    vi.status = "ready";
+    vi.paras = toc.map((e) => ({ conf: "grounded" as Conf, text: `Tabela nr ${e.n}. ${e.caption} (rozdz. ${e.chNo}).` }));
+  }
+
   return {
     caseName: caseRow.name,
     signature: caseRow.signature,
