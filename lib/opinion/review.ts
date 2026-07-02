@@ -144,9 +144,11 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
     add(C.complete, "WARN", "Brak elementu falsyfikacji — wskaż podmioty/osoby, których aktywność nie nosi znamion manipulacji.");
     compIssues++;
   }
-  const todoMarks = (allText.match(/\[do uzupełnienia/gi) ?? []).length;
-  if (todoMarks) {
-    add(C.complete, "WARN", `Pozostało ${todoMarks} miejsc „[do uzupełnienia]" do uzupełnienia.`);
+  // Wszystkie placeholdery do wypełnienia — nie tylko „[do uzupełnienia]", ale też
+  // „[oznaczenie …]", „[do ustalenia …]" itp., które inaczej trafiają do finału.
+  const placeholders = (allText.match(/\[(?:do uzupełnienia|oznaczenie|do ustalenia|do wskazania|nazwa)[^\]]*\]/gi) ?? []).length;
+  if (placeholders) {
+    add(C.complete, "WARN", `Pozostało ${placeholders} miejsc do uzupełnienia (m.in. „[do uzupełnienia]", „[oznaczenie …]").`);
     compIssues++;
   }
   if (!compIssues) add(C.complete, "OK", "Opinia kompletna, z elementem falsyfikacji.");

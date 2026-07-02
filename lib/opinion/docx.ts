@@ -17,13 +17,13 @@ import {
 
 import type { Opinion } from "./build";
 
-export function renderOpinionDocx(op: Opinion): Document {
+export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): Document {
   const children: (Paragraph | Table)[] = [];
 
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: "OPINIA BIEGŁEGO (projekt roboczy)", bold: true, size: 30 })],
+      children: [new TextRun({ text: "OPINIA BIEGŁEGO" + (opts.final ? "" : " (projekt roboczy)"), bold: true, size: 30 })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -52,7 +52,7 @@ export function renderOpinionDocx(op: Opinion): Document {
         children: [new TextRun({ text: `${ch.no}. ${ch.title}` })],
       }),
     );
-    if (ch.source) {
+    if (ch.source && !opts.final) {
       children.push(
         new Paragraph({
           children: [new TextRun({ text: `Źródło: ${ch.source}`, italics: true, size: 18, color: "6b6f7a" })],

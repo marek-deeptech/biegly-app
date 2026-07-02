@@ -596,12 +596,20 @@ export default function OpinionView({
                       {warnN ? ` (${warnN} uwag recenzenta)` : ""}.
                     </p>
                   )}
-                  <a
-                    href={`/cases/${caseId}/opinion/docx`}
-                    className="inline-block border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90"
-                  >
-                    Generuj opinię (.docx)
-                  </a>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a
+                      href={`/cases/${caseId}/opinion/docx?final=1`}
+                      className="inline-block border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90"
+                    >
+                      Generuj opinię (.docx)
+                    </a>
+                    <a
+                      href={`/cases/${caseId}/opinion/docx`}
+                      className="text-xs text-inksoft underline-offset-2 hover:underline"
+                    >
+                      wersja robocza (z adnotacjami „Źródło”)
+                    </a>
+                  </div>
                 </>
               )}
             </>
