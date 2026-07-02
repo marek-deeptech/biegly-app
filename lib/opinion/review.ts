@@ -27,6 +27,11 @@ function chapText(ch: Chapter): string {
   );
 }
 
+// Wszystkie tabele rozdziału (wiele numerowanych albo pojedyncza) — spójne z montażem.
+function chTables(ch: Chapter) {
+  return ch.tables && ch.tables.length ? ch.tables : ch.table ? [ch.table] : [];
+}
+
 export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: StoredSub[]): ReviewFinding[] {
   void stored;
   const out: ReviewFinding[] = [];
@@ -34,28 +39,36 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
 
   // 1. Spójność liczb — wartości procentowe w rozdziale ilościowym muszą mieć
   //    pokrycie w metrykach silnika lub w komórkach tabel.
+  // Normalizacja znaku: proza podaje magnitudę („spadek o 16,28%"), tabela/metryka
+  // ma znak („−16,28%") — porównujemy wartości bezwzględne (znak nie decyduje o pokryciu).
+  const unsign = (s: string) => s.replace(/^[+\-−]/, "");
   const numSet = new Set<string>();
   for (const m of metrics)
-    if (m.value != null) numSet.add(m.value.toLocaleString("pl-PL") + (m.unit === "%" ? "%" : ""));
+    if (m.value != null) numSet.add(unsign(m.value.toLocaleString("pl-PL")) + (m.unit === "%" ? "%" : ""));
   for (const ch of opinion.chapters)
-    if (ch.table) for (const row of ch.table.rows) for (const cell of row) numSet.add(cell.trim());
+    for (const t of chTables(ch)) for (const row of t.rows) for (const cell of row) numSet.add(unsign(cell.trim()));
   const pctRe = /\d{1,3}(?:,\d+)?%/g;
   let numIssues = 0;
+  const seenNum = new Set<string>();
   for (const ch of opinion.chapters) {
-    if (!/ilościow/i.test(ch.title) && !/ilościow/i.test(ch.source ?? "")) continue;
-    for (const c of chapText(ch).match(pctRe) ?? [])
-      if (!numSet.has(c)) {
-        add(C.numbers, "WARN", `Liczba ${c} (rozdz. ${ch.no}) nie ma pokrycia w policzonych wskaźnikach — zweryfikuj.`);
-        numIssues++;
-      }
+    // Rozdziały analityczne: ilościowy (zgodność wsteczna) oraz rozdział IV (analiza).
+    const analytical = /ilościow/i.test(ch.title) || /ilościow/i.test(ch.source ?? "") || ch.no.startsWith("IV");
+    if (!analytical) continue;
+    for (const c of chapText(ch).match(pctRe) ?? []) {
+      const key = ch.no + "|" + c;
+      if (numSet.has(c) || seenNum.has(key)) continue;
+      seenNum.add(key);
+      add(C.numbers, "WARN", `Liczba ${c} (rozdz. ${ch.no}) nie ma pokrycia w policzonych wskaźnikach ani w tabelach — zweryfikuj.`);
+      numIssues++;
+    }
   }
   if (!numIssues) add(C.numbers, "OK", "Liczby w rozdziale ilościowym zgodne z metrykami silnika.");
 
   // 2. Odniesienia do tabel — każde „Tabela N" w tekście musi istnieć.
   const tabNums = new Set<number>();
   for (const ch of opinion.chapters)
-    if (ch.table) {
-      const m = ch.table.caption.match(/tabela\s*(\d+)/i);
+    for (const t of chTables(ch)) {
+      const m = t.caption.match(/tabela\s*(?:nr\s*)?(\d+)/i);
       if (m) tabNums.add(+m[1]);
     }
   const refRe = /tabel\w*\s*(?:nr\s*)?(\d+)/gi;
