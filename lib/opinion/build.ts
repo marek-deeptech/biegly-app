@@ -26,6 +26,9 @@ import {
 export type Conf = "grounded" | "review" | "todo";
 export type Para = { text: string; conf: Conf };
 export type OpTable = { caption: string; head: string[]; rows: string[][] };
+// Placeholder elementu graficznego/tabelarycznego, którego silnik jeszcze nie
+// renderuje — DOCX oznacza miejsce i nazwę, biegły wstawia element ręcznie.
+export type Placeholder = { kind: "wykres" | "tabela"; name: string; label?: string };
 export type Chapter = {
   no: string;
   title: string;
@@ -34,6 +37,7 @@ export type Chapter = {
   paras: Para[];
   table?: OpTable;
   tables?: OpTable[]; // wiele tabel numerowanych w jednym rozdziale (np. OHLC + sprzedaż + kupno)
+  placeholders?: Placeholder[]; // wykresy/tabele do wstawienia przez biegłego
   findings?: Para[];
   attachments?: string[];
 };
@@ -92,6 +96,24 @@ const LEGAL_BASIS = [
   "rozporządzenie delegowane (UE) 2016/522, załącznik II — wskaźniki manipulacji",
   "art. 183 ustawy z dnia 29 lipca 2005 r. o obrocie instrumentami finansowymi",
 ];
+
+// Placeholdery elementów, których silnik jeszcze nie renderuje (wzorzec: opinia
+// referencyjna używa wykresów nr 1–5 oraz tabel spoza obecnego zakresu silnika).
+// DOCX/montaż oznaczają miejsce i nazwę; biegły wstawia element ręcznie.
+const CHAPTER_PLACEHOLDERS: Partial<Record<IVKind, Placeholder[]>> = {
+  ekofin: [
+    { kind: "wykres", name: "Kurs akcji emitenta na tle spółek porównywalnych / sektora" },
+    { kind: "tabela", name: "Wybrane dane ekonomiczno-finansowe emitenta (okresy porównawcze)" },
+  ],
+  espi: [{ kind: "tabela", name: "Reakcja kursu i wolumenu na poszczególne komunikaty ESPI/EBI" }],
+  aktywnosc: [
+    { kind: "wykres", name: "Kurs i wolumen obrotu akcjami w okresie objętym analizą" },
+    { kind: "wykres", name: "Skumulowane saldo wolumenu i gotówki Grupy (akumulacja/wyprzedaż)" },
+  ],
+  wash: [{ kind: "wykres", name: "Udział transakcji wewnątrzgrupowych (wash trades) w wolumenie sesji" }],
+  layering: [{ kind: "wykres", name: "Udział anulowanego wolumenu kupna Grupy per sesja" }],
+  relacje: [{ kind: "tabela", name: "Macierz powiązań osobowych i kapitałowych podmiotów Grupy" }],
+};
 
 // ── pomocnicze ───────────────────────────────────────────────────────────────
 function plnum(n: number | null | undefined, unit?: string | null): string {
@@ -1187,6 +1209,30 @@ export function buildOpinion(
   );
   const merged = chapters.map((c) => (exact.has(c.no) ? chapterFromStored(exact.get(c.no)!, c.no, c.title) : c));
 
+  // Tabele pomocnicze z ekstrakcji źródeł PDF: zdarzenia ESPI → rozdział ESPI,
+  // organy z odpisów KRS → rozdział relacji. Realne dane z akt, nie placeholdery.
+  const AUX_TABLES: [IVKind, string][] = [
+    ["espi", "espi_events"],
+    ["relacje", "krs_boards"],
+  ];
+  for (const [kind, auxKind] of AUX_TABLES) {
+    const p = plan.find((x) => x.kind === kind);
+    const aux = stored.find((s) => s.kind === auxKind)?.data?.table ?? null;
+    if (!p || !aux) continue;
+    const ch = merged.find((x) => x.no === p.no);
+    if (!ch || ch.status === "todo") continue;
+    const cur = chapterTables(ch);
+    if (!cur.some((t) => t.caption === aux.caption)) ch.tables = [...cur, aux];
+  }
+
+  // Placeholdery wykresów/tabel — oznaczone miejsca do wstawienia przez biegłego.
+  for (const p of plan) {
+    const ph = CHAPTER_PLACEHOLDERS[p.kind];
+    if (!ph?.length) continue;
+    const ch = merged.find((x) => x.no === p.no);
+    if (ch && ch.status !== "todo") ch.placeholders = ph.map((x) => ({ ...x }));
+  }
+
   // Globalna numeracja tabel (Tabela nr N) w kolejności rozdziałów — spójna dla
   // podpisów w rozdziałach i spisu tabel w rozdziale VI. Rozdział VI (spis) pomijany.
   let tno = 0;
@@ -1199,10 +1245,28 @@ export function buildOpinion(
       toc.push({ n: tno, caption: t.caption.replace(/^Tabela nr \d+\.\s*/, ""), chNo: c.no });
     }
   }
+  // Numeracja wykresów (na razie wyłącznie placeholdery — jak wykresy nr 1–5 w KM).
+  let wno = 0;
+  const chartToc: { n: number; name: string; chNo: string }[] = [];
+  for (const c of merged) {
+    if (c.no === "VI") continue;
+    for (const ph of c.placeholders ?? []) {
+      if (ph.kind === "wykres") {
+        wno++;
+        ph.label = `Wykres nr ${wno} — do wstawienia`;
+        chartToc.push({ n: wno, name: ph.name, chNo: c.no });
+      } else {
+        ph.label = "Tabela — do wstawienia";
+      }
+    }
+  }
   const vi = merged.find((c) => c.no === "VI");
-  if (vi && toc.length) {
+  if (vi && (toc.length || chartToc.length)) {
     vi.status = "ready";
-    vi.paras = toc.map((e) => ({ conf: "grounded" as Conf, text: `Tabela nr ${e.n}. ${e.caption} (rozdz. ${e.chNo}).` }));
+    vi.paras = [
+      ...toc.map((e) => ({ conf: "grounded" as Conf, text: `Tabela nr ${e.n}. ${e.caption} (rozdz. ${e.chNo}).` })),
+      ...chartToc.map((e) => ({ conf: "review" as Conf, text: `Wykres nr ${e.n}. ${e.name} (rozdz. ${e.chNo}) — do wstawienia.` })),
+    ];
   }
 
   return {

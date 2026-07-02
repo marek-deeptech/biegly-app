@@ -964,6 +964,15 @@ export default function OpinionView({
                 </div>
               ))}
 
+              {(ch.placeholders ?? []).map((ph, pi) => (
+                <div
+                  key={"ph" + pi}
+                  className="mt-2 border border-dashed border-ink/40 bg-paper px-3 py-2 text-[11px] italic text-inksoft"
+                >
+                  [{ph.label ?? (ph.kind === "wykres" ? "Wykres — do wstawienia" : "Tabela — do wstawienia")}] {ph.name}
+                </div>
+              ))}
+
               {ch.findings && ch.findings.length > 0 && (
                 <div className="mt-3">
                   <p className="mb-1 text-xs font-semibold">Wnioski cząstkowe</p>

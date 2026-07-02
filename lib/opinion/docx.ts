@@ -76,6 +76,15 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
         docxTable(tbl.head, tbl.rows),
       );
     }
+    // Placeholdery wykresów/tabel — oznaczone miejsce z nazwą (biegły wstawia ręcznie).
+    for (const ph of ch.placeholders ?? []) {
+      children.push(
+        new Paragraph({ spacing: { before: 80 }, children: [] }),
+        placeholderBlock(
+          `[${ph.label ?? (ph.kind === "wykres" ? "Wykres — do wstawienia" : "Tabela — do wstawienia")}] ${ph.name}`,
+        ),
+      );
+    }
     if (ch.findings?.length) {
       children.push(
         new Paragraph({
@@ -125,6 +134,23 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
         },
         children,
       },
+    ],
+  });
+}
+
+// Ramka placeholdera (wyróżnione tło) — oznacza miejsce na wykres/tabelę do wstawienia.
+function placeholderBlock(text: string): Table {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            shading: { fill: "eef1f6" },
+            children: [new Paragraph({ children: [new TextRun({ text, italics: true, size: 18, color: "44506a" })] })],
+          }),
+        ],
+      }),
     ],
   });
 }
