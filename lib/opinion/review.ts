@@ -106,7 +106,8 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   if (!legalIssues) add(C.legal, "OK", "Twierdzenia o technikach mają powołania prawne.");
 
   // 4. Kalibracja sformułowań — wyrażenia przesądzające o pewności/winie/zamiarze.
-  const overRe = /jednoznacznie|bez wątpienia|niewątpliwie|na pewno|udowodniono|winny|umyśln\w+|z premedytacją/gi;
+  // „winny" tylko w kontekście winy (winny czynu/manipulacji), nie „winny/powinny być".
+  const overRe = /jednoznacznie|bez wątpienia|niewątpliwie|na pewno|udowodniono|win(?:ny|ien|ni)\s+(?:zarzuc\w+|czynu|manipulacji|przestępstwa|popełnienia|zarzutu)|umyśln\w+|z premedytacją/gi;
   let calibIssues = 0;
   for (const ch of opinion.chapters) {
     const hits = new Set((chapText(ch).match(overRe) ?? []).map((s) => s.toLowerCase()));
