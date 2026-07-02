@@ -19,6 +19,7 @@ export type RedactInput = {
   facts: string[]; // ugruntowane fakty liczbowe z silnika
   approved: { title: string; findings: string[] }[]; // zatwierdzone wnioski IV.x
   legalBasis: string[];
+  library?: string[]; // definicje z biblioteki prawnej (rozdz. III — do wiernego przytoczenia)
 };
 
 const SYSTEM =
@@ -40,6 +41,11 @@ export function buildRedactPrompt(inp: RedactInput): { system: string; user: str
   if (inp.facts.length)
     parts.push("Ustalone fakty liczbowe (z deterministycznego silnika — przepisz dokładnie, nie zmieniaj):\n" +
       inp.facts.map((f) => "- " + f).join("\n"));
+  if (inp.library?.length)
+    parts.push(
+      "Biblioteka prawna — definicje technik do WIERNEGO przytoczenia i rozwinięcia (każda odrębnie):\n" +
+        inp.library.map((l) => "- " + l).join("\n"),
+    );
   if (inp.approved.length)
     parts.push("Zatwierdzone wnioski cząstkowe z rozdziału IV:\n" +
       inp.approved.map((a) => `• ${a.title}: ${a.findings.join(" ")}`).join("\n"));
@@ -52,9 +58,17 @@ export function buildRedactPrompt(inp: RedactInput): { system: string; user: str
     );
   if (inp.chapter === "III")
     parts.push(
-      "Napisz wstęp teoretyczny o technikach manipulacji instrumentem finansowym: transakcje wzajemne (wash trades), " +
-        "layering i spoofing, niewłaściwe dopasowania zleceń (matched orders) oraz schemat pump&dump — w świetle art. 12 MAR " +
-        "i wskaźników z załącznika II do rozporządzenia 2016/522. To rozdział OGÓLNY — nie odwołuj się do konkretnych liczb tej sprawy.",
+      "Napisz obszerny wstęp teoretyczno-prawny (rozdział III opinii) o manipulacji instrumentami finansowymi, " +
+        "w strukturze: (1) integralność rynku regulowanego i cel rozporządzenia MAR; (2) konstrukcja art. 12 MAR " +
+        "(ust. 1 i 2) oraz wskaźniki manipulacji z załącznika I MAR i załącznika II rozporządzenia delegowanego " +
+        "(UE) 2016/522; (3) odpowiedzialność karna — art. 183 ustawy o obrocie instrumentami finansowymi i relacja " +
+        "prawa krajowego do unijnego; (4) mikrostruktura rynku: arkusz zleceń, kształtowanie kursu, płynność i " +
+        "wolumen jako nośniki sygnałów dla uczestników obrotu; (5) KAŻDĄ technikę z biblioteki omów w 2–3 " +
+        "akapitach — wierna definicja, mechanizm działania krok po kroku, właściwe wskaźniki z załącznika II " +
+        "2016/522, wpływ na obraz podaży, popytu i płynności; (6) manipulacja informacją i jej związek z technikami " +
+        "transakcyjnymi; (7) działanie wspólnie i w porozumieniu (koordynacja rachunków, znaczenie zbieżności " +
+        "czasowej i technicznej); (8) metodyka badania biegłego — dane transakcyjne, wskaźniki ilościowe, granice " +
+        "wnioskowania. To rozdział OGÓLNY — nie odwołuj się do liczb, dat ani podmiotów tej sprawy.",
     );
   if (inp.chapter === "V")
     parts.push(
@@ -62,7 +76,11 @@ export function buildRedactPrompt(inp: RedactInput): { system: string; user: str
         "zastrzeżonych dla sądu (kwalifikacja prawnokarna, zamiar, wina konkretnych osób).",
     );
 
-  parts.push("Objętość: 2–4 akapity. Styl: formalny, bezosobowy, prawniczy. Zwróć samą treść rozdziału.");
+  parts.push(
+    inp.chapter === "III"
+      ? "Objętość: 14–20 akapitów (obszerny rozdział teoretyczny). Styl: formalny, bezosobowy, prawniczy. Zwróć samą treść rozdziału."
+      : "Objętość: 2–4 akapity. Styl: formalny, bezosobowy, prawniczy. Zwróć samą treść rozdziału.",
+  );
   return { system: SYSTEM, user: parts.join("\n\n") };
 }
 

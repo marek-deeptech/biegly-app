@@ -10,6 +10,7 @@ import {
   Paragraph,
   Table,
   TableCell,
+  TableOfContents,
   TableRow,
   TextRun,
   WidthType,
@@ -18,7 +19,7 @@ import {
 import type { Opinion } from "./build";
 
 export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): Document {
-  const children: (Paragraph | Table)[] = [];
+  const children: (Paragraph | Table | TableOfContents)[] = [];
 
   children.push(
     new Paragraph({
@@ -37,8 +38,22 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
     }),
   );
 
+  // Spis treści (pole TOC Worda) — buduje się z nagłówków rozdziałów; Word
+  // aktualizuje pole przy otwarciu (features.updateFields poniżej).
   children.push(
-    new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun("Podstawa prawna")] }),
+    new Paragraph({
+      spacing: { before: 120, after: 80 },
+      children: [new TextRun({ text: "SPIS TREŚCI", bold: true })],
+    }),
+    new TableOfContents("Spis treści", { hyperlink: true, headingStyleRange: "1-3" }),
+  );
+
+  children.push(
+    new Paragraph({
+      heading: HeadingLevel.HEADING_2,
+      pageBreakBefore: true,
+      children: [new TextRun("Podstawa prawna")],
+    }),
   );
   for (const lb of op.legalBasis) {
     children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(lb)] }));
@@ -120,6 +135,7 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
   );
 
   return new Document({
+    features: { updateFields: true },
     sections: [
       {
         footers: {

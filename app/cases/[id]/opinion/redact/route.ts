@@ -10,7 +10,7 @@ import {
   type RedactChapter,
 } from "@/lib/opinion/redact";
 import { buildWnioskiSubanaliza, type StoredSub } from "@/lib/opinion/build";
-import { PROSECUTOR_QUESTIONS } from "@/lib/opinion/legal";
+import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -195,14 +195,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       "rozporządzenie delegowane (UE) 2016/522, załącznik II",
       "art. 183 ustawy o obrocie instrumentami finansowymi",
     ];
+    // Rozdział III jest OGÓLNY: zamiast liczb sprawy dostaje bibliotekę definicji
+    // technik (legal.ts) do wiernego przytoczenia i rozwinięcia.
+    const library =
+      chapter === "III"
+        ? Object.values(TECHNIQUES).map((t) => `${t.label} (${t.mar}; ${t.rd}): ${t.definicja}`)
+        : undefined;
     const p = buildRedactPrompt({
       chapter: chapter as RedactChapter,
       caseName: caseRow.name,
       signature: caseRow.signature,
       period,
-      facts,
-      approved,
+      facts: chapter === "III" ? [] : facts,
+      approved: chapter === "III" ? [] : approved,
       legalBasis,
+      library,
     });
     system = p.system;
     userPrompt = p.user;
@@ -213,7 +220,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const client = new Anthropic();
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: isWnioski ? 5000 : isIv ? 4000 : 2500,
+      max_tokens: isWnioski ? 5000 : isIv ? 4000 : chapter === "III" ? 8000 : 2500,
       system,
       messages: [{ role: "user", content: userPrompt }],
     });
