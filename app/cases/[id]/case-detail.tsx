@@ -502,7 +502,7 @@ export default function CaseDetail({
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-7xl px-6 py-10">
       <div className="mb-3 flex items-center justify-between">
         <Link href="/" className="text-sm text-inksoft transition-colors hover:text-ink">
           ← Sprawy
