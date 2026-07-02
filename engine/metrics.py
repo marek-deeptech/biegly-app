@@ -165,6 +165,30 @@ def per_day_breakdown(transactions: list[dict], group_fragments: list[str] | Non
     return [{"day": d, **a} for d, a in sorted(agg.items())]
 
 
+def per_pair_intra(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
+    """Pary podmiotów Grupy handlujących ze sobą (transakcje wewnątrzgrupowe).
+
+    Sygnał do kolejki powiązań OSINT: kto z kim zawierał transakcje wewnątrz Grupy,
+    z wolumenem/wartością/liczbą. Para nieuporządkowana (A|B == B|A)."""
+    agg: dict[tuple, dict] = defaultdict(lambda: {"vol": 0.0, "val": 0.0, "cnt": 0})
+    for r in transactions:
+        b = canonical_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+        s = canonical_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if not b or not s or b == s:
+            continue
+        key = tuple(sorted((b, s)))
+        a = agg[key]
+        a["vol"] += r.get("WOLUMEN") or 0
+        a["val"] += r.get("WARTOSC_TR") or 0
+        a["cnt"] += 1
+    out = [
+        {"a": k[0], "b": k[1], "volume": v["vol"], "value": v["val"], "count": v["cnt"]}
+        for k, v in agg.items()
+    ]
+    out.sort(key=lambda x: -x["value"])
+    return out
+
+
 def per_session_layering(
     orders: list[dict], owner_map: dict, group_fragments: list[str] | None = None
 ) -> list[dict]:

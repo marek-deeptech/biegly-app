@@ -84,3 +84,16 @@ def test_per_day_breakdown():
     assert d["sv"] == 160 and round(d["sval"]) == 1600      # sesja
     assert d["gv"] == 150 and round(d["gval"]) == 1500      # >=1 strona Grupa
     assert d["iv"] == 100 and round(d["ival"]) == 1000      # obie strony Grupa (wash)
+
+
+def test_per_pair_intra():
+    tx = [
+        _tx("Alfa Ltd", "Beta Ltd", 100, 1000),   # alfa<->beta wewnatrz Grupy
+        _tx("Beta Ltd", "Alfa Ltd", 50, 500),      # ta sama para (nieuporzadkowana)
+        _tx("Alfa Ltd", "Outsider", 10, 100),      # jedna strona spoza Grupy - pomijana
+    ]
+    r = metrics.per_pair_intra(tx, FRAGS)
+    assert len(r) == 1
+    p = r[0]
+    assert tuple(sorted((p["a"], p["b"]))) == ("alfa", "beta")
+    assert p["count"] == 2 and p["volume"] == 150 and round(p["value"]) == 1500

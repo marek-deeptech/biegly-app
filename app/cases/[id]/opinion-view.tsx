@@ -369,7 +369,7 @@ export default function OpinionView({
       {/* ── Warsztat dowodowy (Kroki 3–5) — Podmioty są w zakładce Sprawa, Liczby w Analizie liczbowej ── */}
       {view === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />}
       {view === "powiazania" && <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />}
-      {view === "osint" && <OsintPanel caseId={caseId} stored={subanalyses} />}
+      {view === "osint" && <OsintPanel caseId={caseId} metrics={metrics} stored={subanalyses} />}
 
       {/* ── Rozdziały — drafty subanaliz ── */}
       {view === "rozdzialy" && (

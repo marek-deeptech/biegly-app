@@ -63,6 +63,11 @@ def compute_all(
         out.append(_m("day_grp_val", "Wartość z udziałem Grupy", round(r["gval"], 2), "zł", d))
         out.append(_m("day_intra_vol", "Wolumen wewnątrzgrupowy", round(r["iv"]), "szt", d))
 
+    # Pary podmiotów handlujących wewnątrz Grupy (sygnał do kolejki powiązań OSINT).
+    for p in metrics.per_pair_intra(transactions, group_fragments)[:60]:
+        out.append(_m(f"pair_intra::{p['a']}|{p['b']}", f"Wash-pary — {p['a']} ↔ {p['b']}",
+                      round(p["value"], 2), "zł"))
+
     # Layering per sesja i podmiot — tylko podmioty z faktycznymi anulacjami.
     for r in metrics.per_session_layering(orders, owner_map, group_fragments):
         if r["cancelled_volume"] <= 0:
@@ -133,4 +138,7 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
                       round(agg["sv"] / total_val * 100, 2) if total_val else 0.0, "%"))
         out.append(_m(f"ent_sell_val::{e}", f"Wartość sprzedaży — {e}", round(agg["sv"], 2), "zł"))
         out.append(_m(f"ent_sell_vol::{e}", f"Wolumen sprzedaży — {e}", round(agg["svol"]), "szt"))
+    for p in metrics.per_pair_intra(transactions, group_fragments)[:60]:
+        out.append(_m(f"pair_intra::{p['a']}|{p['b']}", f"Wash-pary — {p['a']} ↔ {p['b']}",
+                      round(p["value"], 2), "zł"))
     return out
