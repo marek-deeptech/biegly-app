@@ -1037,7 +1037,7 @@ export default function CaseDetail({
         </div>
       )}
 
-      <Zenek documents={documents} checklist={checklist} />
+      <Zenek caseId={caseRow.id} />
     </main>
   );
 }
