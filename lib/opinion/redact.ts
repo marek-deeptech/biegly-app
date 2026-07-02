@@ -78,7 +78,7 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
   espi:
     "Analiza raportów bieżących ESPI/EBI — czy komunikaty spółki były cenotwórcze, czy wypełniały definicję informacji poufnej, czy nosiły znamiona manipulacji informacją.",
   aktywnosc:
-    "Aktywność podmiotów z Grupy — dynamika kursu (OHLC) i wolumenu w powiązaniu ze skalą i koncentracją obecności Grupy w obrocie; omów tabelę kursu sesja po sesji (wzrosty, spadki, kurs maksymalny) oraz zestawienia per podmiot odrębnie po stronie sprzedaży i po stronie kupna.",
+    "Aktywność podmiotów z Grupy — dynamika kursu (OHLC) i wolumenu w powiązaniu ze skalą i koncentracją obecności Grupy w obrocie; omów tabelę kursu sesja po sesji (wzrosty, spadki, kurs maksymalny), zestawienia per podmiot odrębnie po stronie sprzedaży i kupna, oraz saldo Grupy (skumulowane saldo wolumenu = pozycja, i gotówki = przychód) jako obraz akumulacji i wyprzedaży pakietu. Zaznacz zbieżność czasową skoków kursu z raportami bieżącymi spółki (ESPI) obecnymi w aktach — odeślij do rozdz. IV.2 — bez wymyślania numerów ani dat komunikatów (oznacz [do uzupełnienia]).",
   relacje:
     "Identyfikacja relacji między podmiotami Grupy — powiązania osobowe, zbieżność adresów IP, wspólni pełnomocnicy — jako przesłanki działania wspólnie i w porozumieniu.",
   wash:

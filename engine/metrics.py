@@ -143,7 +143,12 @@ def per_day_breakdown(transactions: list[dict], group_fragments: list[str] | Non
     """Rozbicie per sesja: wolumen/wartość sesji, obrót z udziałem Grupy oraz
     obrót wewnątrzgrupowy (obie strony w Grupie). Źródło tabel dziennych (Tab 24–28)."""
     agg: dict[str, dict] = defaultdict(
-        lambda: {"sv": 0.0, "sval": 0.0, "gv": 0.0, "gval": 0.0, "iv": 0.0, "ival": 0.0, "cnt": 0, "icnt": 0}
+        lambda: {
+            "sv": 0.0, "sval": 0.0, "gv": 0.0, "gval": 0.0, "iv": 0.0, "ival": 0.0,
+            "cnt": 0, "icnt": 0,
+            # rozbicie Grupy na strony — do salda wolumenu i gotówki (pump&dump).
+            "gbv": 0.0, "gbval": 0.0, "gsv": 0.0, "gsval": 0.0,
+        }
     )
     for r in transactions:
         d = session_date(r.get("DATA_SESJI"))
@@ -155,10 +160,16 @@ def per_day_breakdown(transactions: list[dict], group_fragments: list[str] | Non
         a["cnt"] += 1
         gb = is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
         gs = is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if gb:  # kupujący z Grupy — pozycja rośnie, gotówka wypływa
+            a["gbv"] += vol
+            a["gbval"] += val
+        if gs:  # sprzedający z Grupy — pozycja maleje, gotówka wpływa
+            a["gsv"] += vol
+            a["gsval"] += val
         if gb or gs:
             a["gv"] += vol
             a["gval"] += val
-        if gb and gs:
+        if gb and gs:  # wewnątrzgrupowe — znoszą się w saldzie netto Grupy
             a["iv"] += vol
             a["ival"] += val
             a["icnt"] += 1

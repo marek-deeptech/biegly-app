@@ -76,10 +76,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         : null;
     const blocks = tbls.map(asText).filter((s): s is string => !!s);
     const tableText = blocks.length ? blocks.join("\n\n") : null;
-    const { data: docsData } = await supabase.from("documents").select("doc_type").eq("case_id", id);
+    const { data: docsData } = await supabase.from("documents").select("doc_type,rel_path").eq("case_id", id);
     const counts: Record<string, number> = {};
     for (const d of docsData ?? []) counts[d.doc_type as string] = (counts[d.doc_type as string] ?? 0) + 1;
     const inventory = Object.entries(counts).map(([k, v]) => `${v} × ${k}`);
+    // Aktywność: dołącz nazwy raportów ESPI/EBI (cross-link czasowy skoków kursu → rozdz. IV.2).
+    if (chapter === "aktywnosc") {
+      const espi = (docsData ?? [])
+        .filter((d) => d.doc_type === "RAPORT_ESPI_EBI")
+        .map((d) => "ESPI/EBI: " + String(d.rel_path).split("/").pop())
+        .slice(0, 15);
+      inventory.push(...espi);
+    }
     const p = buildIvRedactPrompt({
       kind: chapter as IvRedactKind,
       title: (sub.title as string) || chapter,

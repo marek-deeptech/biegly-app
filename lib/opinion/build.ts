@@ -246,6 +246,26 @@ function ohlcTable(metrics: Metric[]): OpTable | null {
   };
 }
 
+// Saldo Grupy per sesja — wolumen (pozycja) i gotówka (przychód), dziennie i skumulowane.
+// Sygnatura akumulacja→wyprzedaż: skumulowany przychód rośnie w fazie dystrybucji.
+function saldoTable(metrics: Metric[]): OpTable | null {
+  const days = [...new Set(metrics.filter((m) => m.key === "day_grp_cum_cash").map((m) => m.session_day as string))].sort();
+  if (!days.length) return null;
+  const at = (k: string, d: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  return {
+    caption:
+      "Tabela. Saldo Grupy per sesja — wolumen (pozycja: kupno−sprzedaż) i gotówka (przychód: sprzedaż−kupno), dziennie oraz skumulowane",
+    head: ["Sesja", "Saldo wol. dnia", "Skum. wolumen (pozycja)", "Saldo got. dnia (zł)", "Skum. przychód (zł)"],
+    rows: days.map((d) => [
+      d,
+      plnum(at("day_grp_net_vol", d), "szt"),
+      plnum(at("day_grp_cum_vol", d), "szt"),
+      plnum(at("day_grp_net_cash", d), "zł"),
+      plnum(at("day_grp_cum_cash", d), "zł"),
+    ]),
+  };
+}
+
 // Bogata tabela dzienna wash (odpowiednik Tab 24–28): sesja × wolumen/wartość/udziały.
 function washDailyTable(metrics: Metric[]): OpTable | null {
   const days = [...new Set(metrics.filter((m) => m.key === "day_sess_vol").map((m) => m.session_day as string))].sort();
@@ -476,8 +496,8 @@ function buildPumpDumpSubanaliza(caseName: string, metrics: Metric[], quotes?: Q
   };
 }
 
-// IV.x — Aktywność podmiotów z Grupy (skala obecności Grupy w obrocie + dynamika kursu).
-function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResult {
+// IV.x — Aktywność podmiotów z Grupy (skala obecności + dynamika kursu + saldo).
+function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents: Doc[] = []): SubResult {
   const { no, title } = ivMeta(caseName, "aktywnosc");
   const nTx = mfind(metrics, "totals_transactions");
   const valTx = mfind(metrics, "totals_value");
@@ -538,6 +558,43 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResul
         `redukcji pozycji.`,
     );
 
+  // Saldo Grupy — akumulacja/wyprzedaż z danych transakcyjnych (grounded).
+  const days = mdays(metrics);
+  const lastDay = days.length ? days[days.length - 1] : null;
+  const cumAt = (k: string) => (lastDay ? metrics.find((m) => m.key === k && m.session_day === lastDay)?.value ?? null : null);
+  const cumCash = cumAt("day_grp_cum_cash");
+  const cumVol = cumAt("day_grp_cum_vol");
+  const topCash = metrics
+    .filter((m) => m.key === "day_grp_net_cash" && (m.value ?? 0) > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    .slice(0, 3);
+  if (cumCash != null) {
+    const revDays = topCash.map((m) => `${m.session_day} (${plnum(m.value, "zł")})`).join(", ");
+    sec.push(
+      `Saldo Grupy (akumulacja i wyprzedaż). Poniższa tabela zestawia dzienne i skumulowane saldo Grupy: ` +
+        `wolumenu (pozycja = kupno − sprzedaż) oraz gotówki (przychód = sprzedaż − kupno). Skumulowany przychód ` +
+        `Grupy na koniec okresu (${lastDay}) wyniósł ${plnum(cumCash, "zł")}` +
+        (cumVol != null ? `, przy skumulowanym saldzie wolumenu ${plnum(cumVol, "szt")}` : ``) +
+        `. ` +
+        (revDays ? `Największe dodatnie przepływy gotówkowe (wyprzedaż pakietu) skoncentrowały się w sesjach ${revDays}. ` : ``) +
+        (cumVol != null && cumVol < 0
+          ? `Ujemne skumulowane saldo wolumenu wskazuje, że w badanym okresie Grupa była w przewadze stroną ` +
+            `podażową — obraz odpowiadający upłynnianiu znacznego pakietu akcji.`
+          : ``),
+    );
+  }
+
+  // Zbieżność czasowa skoków kursu z raportami bieżącymi (cross-link do IV.2).
+  const espi = byType(documents, "RAPORT_ESPI_EBI");
+  if (espi.length)
+    sec.push(
+      `Zbieżność z raportami bieżącymi. W aktach znajduje się ${espi.length} raport(ów) ESPI/EBI (szczegółowo ` +
+        `w rozdz. IV.2)` +
+        (closeHi?.session_day ? `; skokowe ruchy kursu — w szczególności wokół sesji ${closeHi.session_day} — ` : `; skokowe ruchy kursu `) +
+        `należy zestawić w czasie z datami publikacji komunikatów spółki. Przypisanie konkretnych numerów i dat ` +
+        `komunikatów do poszczególnych sesji pozostaje [do uzupełnienia z rozdz. IV.2].`,
+    );
+
   const findings: string[] = [];
   if (groupShare?.value != null)
     findings.push(`Udział Grupy w wartości obrotu: ${plnum(groupShare.value, "%")}.`);
@@ -545,8 +602,11 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[]): SubResul
   if (buy) findings.push(`Największy kupujący z Grupy: ${cap(buy.entity)} (${plnum(buy.share, "%")}).`);
   if (closeHi?.value != null)
     findings.push(`Kurs maksymalny w okresie: ${plnum(closeHi.value, "zł")} (${closeHi.session_day}).`);
+  if (cumCash != null) findings.push(`Skumulowany przychód Grupy w okresie: ${plnum(cumCash, "zł")}${lastDay ? ` (${lastDay})` : ""}.`);
+  if (espi.length)
+    findings.push(`W aktach ${espi.length} raportów ESPI/EBI do zestawienia czasowego ze skokami kursu (rozdz. IV.2).`);
 
-  const tables = [ohlcTable(metrics), entityTable(metrics), entityBuyTable(metrics)].filter(
+  const tables = [ohlcTable(metrics), entityTable(metrics), entityBuyTable(metrics), saldoTable(metrics)].filter(
     (t): t is OpTable => t != null,
   );
   return {
@@ -721,7 +781,7 @@ export function buildIVChapter(
     case "espi":
       return buildEspiSubanaliza(caseName, metrics, documents);
     case "aktywnosc":
-      return buildAktywnoscSubanaliza(caseName, metrics);
+      return buildAktywnoscSubanaliza(caseName, metrics, documents);
     case "relacje":
       return buildRelacjeSubanaliza(caseName, metrics, documents);
     case "wash":

@@ -71,7 +71,10 @@ def compute_all(
             out.append(_m("day_change_pct", "Zmiana kursu (zamk.)", round(r["change_pct"], 2), "%", d))
             out.append(_m("day_change_pln", "Zmiana kursu (zł)", round(r["change_pln"], 4), "zł", d))
 
-    # Rozbicie per sesja (Tab 24–28): wolumen/wartość sesji, obrót Grupy i wewnątrzgrupowy.
+    # Rozbicie per sesja (Tab 24–28): wolumen/wartość sesji, obrót Grupy i wewnątrzgrupowy,
+    # oraz saldo Grupy (netto i skumulowane) — sygnatura akumulacja→wyprzedaż (pump&dump).
+    cum_vol = 0.0
+    cum_cash = 0.0
     for r in metrics.per_day_breakdown(transactions, group_fragments):
         d = r["day"]
         out.append(_m("day_sess_vol", "Wolumen sesji", round(r["sv"]), "szt", d))
@@ -79,6 +82,14 @@ def compute_all(
         out.append(_m("day_grp_vol", "Wolumen z udziałem Grupy", round(r["gv"]), "szt", d))
         out.append(_m("day_grp_val", "Wartość z udziałem Grupy", round(r["gval"], 2), "zł", d))
         out.append(_m("day_intra_vol", "Wolumen wewnątrzgrupowy", round(r["iv"]), "szt", d))
+        net_vol = r["gbv"] - r["gsv"]  # kupno − sprzedaż = zmiana pozycji Grupy
+        net_cash = r["gsval"] - r["gbval"]  # sprzedaż − kupno = przepływ gotówki (przychód)
+        cum_vol += net_vol
+        cum_cash += net_cash
+        out.append(_m("day_grp_net_vol", "Saldo wolumenu Grupy dnia (kupno−sprzedaż)", round(net_vol), "szt", d))
+        out.append(_m("day_grp_net_cash", "Saldo gotówki Grupy dnia (sprzedaż−kupno)", round(net_cash, 2), "zł", d))
+        out.append(_m("day_grp_cum_vol", "Skumulowane saldo wolumenu Grupy (pozycja)", round(cum_vol), "szt", d))
+        out.append(_m("day_grp_cum_cash", "Skumulowane saldo gotówki Grupy (przychód)", round(cum_cash, 2), "zł", d))
 
     # Pary podmiotów handlujących wewnątrz Grupy (sygnał do kolejki powiązań OSINT).
     for p in metrics.per_pair_intra(transactions, group_fragments)[:60]:
@@ -114,6 +125,10 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
     grp_vol: dict[str, float] = defaultdict(float)
     grp_val: dict[str, float] = defaultdict(float)
     intra_vol: dict[str, float] = defaultdict(float)
+    gbval: dict[str, float] = defaultdict(float)
+    gsval: dict[str, float] = defaultdict(float)
+    gbv: dict[str, float] = defaultdict(float)
+    gsv: dict[str, float] = defaultdict(float)
     ent: dict[str, dict] = defaultdict(lambda: {"sv": 0.0, "svol": 0.0, "bv": 0.0, "bvol": 0.0})
     for r in transactions:
         val = r.get("WARTOSC_TR") or 0
@@ -125,6 +140,12 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
         sess_val[d] += val
         gb = is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
         gs = is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if gb:
+            gbval[d] += val
+            gbv[d] += vol
+        if gs:
+            gsval[d] += val
+            gsv[d] += vol
         if gb or gs:
             group_val += val
             grp_vol[d] += vol
@@ -146,6 +167,8 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
     out.append(_m("group_turnover_value", "Obrót z udziałem Grupy", round(group_val, 2), "zł"))
     out.append(_m("group_turnover_share", "Udział Grupy w wartości obrotu",
                   round(group_val / total_val * 100, 2) if total_val else 0.0, "%"))
+    cum_vol = 0.0
+    cum_cash = 0.0
     for d in sorted(sess_vol):
         share = intra_vol[d] / sess_vol[d] * 100 if sess_vol[d] else 0.0
         out.append(_m(f"wash_{d}", "Wash-trades (udział w wolumenie sesji)", round(share, 2), "%", d))
@@ -154,6 +177,14 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
         out.append(_m("day_grp_vol", "Wolumen z udziałem Grupy", round(grp_vol[d]), "szt", d))
         out.append(_m("day_grp_val", "Wartość z udziałem Grupy", round(grp_val[d], 2), "zł", d))
         out.append(_m("day_intra_vol", "Wolumen wewnątrzgrupowy", round(intra_vol[d]), "szt", d))
+        net_vol = gbv[d] - gsv[d]
+        net_cash = gsval[d] - gbval[d]
+        cum_vol += net_vol
+        cum_cash += net_cash
+        out.append(_m("day_grp_net_vol", "Saldo wolumenu Grupy dnia (kupno−sprzedaż)", round(net_vol), "szt", d))
+        out.append(_m("day_grp_net_cash", "Saldo gotówki Grupy dnia (sprzedaż−kupno)", round(net_cash, 2), "zł", d))
+        out.append(_m("day_grp_cum_vol", "Skumulowane saldo wolumenu Grupy (pozycja)", round(cum_vol), "szt", d))
+        out.append(_m("day_grp_cum_cash", "Skumulowane saldo gotówki Grupy (przychód)", round(cum_cash, 2), "zł", d))
     for e, agg in sorted(ent.items(), key=lambda x: -x[1]["sv"]):
         out.append(_m(f"ent_sell_share::{e}", f"Udział sprzedaży — {e}",
                       round(agg["sv"] / total_val * 100, 2) if total_val else 0.0, "%"))
