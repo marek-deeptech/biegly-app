@@ -266,6 +266,36 @@ function saldoTable(metrics: Metric[]): OpTable | null {
   };
 }
 
+// Improper matched orders per sesja — liczba i wartość zleceń wewnątrzgrupowych
+// dopasowanych w czasie (≤ próg s). Źródło: metryki imo_day_count / imo_day_value.
+function imoSessionTable(metrics: Metric[]): OpTable | null {
+  const days = [...new Set(metrics.filter((m) => m.key === "imo_day_count").map((m) => m.session_day as string))].sort();
+  if (!days.length) return null;
+  const at = (k: string, d: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  return {
+    caption: "Tabela. Improper matched orders — zlecenia wewnątrzgrupowe dopasowane w czasie (≤2 s) per sesja",
+    head: ["Sesja", "Liczba dopasowań", "Wartość (zł)"],
+    rows: days.map((d) => [d, plnum(at("imo_day_count", d)), plnum(at("imo_day_value", d), "zł")]),
+  };
+}
+
+// Improper matched orders — pary podmiotów Grupy wg wartości dopasowanych zleceń.
+function imoPairTable(metrics: Metric[]): OpTable | null {
+  const rows = metrics
+    .filter((m) => m.key.startsWith("imo_pair::"))
+    .map((m) => {
+      const [a, b] = m.key.slice("imo_pair::".length).split("|");
+      return { a, b, value: m.value };
+    })
+    .sort((x, y) => (y.value ?? 0) - (x.value ?? 0));
+  if (!rows.length) return null;
+  return {
+    caption: "Tabela. Improper matched orders — pary podmiotów z Grupy wg wartości dopasowanych zleceń",
+    head: ["Para podmiotów", "Wartość dopasowanych zleceń (zł)"],
+    rows: rows.map((r) => [`${cap(r.a)} ↔ ${cap(r.b)}`, plnum(r.value, "zł")]),
+  };
+}
+
 // Bogata tabela dzienna wash (odpowiednik Tab 24–28): sesja × wolumen/wartość/udziały.
 function washDailyTable(metrics: Metric[]): OpTable | null {
   const days = [...new Set(metrics.filter((m) => m.key === "day_sess_vol").map((m) => m.session_day as string))].sort();
@@ -445,24 +475,75 @@ function buildLayeringSubanaliza(caseName: string, metrics: Metric[], perSession
   };
 }
 
-// IV.x — Improper matched orders. Silnik nie liczy jeszcze czasu dopasowań → szkielet.
+// IV.x — Improper matched orders. Zlecenia wewnątrzgrupowe dopasowane w czasie (TIME_DIFF).
 function buildImoSubanaliza(caseName: string, metrics: Metric[]): SubResult {
-  void metrics;
   const { no, title } = ivMeta(caseName, "imo");
   const t = TECHNIQUES.imo;
-  const sec: string[] = [
-    `Analiza czasu zawieranych transakcji pod kątem wzajemnego dopasowania zleceń (${t.mar}; ${t.rd}).`,
-    `Praktyka przejawia się składaniem zleceń o identycznych lub zbliżonych parametrach (wolumen, cena) ` +
-      `w krótkich odstępach czasu, z rachunków pozostających pod kontrolą lub działających w porozumieniu.`,
-    `[Do uzupełnienia z rozszerzenia silnika: pary zleceń kupna/sprzedaży o zbliżonych parametrach i ` +
-      `bliskim czasie złożenia (analiza czasu), wraz z rachunkami stron.]`,
-  ];
+  const cnt = mfind(metrics, "imo_count");
+  const val = mfind(metrics, "imo_value");
+  const vol = mfind(metrics, "imo_volume");
+  const thr1 = mfind(metrics, "imo_thr_1s");
+  const thr2 = mfind(metrics, "imo_thr_2s");
+  const thr5 = mfind(metrics, "imo_thr_5s");
+  const peak = mpeak(metrics, "imo_day_count");
+  const topPair = metrics.filter((m) => m.key.startsWith("imo_pair::")).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
+  const topPairName = topPair ? topPair.key.slice("imo_pair::".length).split("|").map(cap).join(" ↔ ") : null;
+
+  const sec: string[] = [];
+  sec.push(
+    `Nawiązując do rozdziału III, przedmiotem analizy są transakcje o cechach improper matched orders — zleceń ` +
+      `kupna i sprzedaży o zbliżonych parametrach, składanych w krótkim odstępie czasu z rachunków działających ` +
+      `w porozumieniu (${t.mar}; ${t.rd}). Miarą bliskości czasowej jest różnica czasu złożenia zlecenia kupna i ` +
+      `sprzedaży (TIME_DIFF); za dopasowane uznano transakcje wewnątrzgrupowe o różnicy do 2 sekund.`,
+  );
+  if (cnt?.value != null) {
+    sec.push(
+      `W okresie analizy zidentyfikowano ${plnum(cnt.value)} transakcji wewnątrzgrupowych, w których zlecenia ` +
+        `złożono niemal jednocześnie (≤2 s), o łącznej wartości ${plnum(val?.value, "zł")} i wolumenie ` +
+        `${plnum(vol?.value, "szt")}.` +
+        (thr1?.value != null
+          ? ` Rozkład wg progu czasowego: ≤1 s — ${plnum(thr1.value)}, ≤2 s — ${plnum(thr2?.value)}, ≤5 s — ` +
+            `${plnum(thr5?.value)} transakcji, co wskazuje na koncentrację dopasowań w bardzo krótkich odstępach.`
+          : ``),
+    );
+    if (peak?.value != null)
+      sec.push(
+        `Poniższa tabela przedstawia rozkład dopasowanych zleceń na sesje. Największą liczbę odnotowano w sesji ` +
+          `${peak.session_day} (${plnum(peak.value)}); dopasowania koncentrują się w końcowej części okresu analizy.`,
+      );
+    if (topPairName)
+      sec.push(
+        `Zestawienie par podmiotów wskazuje, że największą wartość dopasowanych zleceń odnotowano w relacji ` +
+          `${topPairName} (${plnum(topPair!.value, "zł")}). Powtarzalność dopasowań między tymi samymi podmiotami ` +
+          `stanowi okoliczność istotną dla oceny działania w porozumieniu.`,
+      );
+  } else {
+    sec.push(`[Do uzupełnienia: brak policzonych dopasowań — policz wskaźniki na zakładce Analiza liczbowa.]`);
+  }
+  sec.push(
+    `Składanie zleceń o zbliżonych parametrach i bliskim czasie, prowadzących do wzajemnego dopasowania między ` +
+      `rachunkami powiązanymi, objęte jest wskaźnikami manipulacji z załącznika II do rozporządzenia 2016/522 i ` +
+      `podlega ocenie w świetle art. 12 MAR. Ustalenie ma charakter faktyczny i nie przesądza o zamiarze ani ` +
+      `kwalifikacji prawnokarnej, co pozostaje w gestii sądu.`,
+  );
+
+  const findings: string[] = [];
+  if (cnt?.value != null)
+    findings.push(`Zlecenia wewnątrzgrupowe dopasowane w czasie (≤2 s): ${plnum(cnt.value)} transakcji, ${plnum(val?.value, "zł")}.`);
+  if (topPairName) findings.push(`Dominująca para dopasowań: ${topPairName} (${plnum(topPair!.value, "zł")}).`);
+
+  const tables = [imoSessionTable(metrics), imoPairTable(metrics)].filter((x): x is OpTable => x != null);
   return {
     kind: "imo",
     chapterNo: no,
     title,
     bodyMd: sec.join("\n\n"),
-    data: { table: null, findings: [], legalRefs: [t.mar, t.rd] },
+    data: {
+      table: tables[0] ?? null,
+      tables: tables.length ? tables : undefined,
+      findings,
+      legalRefs: [t.mar, t.rd, LEGAL_REFS.manipulacja],
+    },
   };
 }
 

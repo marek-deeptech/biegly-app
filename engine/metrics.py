@@ -239,6 +239,52 @@ def per_pair_intra(transactions: list[dict], group_fragments: list[str] | None =
     return out
 
 
+def matched_orders(transactions: list[dict], group_fragments: list[str] | None = None, threshold_s: int = 2) -> dict:
+    """Improper matched orders: transakcje, w których obie strony należą do Grupy,
+    a zlecenia kupna i sprzedaży złożono niemal jednocześnie (|TIME_DIFF| <= próg [s]).
+
+    TIME_DIFF = różnica czasu złożenia zlecenia kupna i sprzedaży (w sek.). Bliskie
+    zeru = zlecenia o zbliżonych parametrach składane w krótkim odstępie z rachunków
+    działających w porozumieniu — sygnał techniki matched orders (art. 12 MAR).
+    """
+    per_day: dict[str, dict] = defaultdict(lambda: {"count": 0, "value": 0.0, "volume": 0.0})
+    per_pair: dict[tuple, dict] = defaultdict(lambda: {"count": 0, "value": 0.0})
+    thr = {1: 0, 2: 0, 5: 0}
+    total = {"count": 0, "value": 0.0, "volume": 0.0}
+    for r in transactions:
+        td = r.get("TIME_DIFF")
+        if td is None:
+            continue
+        if not (is_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments) and is_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)):
+            continue
+        a = abs(td)
+        for k in thr:
+            if a <= k:
+                thr[k] += 1
+        if a <= threshold_s:
+            val = r.get("WARTOSC_TR") or 0
+            vol = r.get("WOLUMEN") or 0
+            d = session_date(r.get("DATA_SESJI"))
+            per_day[d]["count"] += 1
+            per_day[d]["value"] += val
+            per_day[d]["volume"] += vol
+            b = canonical_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+            s = canonical_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+            key = tuple(sorted((b, s)))
+            per_pair[key]["count"] += 1
+            per_pair[key]["value"] += val
+            total["count"] += 1
+            total["value"] += val
+            total["volume"] += vol
+    return {
+        "threshold_s": threshold_s,
+        "total": total,
+        "per_day": [{"day": d, **v} for d, v in sorted(per_day.items())],
+        "per_pair": sorted([{"a": k[0], "b": k[1], **v} for k, v in per_pair.items()], key=lambda x: -x["value"]),
+        "thresholds": thr,
+    }
+
+
 def per_session_layering(
     orders: list[dict], owner_map: dict, group_fragments: list[str] | None = None
 ) -> list[dict]:

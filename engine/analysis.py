@@ -96,6 +96,22 @@ def compute_all(
         out.append(_m(f"pair_intra::{p['a']}|{p['b']}", f"Wash-pary — {p['a']} ↔ {p['b']}",
                       round(p["value"], 2), "zł"))
 
+    # Improper matched orders — zlecenia wewnątrzgrupowe składane niemal jednocześnie.
+    mo = metrics.matched_orders(transactions, group_fragments)
+    if mo["total"]["count"]:
+        thr = mo["threshold_s"]
+        out.append(_m("imo_count", f"Dopasowane zlecenia (≤{thr}s, wewnątrzgr.)", mo["total"]["count"], "szt"))
+        out.append(_m("imo_value", "Wartość dopasowanych zleceń", round(mo["total"]["value"], 2), "zł"))
+        out.append(_m("imo_volume", "Wolumen dopasowanych zleceń", round(mo["total"]["volume"]), "szt"))
+        for r in mo["per_day"]:
+            out.append(_m("imo_day_count", "Dopasowania — liczba", r["count"], "szt", r["day"]))
+            out.append(_m("imo_day_value", "Dopasowania — wartość", round(r["value"], 2), "zł", r["day"]))
+        for p in mo["per_pair"][:30]:
+            out.append(_m(f"imo_pair::{p['a']}|{p['b']}", f"Dopasowania — {p['a']} ↔ {p['b']} ({p['count']})",
+                          round(p["value"], 2), "zł"))
+        for k, v in mo["thresholds"].items():
+            out.append(_m(f"imo_thr_{k}s", f"Zlecenia dopasowane ≤{k}s (wewnątrzgr.)", v, "szt"))
+
     # Layering per sesja i podmiot — tylko podmioty z faktycznymi anulacjami.
     for r in metrics.per_session_layering(orders, owner_map, group_fragments):
         if r["cancelled_volume"] <= 0:
@@ -207,4 +223,16 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
     for p in metrics.per_pair_intra(transactions, group_fragments)[:60]:
         out.append(_m(f"pair_intra::{p['a']}|{p['b']}", f"Wash-pary — {p['a']} ↔ {p['b']}",
                       round(p["value"], 2), "zł"))
+    mo = metrics.matched_orders(transactions, group_fragments)
+    if mo["total"]["count"]:
+        thr = mo["threshold_s"]
+        out.append(_m("imo_count", f"Dopasowane zlecenia (≤{thr}s, wewnątrzgr.)", mo["total"]["count"], "szt"))
+        out.append(_m("imo_value", "Wartość dopasowanych zleceń", round(mo["total"]["value"], 2), "zł"))
+        out.append(_m("imo_volume", "Wolumen dopasowanych zleceń", round(mo["total"]["volume"]), "szt"))
+        for r in mo["per_day"]:
+            out.append(_m("imo_day_count", "Dopasowania — liczba", r["count"], "szt", r["day"]))
+            out.append(_m("imo_day_value", "Dopasowania — wartość", round(r["value"], 2), "zł", r["day"]))
+        for p in mo["per_pair"][:30]:
+            out.append(_m(f"imo_pair::{p['a']}|{p['b']}", f"Dopasowania — {p['a']} ↔ {p['b']} ({p['count']})",
+                          round(p["value"], 2), "zł"))
     return out
