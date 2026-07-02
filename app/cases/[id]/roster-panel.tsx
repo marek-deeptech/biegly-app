@@ -70,7 +70,9 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
       .filter((e) => e.fragment);
     const roster: Roster = {
       entities: clean,
-      fragments: [...new Set(clean.map((e) => e.fragment))],
+      // Silnik dopasowuje beneficjenta rzeczywistego (spółkę), więc fragmenty do
+      // group_fragments bierzemy TYLKO z podmiotów — nazwiska osób nie zmieniają metryk.
+      fragments: [...new Set(clean.filter((e) => (e.kind ?? "podmiot") === "podmiot").map((e) => e.fragment))],
       source: "zawiadomienie",
       confirmed_at: new Date().toISOString(),
     };
