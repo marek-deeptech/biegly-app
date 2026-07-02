@@ -85,6 +85,11 @@ export default function OpinionView({
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [view, setView] = useState<"rozdzialy" | "montaz" | "recenzent" | "opinia">("rozdzialy");
+  const [reBusy, setReBusy] = useState(false);
+  const [reMsg, setReMsg] = useState("");
+  const [reFindings, setReFindings] = useState<
+    { gap: string; chapter: string; sources: string[]; note: string; found: boolean }[] | null
+  >(null);
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -225,6 +230,27 @@ export default function OpinionView({
   }
 
   const hasKind = (k: string) => subanalyses.some((s) => s.kind === k);
+
+  // „Przeanalizuj ponownie" — przeszukuje dokumenty akt pod kątem braków [do uzupełnienia].
+  async function reanalyze() {
+    setReBusy(true);
+    setReMsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/reanalyze`, { method: "POST" });
+      const j = await r.json();
+      if (!j.ok) {
+        setReMsg(j.reason || "Błąd analizy.");
+        setReFindings(null);
+      } else {
+        setReFindings(j.findings ?? []);
+        setReMsg(j.message ?? "");
+      }
+    } catch {
+      setReMsg("Błąd sieci przy analizie.");
+    } finally {
+      setReBusy(false);
+    }
+  }
 
   async function saveBody(s: SubRow) {
     setBusy(s.id);
@@ -548,6 +574,48 @@ export default function OpinionView({
             );
           })}
         </ul>
+
+        {/* Przeanalizuj ponownie — przeszukanie dokumentów akt pod kątem braków */}
+        <div className="mt-4 border-t border-line pt-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={reanalyze}
+              disabled={reBusy}
+              className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {reBusy ? "Przeszukuję akta…" : "Przeanalizuj ponownie (przeszukaj dokumentację)"}
+            </button>
+            {reMsg && <span className="text-xs text-inksoft">{reMsg}</span>}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-inksoft">
+            Przeszukuje dokumenty wgrane do sprawy pod kątem braków „[do uzupełnienia]” i wskazuje, które
+            dokumenty prawdopodobnie je pokrywają oraz co w nich sprawdzić. Odwołuje się wyłącznie do akt sprawy.
+          </p>
+          {reFindings && reFindings.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {reFindings.map((f, i) => (
+                <li key={i} className="border border-line bg-paper p-2 text-xs">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className={f.found ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>
+                      {f.found ? "✓ w aktach" : "• brak w aktach"}
+                    </span>
+                    {f.chapter && <span className="text-inksoft">rozdz. {f.chapter}</span>}
+                  </div>
+                  <p className="text-ink">{f.gap}</p>
+                  {f.sources.length > 0 && (
+                    <p className="mt-1 text-[11px] text-inksoft">
+                      <strong>Źródła:</strong> {f.sources.join(" · ")}
+                    </p>
+                  )}
+                  {f.note && <p className="mt-0.5 text-[11px] text-inksoft">{f.note}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {reFindings && reFindings.length === 0 && (
+            <p className="mt-3 text-xs text-inksoft">Brak pozycji „[do uzupełnienia]” do przeszukania.</p>
+          )}
+        </div>
       </section>
 
       )}
