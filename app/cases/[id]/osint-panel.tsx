@@ -318,13 +318,22 @@ export default function OsintPanel({
             <div className="mb-3 max-h-72 space-y-1 overflow-auto">
               {pairs.map((p, i) => (
                 <div key={i} className="border border-line bg-paper p-2 text-xs">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="min-w-0 font-medium">{p.a} ↔ {p.b}</span>
-                    <span className="shrink-0 rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-inksoft">{p.signal}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-inksoft">{p.signal}</span>
+                      <button
+                        onClick={() => searchPair(p.a, p.b, "", "powiązania")}
+                        disabled={busy !== null}
+                        className="border border-ink px-2 py-1 text-[11px] uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                      >
+                        {busy === `B:${p.a}|${p.b}|powiązania` ? "Szukam…" : "Szukaj powiązań"}
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-inksoft">
+                    <span>zawęź:</span>
                     {([
-                      ["", "ogólne"],
                       ["umowa", "umowa"],
                       ["zarząd rada", "zarząd"],
                       ["udziały inwestycja", "inwestycje"],
