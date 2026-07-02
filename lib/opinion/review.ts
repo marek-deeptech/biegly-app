@@ -90,6 +90,9 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   const lawRe = /\bMAR\b|2016\/522|art\.\s*12|art\.\s*183/i;
   let legalIssues = 0;
   for (const ch of opinion.chapters) {
+    // Rozdział VI (spis tabel/wykresów) wymienia nazwy technik w podpisach tabel —
+    // to indeks, nie analiza, więc nie wymaga powołania przepisu w treści.
+    if (ch.no === "VI" || /spis (tabel|treści)/i.test(ch.title)) continue;
     const t = chapText(ch);
     if (techRe.test(t) && !lawRe.test(t)) {
       add(C.legal, "WARN", `Rozdz. ${ch.no} opisuje technikę manipulacji bez powołania przepisu w treści (MAR / RD 2016/522).`);
