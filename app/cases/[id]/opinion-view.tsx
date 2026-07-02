@@ -84,7 +84,7 @@ export default function OpinionView({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
-  const [view, setView] = useState<"rozdzialy" | "montaz" | "recenzent">("rozdzialy");
+  const [view, setView] = useState<"rozdzialy" | "montaz" | "recenzent" | "opinia">("rozdzialy");
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
@@ -304,19 +304,26 @@ export default function OpinionView({
   ];
   const stepsApproved = steps.filter((s) => isApproved(s.kind)).length;
 
+  const reviewErrors = review.filter((r) => r.severity === "ERROR").length;
   const redakcja: { key: typeof view; label: string; badge?: string; badgeCls?: string }[] = [
-    { key: "rozdzialy", label: "Rozdziały" },
+    { key: "rozdzialy", label: "1 · Rozdziały (szkic)" },
     {
       key: "montaz",
-      label: "Montaż",
+      label: "2 · Montaż",
       badge: `${ready}/${opinion.chapters.length}`,
       badgeCls: ready === opinion.chapters.length ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
     },
     {
       key: "recenzent",
-      label: "Recenzent",
+      label: "3 · Recenzent",
       badge: revIssues ? String(revIssues) : undefined,
-      badgeCls: "bg-red-100 text-red-800",
+      badgeCls: reviewErrors ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800",
+    },
+    {
+      key: "opinia",
+      label: "4 · Generuj opinię",
+      badge: reviewErrors ? "!" : ready === opinion.chapters.length ? "✓" : undefined,
+      badgeCls: reviewErrors ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800",
     },
   ];
 
@@ -502,11 +509,19 @@ export default function OpinionView({
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Recenzent (QA#2)</h2>
-          <p className="text-xs text-inksoft">
-            {review.filter((r) => r.severity === "ERROR").length} błędów ·{" "}
-            {review.filter((r) => r.severity === "WARN").length} uwag ·{" "}
-            {review.filter((r) => r.severity === "OK").length} OK
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-inksoft">
+              {review.filter((r) => r.severity === "ERROR").length} błędów ·{" "}
+              {review.filter((r) => r.severity === "WARN").length} uwag ·{" "}
+              {review.filter((r) => r.severity === "OK").length} OK
+            </p>
+            <button
+              onClick={() => setView("opinia")}
+              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper"
+            >
+              Dalej: Generuj opinię →
+            </button>
+          </div>
         </div>
         <ul className="space-y-3">
           {REVIEW_CHECKS.map((name) => {
@@ -537,6 +552,64 @@ export default function OpinionView({
 
       )}
 
+      {/* ── Generuj opinię (krok końcowy) ── */}
+      {view === "opinia" && (
+      <section className="border border-ink/60 bg-card p-4">
+        <h2 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em]">Generuj opinię</h2>
+        <p className="mb-4 text-xs text-inksoft">
+          Krok końcowy flow: <strong>Rozdziały (szkic) → Montaż → Recenzent → Generuj opinię</strong>. Po zatwierdzeniu
+          rozdziałów i przejściu przez Recenzenta pobierz gotowy projekt opinii (.docx, rozdziały I–VI z numerowanymi tabelami).
+        </p>
+        {(() => {
+          const errN = review.filter((r) => r.severity === "ERROR").length;
+          const warnN = review.filter((r) => r.severity === "WARN").length;
+          const notReady = opinion.chapters.filter((c) => c.status !== "ready").map((c) => c.no);
+          return (
+            <>
+              <ul className="mb-4 space-y-1.5">
+                <li className="flex items-center gap-2 text-sm">
+                  <span className={notReady.length === 0 ? "text-emerald-600" : "text-amber-600"}>
+                    {notReady.length === 0 ? "✓" : "•"}
+                  </span>
+                  <span className={notReady.length === 0 ? "" : "text-inksoft"}>
+                    Rozdziały zatwierdzone: {ready}/{opinion.chapters.length}
+                    {notReady.length ? ` — niegotowe: ${notReady.join(", ")}` : ""}
+                  </span>
+                </li>
+                <li className="flex items-center gap-2 text-sm">
+                  <span className={errN === 0 ? "text-emerald-600" : "text-red-600"}>{errN === 0 ? "✓" : "✗"}</span>
+                  <span className={errN === 0 ? "" : "text-red-700"}>
+                    Recenzent: {errN} błędów, {warnN} uwag
+                  </span>
+                </li>
+              </ul>
+              {errN > 0 ? (
+                <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  Usuń błędy w zakładce <strong>3 · Recenzent</strong> przed wygenerowaniem opinii.
+                </div>
+              ) : (
+                <>
+                  {(notReady.length > 0 || warnN > 0) && (
+                    <p className="mb-3 text-xs text-amber-700">
+                      Możesz wygenerować projekt roboczy, ale zostały nierozwiązane pozycje
+                      {notReady.length ? ` (niegotowe rozdziały: ${notReady.join(", ")})` : ""}
+                      {warnN ? ` (${warnN} uwag recenzenta)` : ""}.
+                    </p>
+                  )}
+                  <a
+                    href={`/cases/${caseId}/opinion/docx`}
+                    className="inline-block border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90"
+                  >
+                    Generuj opinię (.docx)
+                  </a>
+                </>
+              )}
+            </>
+          );
+        })()}
+      </section>
+      )}
+
       {/* ── Montaż opinii ── */}
       {view === "montaz" && (
       <section className="border border-ink/60 bg-card p-4">
@@ -547,12 +620,12 @@ export default function OpinionView({
               Złożona z subanaliz · {ready}/{opinion.chapters.length} rozdziałów gotowych
             </p>
           </div>
-          <a
-            href={`/cases/${caseId}/opinion/docx`}
-            className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90"
+          <button
+            onClick={() => setView("recenzent")}
+            className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper"
           >
-            Eksportuj .docx
-          </a>
+            Dalej: Recenzent →
+          </button>
         </div>
 
         {/* Stepper — kolejność pisania, bramki zależności */}
