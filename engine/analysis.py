@@ -60,6 +60,13 @@ def compute_all(
         out.append(_m(f"ent_buy_vol::{e['entity']}", f"Wolumen kupna — {e['entity']}",
                       round(e["buy_volume"]), "szt"))
 
+    # Aktywność per (sesja, podmiot) — kto z Grupy i ile sprzedawał danego dnia (Tab. 24/25).
+    for r in metrics.per_day_entity(transactions, group_fragments):
+        if r["sval"] <= 0:
+            continue
+        out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
+        out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
+
     # Kurs i wolumen instrumentu per sesja (OHLC + zmiana) — „Tabela nr 8".
     for r in metrics.per_day_ohlc(transactions):
         d = r["day"]
@@ -235,4 +242,9 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
         for p in mo["per_pair"][:30]:
             out.append(_m(f"imo_pair::{p['a']}|{p['b']}", f"Dopasowania — {p['a']} ↔ {p['b']} ({p['count']})",
                           round(p["value"], 2), "zł"))
+    for r in metrics.per_day_entity(transactions, group_fragments):
+        if r["sval"] <= 0:
+            continue
+        out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
+        out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
     return out

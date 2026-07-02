@@ -239,6 +239,30 @@ def per_pair_intra(transactions: list[dict], group_fragments: list[str] | None =
     return out
 
 
+def per_day_entity(transactions: list[dict], group_fragments: list[str] | None = None) -> list[dict]:
+    """Aktywność każdego podmiotu Grupy w rozbiciu na sesje — wartość i wolumen
+    sprzedaży oraz kupna per (sesja, podmiot). Źródło tabeli szczegółowej per sesja
+    (odpowiednik „Tabel 24/25" z opinii: kto z Grupy i ile sprzedawał danego dnia)."""
+    agg: dict[tuple, dict] = defaultdict(lambda: {"sval": 0.0, "svol": 0.0, "bval": 0.0, "bvol": 0.0})
+    for r in transactions:
+        d = session_date(r.get("DATA_SESJI"))
+        val = r.get("WARTOSC_TR") or 0
+        vol = r.get("WOLUMEN") or 0
+        s = canonical_group(r.get("ACCTOWNR_POPRAWIONY_S"), group_fragments)
+        if s:
+            a = agg[(d, s)]
+            a["sval"] += val
+            a["svol"] += vol
+        b = canonical_group(r.get("ACCTOWNR_POPRAWIONY_B"), group_fragments)
+        if b:
+            a = agg[(d, b)]
+            a["bval"] += val
+            a["bvol"] += vol
+    out = [{"day": d, "entity": ent, **a} for (d, ent), a in agg.items()]
+    out.sort(key=lambda x: (x["day"], -x["sval"]))
+    return out
+
+
 def matched_orders(transactions: list[dict], group_fragments: list[str] | None = None, threshold_s: int = 2) -> dict:
     """Improper matched orders: transakcje, w których obie strony należą do Grupy,
     a zlecenia kupna i sprzedaży złożono niemal jednocześnie (|TIME_DIFF| <= próg [s]).

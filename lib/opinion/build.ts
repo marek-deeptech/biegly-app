@@ -321,6 +321,37 @@ function washDailyTable(metrics: Metric[]): OpTable | null {
   };
 }
 
+// Sprzedaż podmiotów z Grupy w rozbiciu na sesje (ede_sval/svol::) — ledger per
+// (sesja, podmiot), z udziałem w wartości sesji. Odpowiednik „Tabel 24/25" KM.
+function perSessionEntityTable(metrics: Metric[]): OpTable | null {
+  type Row = { day: string; entity: string; sval: number | null; svol: number | null };
+  const map = new Map<string, Row>();
+  const get = (day: string, e: string): Row => map.get(day + "|" + e) ?? { day, entity: e, sval: null, svol: null };
+  for (const m of metrics) {
+    if (!m.session_day) continue;
+    if (m.key.startsWith("ede_sval::")) {
+      const e = m.key.split("::")[1];
+      map.set(m.session_day + "|" + e, { ...get(m.session_day, e), sval: m.value });
+    } else if (m.key.startsWith("ede_svol::")) {
+      const e = m.key.split("::")[1];
+      map.set(m.session_day + "|" + e, { ...get(m.session_day, e), svol: m.value });
+    }
+  }
+  const rows = [...map.values()].filter((r) => (r.sval ?? 0) > 0);
+  if (!rows.length) return null;
+  rows.sort((a, b) => (a.day === b.day ? (b.sval ?? 0) - (a.sval ?? 0) : a.day.localeCompare(b.day)));
+  const sessVal = (d: string) => metrics.find((m) => m.key === "day_sess_val" && m.session_day === d)?.value ?? null;
+  return {
+    caption: "Tabela. Sprzedaż podmiotów z Grupy w rozbiciu na sesje (wartość, udział w wartości sesji, wolumen)",
+    head: ["Sesja", "Podmiot", "Wartość sprzedaży (zł)", "Udział w wart. sesji", "Wolumen"],
+    rows: rows.slice(0, 100).map((r) => {
+      const sv = sessVal(r.day);
+      const share = r.sval != null && sv ? Math.round((r.sval / sv) * 10000) / 100 : null;
+      return [r.day, cap(r.entity), plnum(r.sval, "zł"), plnum(share, "%"), plnum(r.svol, "szt")];
+    }),
+  };
+}
+
 // Pivot layering per sesja i podmiot (lay_share:: / lay_cancelled::) → tabela.
 function layeringSessionTable(metrics: Metric[]): OpTable | null {
   type Row = { day: string; entity: string; share: number | null; cancelled: number | null };
@@ -401,20 +432,24 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
     );
   if (groupShare?.value != null)
     findings.push(`Udział Grupy w wartości obrotu: ${plnum(groupShare.value, "%")}.`);
+  const washTables = [
+    washDailyTable(metrics) ??
+      dailyTable(
+        metrics,
+        "wash_",
+        "Tabela. Udział transakcji wewnątrzgrupowych (wash trades) w wolumenie sesji",
+        "Wash-trades (% wolumenu)",
+      ),
+    perSessionEntityTable(metrics),
+  ].filter((x): x is OpTable => x != null);
   return {
     kind: "wash",
     chapterNo: no,
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table:
-        washDailyTable(metrics) ??
-        dailyTable(
-          metrics,
-          "wash_",
-          "Tabela. Udział transakcji wewnątrzgrupowych (wash trades) w wolumenie sesji",
-          "Wash-trades (% wolumenu)",
-        ),
+      table: washTables[0] ?? null,
+      tables: washTables.length ? washTables : undefined,
       findings,
       legalRefs: [t.mar, t.rd, LEGAL_REFS.manipulacja],
     },
