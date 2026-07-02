@@ -66,6 +66,65 @@ export function buildRedactPrompt(inp: RedactInput): { system: string; user: str
   return { system: SYSTEM, user: parts.join("\n\n") };
 }
 
+// ── Redakcja rozdziału II „Wnioski" — synteza odpowiedzi na pytania postanowienia ──
+// Szkielet z generatora (liczby z silnika + odesłania do rozdziałów IV.x) jest
+// jedynym źródłem faktów; model rozpisuje go w prozę odpowiadającą wprost na Q1–Q4.
+export type WnioskiRedactInput = {
+  caseName: string;
+  signature: string | null;
+  period: string | null;
+  caseIntro?: string | null; // oznaczenie sprawy/spółki/instrumentu z rozdz. I
+  questions: string[];
+  skeleton: string; // szkielet ustaleń z generatora — liczby przepisywać dokładnie
+  techniques: { title: string; findings: string[] }[]; // zatwierdzone rozdziały IV
+  relations: string[]; // sygnały współdziałania (IP / pary IMO / KRS)
+  events: string[]; // datowane zdarzenia korporacyjne (ESPI)
+};
+
+export function buildWnioskiRedactPrompt(inp: WnioskiRedactInput): { system: string; user: string } {
+  const parts: string[] = [];
+  parts.push(
+    `Zredaguj rozdział II. „Wnioski" opinii biegłego sądowego — sekcję, którą prokurator czyta w pierwszej kolejności.`,
+  );
+  parts.push(`Sprawa: ${inp.caseName}${inp.signature ? ` (sygn. ${inp.signature})` : ""}.`);
+  if (inp.period) parts.push(`Okres objęty analizą: ${inp.period}.`);
+  if (inp.caseIntro)
+    parts.push(
+      "Oznaczenie sprawy, spółki i instrumentu (z rozdziału I — stosuj te oznaczenia; NIE używaj placeholderów " +
+        "typu [oznaczenie spółki]):\n" + inp.caseIntro,
+    );
+  parts.push(
+    "Pytania postanowienia — rozdział musi odpowiedzieć wprost na każde z nich, w tej kolejności:\n" +
+      inp.questions.map((q) => "- " + q).join("\n"),
+  );
+  parts.push(
+    "Szkielet ustaleń (liczby z deterministycznego silnika — przepisz DOKŁADNIE; zachowaj odesłania do rozdziałów IV.x):\n" +
+      inp.skeleton,
+  );
+  if (inp.techniques.length)
+    parts.push(
+      "Zatwierdzone ustalenia rozdziałów IV:\n" +
+        inp.techniques.map((t) => `• ${t.title}: ${t.findings.join(" ")}`).join("\n"),
+    );
+  if (inp.relations.length)
+    parts.push("Sygnały współdziałania (z akt):\n" + inp.relations.map((r) => "- " + r).join("\n"));
+  if (inp.events.length)
+    parts.push("Datowane zdarzenia korporacyjne (z akt):\n" + inp.events.map((e) => "- " + e).join("\n"));
+  parts.push(
+    "Napisz rozdział w strukturze: (1) akapit metodyczny — wnioski wynikają wyłącznie z ustaleń rozdziału IV, " +
+      "bez przejmowania tez zawiadomienia; (2) odpowiedź na pytanie 1 — 2–3 akapity: dynamika kursu, udział Grupy " +
+      "w obrocie, transakcje wzajemne, saldo (akumulacja/wyprzedaż) i ocena uzasadnienia ekonomicznego; " +
+      "(3) odpowiedź na pytanie 2 — każda technika odrębnym akapitem z liczbami i odesłaniem do rozdziału IV.x; " +
+      "(4) odpowiedź na pytanie 3 — okoliczności współdziałania (wspólne IP, zbieżność czasowa zleceń, powiązania " +
+      "osobowe, anulacje) z liczbami; (5) odpowiedź na pytanie 4 — pozostałe okoliczności (zbieżność zdarzeń " +
+      "korporacyjnych z sesjami, koncentracja podaży i popytu); (6) akapit końcowy rozgraniczający ustalenia " +
+      "faktyczne od ocen zastrzeżonych dla sądu. " +
+      "Objętość: 10–16 akapitów. Liczby wyłącznie z podanych danych; braki oznacz [do uzupełnienia]. " +
+      "Nie przesądzaj o winie ani zamiarze. Zwróć samą treść rozdziału, bez nagłówka.",
+  );
+  return { system: SYSTEM, user: parts.join("\n\n") };
+}
+
 // ── Redakcja rozdziałów IV (analiza) — narracja wokół liczb z silnika ──
 export const IV_REDACT_KINDS = [
   "ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump",

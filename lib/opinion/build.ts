@@ -984,18 +984,54 @@ export function buildWnioskiSubanaliza(
   const washPeak = mpeak(metrics, "wash_");
   const cancelPeak = mpeak(metrics, "cancel_");
   const groupShare = mfind(metrics, "group_turnover_share");
+  const groupVal = mfind(metrics, "group_turnover_value");
+  const nTx = mfind(metrics, "totals_transactions");
+  const valTx = mfind(metrics, "totals_value");
   const seller = topSeller(metrics);
+  const buyer = topBuyer(metrics);
+  const imoCnt = mfind(metrics, "imo_count");
+  const imoVal = mfind(metrics, "imo_value");
+  const days = mdays(metrics);
+  const lastDay = days.length ? days[days.length - 1] : null;
+  const atLast = (k: string) =>
+    lastDay ? metrics.find((m) => m.key === k && m.session_day === lastDay)?.value ?? null : null;
+  const cumCash = atLast("day_grp_cum_cash");
+  const cumVol = atLast("day_grp_cum_vol");
+  const hi = mpeak(metrics, "day_high");
+  const ups = metrics
+    .filter((m) => m.key === "day_change_pct" && (m.value ?? 0) > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  const dn = metrics.filter((m) => m.key === "day_change_pct").sort((a, b) => (a.value ?? 0) - (b.value ?? 0))[0];
+  const topImo = metrics.filter((m) => m.key.startsWith("imo_pair::")).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0];
+
   const approved = stored
     .filter((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"))
     .sort((a, b) => a.chapter_no.localeCompare(b.chapter_no, "pl"));
   const techKinds = new Set(["wash", "imo", "layering", "pumpdump"]);
   const approvedTech = approved.filter((s) => techKinds.has(s.kind));
+  const findingsOf = (kind: string) => (approved.find((s) => s.kind === kind)?.data?.findings ?? []).join(" ").trim();
+
+  // Materiał wyciągnięty z akt (ekstrakcje PDF) — zapisany jako subanalizy pomocnicze.
+  const events =
+    (stored.find((s) => s.kind === "espi_events")?.data as unknown as {
+      events?: { date?: string; type?: string; subject?: string; session?: string }[];
+    } | null)?.events ?? [];
+  const evSess = events.filter((e) => e.session);
+  const shared =
+    (stored.find((s) => s.kind === "krs_boards")?.data as unknown as {
+      shared?: { name?: string; entities?: string[] }[];
+    } | null)?.shared ?? [];
+  const ipRows = stored.find((s) => s.kind === "powiazania_dane")?.data?.table?.rows ?? [];
 
   const parts: string[] = [];
   parts.push(
-    `Wnioski formułuje się wyłącznie na podstawie ustaleń z rozdziału IV (analiza materiału ` +
-      `dowodowego). Celem opinii jest weryfikacja, czy zebrany materiał potwierdza zarzuty postawione ` +
-      `w zawiadomieniu — bez przejmowania tez z zawiadomienia ani z opinii innego biegłego.`,
+    `Wnioski formułuje się wyłącznie na podstawie ustaleń z rozdziału IV (analiza materiału dowodowego)` +
+      (nTx?.value != null
+        ? `, opartych na ${plnum(nTx.value)} transakcjach o łącznej wartości ${plnum(valTx?.value, "zł")} (dane UTP/GPW)`
+        : ``) +
+      `. Celem opinii jest weryfikacja, czy zebrany materiał potwierdza zarzuty postawione w zawiadomieniu ` +
+      `— bez przejmowania tez z zawiadomienia ani z opinii innego biegłego. Odpowiedzi odnoszą się wprost ` +
+      `do pytań postanowienia (Q1–Q4).`,
   );
 
   if (!approved.length) {
@@ -1004,7 +1040,40 @@ export function buildWnioskiSubanaliza(
         `wykonaniu i zatwierdzeniu analiz dowodowych (techniki, aktywność, relacje).]`,
     );
   } else {
-    // Techniki — tylko te faktycznie zbadane w zatwierdzonych rozdziałach IV.
+    // ── Q1 — sztuczne kształtowanie ceny / wprowadzenie w błąd / racjonalność ekonomiczna ──
+    parts.push(PROSECUTOR_QUESTIONS[0]);
+    const q1: string[] = [];
+    if (hi?.value != null && ups[0]?.value != null)
+      q1.push(
+        `kurs osiągnął maksimum ${plnum(hi.value, "zł")} (${hi.session_day}), przy skokowych zmianach ` +
+          `zamknięcia do +${plnum(ups[0].value, "%")} (${ups[0].session_day})` +
+          (dn?.value != null && dn.value < 0 ? ` i spadkach do ${plnum(dn.value, "%")} (${dn.session_day})` : ``) +
+          ` — rozdz. IV.3`,
+      );
+    if (groupShare?.value != null)
+      q1.push(
+        `rachunki Grupy odpowiadały za ${plnum(groupShare.value, "%")} wartości obrotu` +
+          (groupVal?.value != null ? ` (${plnum(groupVal.value, "zł")})` : ``) +
+          ` — rozdz. IV.3`,
+      );
+    if (washPeak?.value != null)
+      q1.push(`transakcje wzajemne sięgały ${plnum(washPeak.value, "%")} wolumenu sesji (${washPeak.session_day}) — rozdz. IV.4`);
+    if (cumCash != null)
+      q1.push(
+        `skumulowane saldo gotówki Grupy wyniosło ${plnum(cumCash, "zł")}` +
+          (cumVol != null ? ` przy skumulowanym saldzie wolumenu ${plnum(cumVol, "szt")}` : ``) +
+          ` — obraz odpowiadający upłynnianiu znacznego pakietu akcji (rozdz. IV.3)`,
+      );
+    parts.push(
+      `Odpowiedź na Q1: ${q1.join("; ")}. Obrót o takiej strukturze mógł dawać nieprawdziwe sygnały co do ` +
+        `podaży, popytu i płynności instrumentu oraz przyczyniać się do ukształtowania ceny na poziomie ` +
+        `oderwanym od uzasadnienia ekonomicznego` +
+        (findingsOf("ekofin") ? ` (ustalenia ekonomiczno-finansowe — rozdz. IV.1: ${findingsOf("ekofin")})` : ``) +
+        `.`,
+    );
+
+    // ── Q2 — techniki manipulacyjne ──
+    parts.push(PROSECUTOR_QUESTIONS[1]);
     if (approvedTech.length) {
       const lines = approvedTech.map((s) => {
         const t = TECHNIQUES[s.kind as TechniqueId];
@@ -1012,33 +1081,71 @@ export function buildWnioskiSubanaliza(
         return `• ${t.label} (${t.mar}; ${t.rd}) — ${f || "[brak ustaleń liczbowych w rozdziale]"}`;
       });
       parts.push(
-        `Analiza materiału dowodowego (rozdz. IV) obejmuje następujące techniki i ich ustalenia:\n${lines.join("\n")}`,
+        `Odpowiedź na Q2 — w materiale dowodowym zidentyfikowano ustalenia odpowiadające następującym ` +
+          `technikom:\n${lines.join("\n")}`,
       );
     }
-    // Liczby — wyłącznie z silnika (dane UTP), bez interpretacji.
-    const nums: string[] = [];
-    if (washPeak?.value != null)
-      nums.push(`wolumen transakcji wewnątrzgrupowych do ${plnum(washPeak.value, "%")} wolumenu sesji (${washPeak.session_day})`);
-    if (cancelPeak?.value != null)
-      nums.push(`anulacje zleceń kupna Grupy do ${plnum(cancelPeak.value, "%")} zadeklarowanego wolumenu (${cancelPeak.session_day})`);
-    if (groupShare?.value != null)
-      nums.push(`udział Grupy w wartości obrotu ${plnum(groupShare.value, "%")}`);
-    if (nums.length)
-      parts.push(`Ustalenia liczbowe (deterministyczny silnik, dane UTP): ${nums.join("; ")}.`);
 
-    if (seller)
-      parts.push(
-        `Największy udział w wartości sprzedaży akcji w badanym okresie miał podmiot ` +
-          `${cap(seller.entity)} (${plnum(seller.share, "%")}, wolumen ${plnum(seller.vol, "szt")}).`,
+    // ── Q3 — działanie wspólnie i w porozumieniu ──
+    parts.push(PROSECUTOR_QUESTIONS[2]);
+    const q3: string[] = [];
+    if (ipRows.length) {
+      const r0 = ipRows[0];
+      q3.push(
+        `zbieżność techniczna: ${plnum(ipRows.length)} par rachunków korzystało ze wspólnych adresów IP ` +
+          `(najsilniej ${r0[0]} ↔ ${r0[1]}: ${r0[2]} wspólnych IP) — rozdz. IV.7`,
       );
+    }
+    if (imoCnt?.value != null)
+      q3.push(
+        `zbieżność czasowa zleceń: ${plnum(imoCnt.value)} transakcji wewnątrzgrupowych o zleceniach złożonych ` +
+          `w odstępie ≤2 s, o wartości ${plnum(imoVal?.value, "zł")}` +
+          (topImo ? ` (dominująca para ${topImo.key.slice("imo_pair::".length).split("|").map(cap).join(" ↔ ")})` : ``) +
+          ` — rozdz. IV.5`,
+      );
+    if (shared.length) {
+      const names = shared.slice(0, 3).map((x) => x.name).filter(Boolean).join(", ");
+      q3.push(
+        `powiązania osobowe: ${plnum(shared.length)} osób pełni funkcje w więcej niż jednym podmiocie ` +
+          `ujawnionym w odpisach KRS (m.in. ${names}) — rozdz. IV.7`,
+      );
+    }
+    if (cancelPeak?.value != null)
+      q3.push(
+        `obraz arkusza zleceń: anulacje zleceń kupna Grupy sięgały ${plnum(cancelPeak.value, "%")} ` +
+          `zadeklarowanego wolumenu (${cancelPeak.session_day}) — rozdz. IV.6`,
+      );
+    parts.push(
+      q3.length
+        ? `Odpowiedź na Q3 — okoliczności wskazujące na współdziałanie: ${q3.join("; ")}.`
+        : `Odpowiedź na Q3: [do uzupełnienia po zatwierdzeniu rozdziału relacji].`,
+    );
 
-    // Pozostałe zatwierdzone rozdziały IV (ekofin/ESPI/aktywność/relacje).
+    // ── Q4 — pozostałe uwagi biegłego ──
+    parts.push(PROSECUTOR_QUESTIONS[3]);
+    const q4: string[] = [];
+    if (evSess.length)
+      q4.push(
+        `zbieżność czasowa zdarzeń korporacyjnych z sesjami o skrajnych parametrach obrotu: ` +
+          evSess.map((e) => `${e.date} — ${(e.type || e.subject || "").trim()} (sesja ${e.session})`).join("; ") +
+          ` — rozdz. IV.2`,
+      );
+    if (seller)
+      q4.push(
+        `koncentracja podaży: największym sprzedawcą był podmiot ${cap(seller.entity)} ` +
+          `(${plnum(seller.share, "%")} wartości obrotu; ${plnum(seller.val, "zł")})`,
+      );
+    if (buyer && buyer.entity !== seller?.entity)
+      q4.push(`po stronie kupna dominował podmiot ${cap(buyer.entity)} (${plnum(buyer.val, "zł")})`);
+    parts.push(q4.length ? `Odpowiedź na Q4 — okoliczności dodatkowe: ${q4.join("; ")}.` : `Odpowiedź na Q4: [do uzupełnienia].`);
+
+    // Pozostałe zatwierdzone rozdziały IV (ekofin/ESPI/aktywność/relacje) — zestawienie.
     const other = approved.filter((s) => !techKinds.has(s.kind));
     if (other.length) {
       const fs = other
         .map((s) => `${s.title} (rozdz. ${s.chapter_no}): ${(s.data?.findings ?? []).join(" ")}`.trim())
         .filter(Boolean);
-      if (fs.length) parts.push(`Pozostałe ustalenia z rozdziału IV:\n• ${fs.join("\n• ")}`);
+      if (fs.length) parts.push(`Zestawienie pozostałych ustaleń rozdziału IV:\n• ${fs.join("\n• ")}`);
     }
   }
 

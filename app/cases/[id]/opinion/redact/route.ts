@@ -3,11 +3,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   buildIvRedactPrompt,
   buildRedactPrompt,
+  buildWnioskiRedactPrompt,
   IV_REDACT_KINDS,
   REDACT_META,
   type IvRedactKind,
   type RedactChapter,
 } from "@/lib/opinion/redact";
+import { buildWnioskiSubanaliza, type StoredSub } from "@/lib/opinion/build";
+import { PROSECUTOR_QUESTIONS } from "@/lib/opinion/legal";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -39,7 +42,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const chapter = (body.chapter || "") as string;
   const isIv = (IV_REDACT_KINDS as readonly string[]).includes(chapter);
-  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv))
+  const isWnioski = chapter === "wnioski";
+  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isWnioski))
     return Response.json({ ok: false, reason: "Nieznany rozdział." }, { status: 400 });
 
   const { data: caseRow } = await supabase.from("cases").select("name,signature").eq("id", id).single();
@@ -51,7 +55,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .eq("case_id", id);
   const { data: subs } = await supabase
     .from("subanalyses")
-    .select("kind,title,status,data,chapter_no")
+    .select("kind,title,status,data,chapter_no,body_md")
     .eq("case_id", id);
 
   const m: MetricRow[] = metricsData ?? [];
@@ -62,7 +66,49 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let userPrompt: string;
   let meta: unknown;
 
-  if (isIv) {
+  if (isWnioski) {
+    const sub = (subs ?? []).find((s) => s.kind === "wnioski");
+    if (!sub)
+      return Response.json({ ok: false, reason: "Najpierw wygeneruj Wnioski (Generuj: Wnioski), potem rozwiń prozą." });
+    // Świeży szkielet z silnika (nie z body_md) — odporny na wcześniejsze rozwinięcia prozy.
+    const skeleton = buildWnioskiSubanaliza(caseRow.name, m, (subs ?? []) as unknown as StoredSub[]).bodyMd;
+    const approved = (subs ?? [])
+      .filter((s) => s.status === "zatwierdzona" && String(s.chapter_no).startsWith("IV"))
+      .map((s) => ({ title: `${s.title} (rozdz. ${s.chapter_no})`, findings: (s.data?.findings ?? []) as string[] }));
+    const evs =
+      ((subs ?? []).find((s) => s.kind === "espi_events")?.data as {
+        events?: { date?: string; type?: string; subject?: string; session?: string }[];
+      } | null)?.events ?? [];
+    const events = evs.map(
+      (e) => `${e.date ?? "—"} — ${(e.type || e.subject || "").trim()}${e.session ? ` (zbieżne z sesją ${e.session})` : ""}`,
+    );
+    const kb =
+      ((subs ?? []).find((s) => s.kind === "krs_boards")?.data as {
+        shared?: { name?: string; entities?: string[] }[];
+      } | null)?.shared ?? [];
+    const relations = kb
+      .slice(0, 10)
+      .map((x) => `KRS — osoba w wielu podmiotach: ${x.name} (${(x.entities ?? []).join(", ")})`);
+    const ipTable = ((subs ?? []).find((s) => s.kind === "powiazania_dane")?.data as {
+      table?: { rows?: string[][] };
+    } | null)?.table;
+    for (const r of (ipTable?.rows ?? []).slice(0, 5)) relations.push(`Wspólne IP: ${r[0]} ↔ ${r[1]} (${r[2]} adresów)`);
+    const intro = String((subs ?? []).find((s) => s.kind === "proza_i")?.body_md ?? "").slice(0, 600) || null;
+    const p = buildWnioskiRedactPrompt({
+      caseName: caseRow.name,
+      signature: caseRow.signature,
+      period,
+      caseIntro: intro,
+      questions: [...PROSECUTOR_QUESTIONS],
+      skeleton,
+      techniques: approved,
+      relations,
+      events,
+    });
+    system = p.system;
+    userPrompt = p.user;
+    meta = { kind: "wnioski" };
+  } else if (isIv) {
     const sub = (subs ?? []).find((s) => s.kind === chapter);
     if (!sub)
       return Response.json({ ok: false, reason: "Najpierw wygeneruj ten rozdział (Generuj), potem rozwiń prozą." });
@@ -167,7 +213,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const client = new Anthropic();
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: isIv ? 4000 : 2500,
+      max_tokens: isWnioski ? 5000 : isIv ? 4000 : 2500,
       system,
       messages: [{ role: "user", content: userPrompt }],
     });
