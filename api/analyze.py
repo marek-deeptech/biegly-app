@@ -5,6 +5,7 @@ Reużywa zwalidowanego rdzenia engine.compute_all (jedno źródło prawdy).
 """
 import io
 import json
+import math
 import os
 import sys
 import urllib.parse
@@ -15,6 +16,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.analysis import compute_all  # noqa: E402
 from engine.loader import load_rows  # noqa: E402
 from engine.settings import SHEET_ORDERS, SHEET_TRANSACTIONS  # noqa: E402
+
+
+def clean_metrics(case_id, rows):
+    """Payload odporny na INSERT: pomija wartości niepoprawne w JSON (NaN/Inf) i
+    zamienia pustą datę sesji na None (kolumna date nie przyjmie '' → PostgREST 400)."""
+    out = []
+    for r in rows:
+        v = r.get("value")
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            continue
+        out.append({"case_id": case_id, **r, "session_day": r.get("session_day") or None})
+    return out
 
 BASE = (os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "").rstrip("/")
 KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -67,11 +80,14 @@ class handler(BaseHTTPRequestHandler):
 
             _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}",
                  headers={"Prefer": "return=minimal"})
-            payload = [{"case_id": case_id, **r} for r in rows]
-            _req("POST", f"{BASE}/rest/v1/metrics", data=json.dumps(payload).encode("utf-8"),
-                 headers={"Content-Type": "application/json", "Prefer": "return=minimal"})
+            payload = clean_metrics(case_id, rows)
+            # INSERT partiami — sprawy skali MLM mają >3000 metryk.
+            for i in range(0, len(payload), 500):
+                _req("POST", f"{BASE}/rest/v1/metrics",
+                     data=json.dumps(payload[i:i + 500]).encode("utf-8"),
+                     headers={"Content-Type": "application/json", "Prefer": "return=minimal"})
 
-            self._json(200, {"ok": True, "metrics": len(rows)})
+            self._json(200, {"ok": True, "metrics": len(payload)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"ok": False, "error": str(e)})
 

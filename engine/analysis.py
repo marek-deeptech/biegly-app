@@ -14,7 +14,9 @@ from .loader import session_date
 
 
 def _m(key, label, value, unit, day=None):
-    return {"key": key, "label": label, "value": value, "unit": unit, "session_day": day}
+    # Pusta data sesji ("" — transakcja bez rozpoznanej DATA_SESJI) → None, inaczej
+    # PostgREST odrzuca cały INSERT (kolumna date nie przyjmie ""), zwracając 400.
+    return {"key": key, "label": label, "value": value, "unit": unit, "session_day": day or None}
 
 
 def compute_all(

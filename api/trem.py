@@ -7,6 +7,7 @@ zasila te same rozdziały. Roster Grupy per sprawa (jak w /api/analyze).
 """
 import io
 import json
+import math
 import os
 import sys
 import urllib.parse
@@ -16,6 +17,18 @@ from http.server import BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.analysis import compute_trem  # noqa: E402
 from engine.loader import load_rows  # noqa: E402
+
+
+def clean_metrics(case_id, rows):
+    """Payload odporny na INSERT: pomija NaN/Inf i zamienia pustą datę sesji na None
+    (kolumna date nie przyjmie '' → PostgREST 400)."""
+    out = []
+    for r in rows:
+        v = r.get("value")
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            continue
+        out.append({"case_id": case_id, **r, "session_day": r.get("session_day") or None})
+    return out
 
 BASE = (os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "").rstrip("/")
 KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -67,11 +80,13 @@ class handler(BaseHTTPRequestHandler):
 
             _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}",
                  headers={"Prefer": "return=minimal"})
-            payload = [{"case_id": case_id, **r} for r in rows]
-            _req("POST", f"{BASE}/rest/v1/metrics", data=json.dumps(payload).encode("utf-8"),
-                 headers={"Content-Type": "application/json", "Prefer": "return=minimal"})
+            payload = clean_metrics(case_id, rows)
+            for i in range(0, len(payload), 500):
+                _req("POST", f"{BASE}/rest/v1/metrics",
+                     data=json.dumps(payload[i:i + 500]).encode("utf-8"),
+                     headers={"Content-Type": "application/json", "Prefer": "return=minimal"})
 
-            self._json(200, {"ok": True, "metrics": len(rows)})
+            self._json(200, {"ok": True, "metrics": len(payload)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"ok": False, "error": str(e)})
 
