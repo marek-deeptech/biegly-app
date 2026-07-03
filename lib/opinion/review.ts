@@ -46,7 +46,8 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   for (const m of metrics)
     if (m.value != null) numSet.add(unsign(m.value.toLocaleString("pl-PL")) + (m.unit === "%" ? "%" : ""));
   for (const ch of opinion.chapters)
-    for (const t of chTables(ch)) for (const row of t.rows) for (const cell of row) numSet.add(unsign(cell.trim()));
+    for (const t of chTables(ch))
+      for (const row of t.rows) for (const cell of row) numSet.add(unsign(String(cell ?? "").trim()));
   const pctRe = /\d{1,3}(?:,\d+)?%/g;
   let numIssues = 0;
   const seenNum = new Set<string>();

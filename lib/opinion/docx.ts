@@ -172,13 +172,15 @@ function placeholderBlock(text: string): Table {
 }
 
 function docxTable(head: string[], rows: string[][]): Table {
+  // String(x ?? "") — komórki z ekstrakcji PDF bywają null (dane MLM), a docx
+  // wywraca się na TextRun(null).
   const headRow = new TableRow({
     tableHeader: true,
     children: head.map(
       (h) =>
         new TableCell({
           shading: { fill: "f0ede6" },
-          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 18 })] })],
+          children: [new Paragraph({ children: [new TextRun({ text: String(h ?? ""), bold: true, size: 18 })] })],
         }),
     ),
   });
@@ -186,7 +188,10 @@ function docxTable(head: string[], rows: string[][]): Table {
     (r) =>
       new TableRow({
         children: r.map(
-          (c) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: c, size: 18 })] })] }),
+          (c) =>
+            new TableCell({
+              children: [new Paragraph({ children: [new TextRun({ text: String(c ?? ""), size: 18 })] })],
+            }),
         ),
       }),
   );
