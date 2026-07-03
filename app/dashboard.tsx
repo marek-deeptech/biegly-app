@@ -21,7 +21,7 @@ export default function Dashboard({
   const newCaseRef = useRef<HTMLFormElement>(null);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
+    <main className="mx-auto w-full max-w-3xl px-6 py-10">
       <div className="mb-6">
         <p className="text-xs uppercase tracking-[0.2em] text-inksoft">Rejestr</p>
         <h1 className="text-3xl font-semibold tracking-tight">Sprawy</h1>
