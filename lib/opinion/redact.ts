@@ -174,6 +174,7 @@ export type IvRedactInput = {
   caseName: string;
   signature: string | null;
   period: string | null;
+  caseIntro?: string | null; // oznaczenie spółki/instrumentu z rozdz. I (bez placeholderów)
   tableText: string | null; // wygenerowana tabela jako tekst (dzień/podmiot × wartość)
   findings: string[];
   inventory: string[]; // inwentarz dokumentów w aktach
@@ -185,6 +186,11 @@ export function buildIvRedactPrompt(inp: IvRedactInput): { system: string; user:
   parts.push(`Zredaguj rozdział analizy (część IV opinii biegłego): „${inp.title}".`);
   parts.push(`Sprawa: ${inp.caseName}${inp.signature ? ` (sygn. ${inp.signature})` : ""}.`);
   if (inp.period) parts.push(`Okres objęty analizą: ${inp.period}.`);
+  if (inp.caseIntro)
+    parts.push(
+      "Oznaczenie spółki i instrumentu (z rozdziału I — używaj tych oznaczeń; NIE stosuj placeholderów " +
+        "typu [oznaczenie spółki]):\n" + inp.caseIntro,
+    );
   parts.push(`Cel rozdziału: ${IV_PURPOSE[inp.kind]}`);
   if (inp.legalRefs.length) parts.push(`Odniesienia prawne do wplecenia: ${inp.legalRefs.join("; ")}.`);
   if (inp.tableText)

@@ -123,7 +123,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { data: docsData } = await supabase.from("documents").select("doc_type,rel_path").eq("case_id", id);
     const counts: Record<string, number> = {};
     for (const d of docsData ?? []) counts[d.doc_type as string] = (counts[d.doc_type as string] ?? 0) + 1;
-    const inventory = Object.entries(counts).map(([k, v]) => `${v} × ${k}`);
+    // Pomiń typy niemerytoryczne — inaczej model raportuje „N × UNKNOWN" jako lukę [do uzupełnienia].
+    const SKIP_TYPES = new Set(["UNKNOWN", "LITERATURA"]);
+    const inventory = Object.entries(counts)
+      .filter(([k]) => !SKIP_TYPES.has(k))
+      .map(([k, v]) => `${v} × ${k}`);
     // Aktywność/ESPI: dołącz zdarzenia ESPI/EBI do cross-linku czasowego. Jeśli wyciągnięto
     // datowane zdarzenia z PDF (subanaliza espi_events) — użyj ich; inaczej same nazwy plików.
     if (chapter === "aktywnosc" || chapter === "espi") {
@@ -159,12 +163,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           .map((sh) => `KRS — osoba w wielu podmiotach: ${sh.name} (${(sh.entities || []).join(", ")})`),
       );
     }
+    const ivIntro = String((subs ?? []).find((s) => s.kind === "proza_i")?.body_md ?? "").slice(0, 500) || null;
     const p = buildIvRedactPrompt({
       kind: chapter as IvRedactKind,
       title: (sub.title as string) || chapter,
       caseName: caseRow.name,
       signature: caseRow.signature,
       period,
+      caseIntro: ivIntro,
       tableText,
       findings: (sub.data?.findings ?? []) as string[],
       inventory,

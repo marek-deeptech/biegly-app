@@ -937,9 +937,18 @@ export function buildEkofinSubanaliza(
       `Zmiany stanu posiadania. Zidentyfikowano ${stanp.length} zawiadomienie(a) — istotne dla oceny ` +
         `przepływu pakietów i powiązania z dynamiką kursu.`,
     );
+  // Zestawienie notowań sesyjnych (OHLC) — źródło „kursów granicznych faz" i wolumenów,
+  // o które prosi ta analiza; liczone przez silnik, więc nie [do uzupełnienia].
+  const ohlc = ohlcTable(metrics);
+  if (ohlc)
+    sec.push(
+      `Zestawienie notowań sesyjnych (kurs otwarcia, najwyższy, najniższy, zamknięcia, zmiana i wolumen) ` +
+        `przedstawia poniższa tabela OHLC — stanowi ono podstawę oceny dynamiki kursu oraz wyznaczenia ` +
+        `kursów granicznych faz wzrostowej i spadkowej.`,
+    );
   sec.push(
-    `Ocena. [Do uzupełnienia przez biegłego: brak uzasadnienia dynamiki kursu w fundamentach i ` +
-      `informacjach publicznych wzmacnia tezę o oderwaniu ceny od wartości i o manipulacji.]`,
+    `Ocena. [Do uzupełnienia przez biegłego: czy dynamika kursu znajduje uzasadnienie w fundamentach i ` +
+      `informacjach publicznych — brak takiego uzasadnienia wzmacnia tezę o oderwaniu ceny od wartości.]`,
   );
 
   const findings: string[] = [];
@@ -964,9 +973,10 @@ export function buildEkofinSubanaliza(
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table: null,
+      table: ohlc,
+      tables: ohlc ? [ohlc] : undefined,
       findings,
-      legalRefs: [LEGAL_REFS.informacjaPoufna, LEGAL_REFS.obowiazekRaportowy],
+      legalRefs: [LEGAL_REFS.informacjaPoufna, LEGAL_REFS.obowiazekRaportowy, annexIRef("a"), annexIRef("b")],
     },
   };
 }
