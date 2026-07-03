@@ -11,6 +11,7 @@ import {
 } from "@/lib/opinion/redact";
 import { buildWnioskiSubanaliza, type StoredSub } from "@/lib/opinion/build";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
+import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -49,10 +50,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { data: caseRow } = await supabase.from("cases").select("name,signature").eq("id", id).single();
   if (!caseRow) return Response.json({ ok: false, reason: "not found" }, { status: 404 });
 
-  const { data: metricsData } = await supabase
-    .from("metrics")
-    .select("key,value,unit,session_day")
-    .eq("case_id", id);
+  const metricsData = await fetchAllMetrics(supabase, id);
   const { data: subs } = await supabase
     .from("subanalyses")
     .select("kind,title,status,data,chapter_no,body_md")

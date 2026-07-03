@@ -2,6 +2,7 @@ import { Packer } from "docx";
 
 import { buildOpinion } from "@/lib/opinion/build";
 import { renderOpinionDocx } from "@/lib/opinion/docx";
+import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -23,10 +24,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .single();
   if (!caseRow) return new Response("Not found", { status: 404 });
 
-  const { data: metrics } = await supabase
-    .from("metrics")
-    .select("key,value,unit,session_day")
-    .eq("case_id", id);
+  const metrics = await fetchAllMetrics(supabase, id);
   const { data: documents } = await supabase
     .from("documents")
     .select("rel_path,provenance")

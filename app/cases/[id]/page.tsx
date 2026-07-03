@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import AppHeader from "@/app/app-header";
 import { DOC_TYPES, RECOMMENDED, REQUIRED } from "@/lib/intake/taxonomy";
+import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 import CaseDetail from "./case-detail";
 
@@ -23,12 +24,11 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
     .order("rel_path");
   const documents = docs ?? [];
 
-  const { data: metricsData } = await supabase
-    .from("metrics")
-    .select("key,label,value,unit,session_day,computed_at")
-    .eq("case_id", id)
-    .order("session_day", { nullsFirst: true });
-  const metrics = metricsData ?? [];
+  // Paginacja: sprawy skali MLM mają >1000 metryk, a PostgREST tnie odpowiedź
+  // do max-rows — pojedynczy select zwracał 1/3 zbioru.
+  const metrics = (await fetchAllMetrics(supabase, id, "key,label,value,unit,session_day,computed_at")).map(
+    (m) => ({ ...m, label: m.label ?? "" }),
+  );
 
   // Subanalizy (tabela 0004). Gdy migracja jeszcze nieuruchomiona — zapytanie
   // zwróci błąd, więc traktujemy brak danych jako pustą listę.

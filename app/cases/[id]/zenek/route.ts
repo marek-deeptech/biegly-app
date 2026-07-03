@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { pdfText } from "@/lib/intake/pdf";
 import { DOC_TYPES, REQUIRED } from "@/lib/intake/taxonomy";
+import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 
 // Zenek — asystent sprawy dla biegłego. Zna kontekst sprawy (roster, wskaźniki
@@ -65,12 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .eq("case_id", id)
     .limit(3000);
   const docs: Doc[] = (docsData ?? []) as Doc[];
-  const { data: metricsData } = await supabase
-    .from("metrics")
-    .select("key,label,value,unit,session_day")
-    .eq("case_id", id)
-    .limit(6000);
-  const m = metricsData ?? [];
+  const m = await fetchAllMetrics(supabase, id, "key,label,value,unit,session_day");
   const { data: subs } = await supabase
     .from("subanalyses")
     .select("kind,chapter_no,title,status,data")

@@ -504,6 +504,19 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
         `${cap(revTop.key.split("::")[1])}, ${plnum(revTop.value, "zł")} (${revTop.session_day}).`,
     );
 
+  // Gdy plan sprawy nie ma rozdziału „aktywność" (np. MLM) — fixing ląduje tutaj,
+  // żeby wskaźnik z lit. g) zał. I nie przepadł.
+  const hasAkt = casePlan(caseName).some((c) => c.kind === "aktywnosc");
+  const fixPeakW = hasAkt ? null : mpeak(metrics, "fix_close_share");
+  if (fixPeakW?.value != null) {
+    sec.push(
+      `Aktywność przy ustalaniu kursów odniesienia (${annexIRef("g")}). Udział Grupy w wolumenie ` +
+        `transakcji fixingu zamknięcia sięgał ${plnum(fixPeakW.value, "%")} (sesja ${fixPeakW.session_day}); ` +
+        `zestawienie per sesja w tabeli fixingu poniżej.`,
+    );
+    findings.push(`Udział Grupy w fixingu zamknięcia do ${plnum(fixPeakW.value, "%")} (${fixPeakW.session_day}) — ${annexIRef("g")}.`);
+  }
+
   const washTables = [
     washDailyTable(metrics) ??
       dailyTable(
@@ -514,6 +527,7 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
       ),
     perSessionEntityTable(metrics),
     reversalTable(metrics),
+    ...(hasAkt ? [] : [fixingTable(metrics)]),
   ].filter((x): x is OpTable => x != null);
   return {
     kind: "wash",
@@ -655,33 +669,50 @@ function buildImoSubanaliza(caseName: string, metrics: Metric[]): SubResult {
   };
 }
 
-// IV.x — Pump and dump. Faza pompowania/wyprzedaży; liczby z dynamiki kursu.
+// IV.x — Pump and dump. Fazy z silnika (kursy zamknięcia) + saldo; fallback: plik notowań.
 function buildPumpDumpSubanaliza(caseName: string, metrics: Metric[], quotes?: QuoteDyn | null): SubResult {
-  void metrics;
   const { no, title } = ivMeta(caseName, "pumpdump");
   const t = TECHNIQUES.pumpdump;
   const sec: string[] = [
     `Schemat pump and dump (${t.mar}; ${t.rd}): zajęcie pozycji długiej, sztuczne wywindowanie ceny, ` +
       `a następnie wyprzedaż pakietu po zawyżonym kursie.`,
   ];
-  if (quotes)
+  const pump = mfind(metrics, "phase_pump_pct");
+  const dump = mfind(metrics, "phase_dump_pct");
+  const tot = mfind(metrics, "phase_total_pct");
+  const findings: string[] = [];
+  if (pump?.value != null) {
+    sec.push(
+      `Fazy zmiany kursu (na kursach zamknięcia, z danych transakcyjnych): faza wzrostowa („pump") — ` +
+        `${pump.value > 0 ? "+" : ""}${plnum(pump.value, "%")} do szczytu w sesji ${pump.session_day}; ` +
+        `faza spadkowa („dump") — ${plnum(dump?.value, "%")} (do ${dump?.session_day}); zmiana łączna ` +
+        `${tot?.value != null && tot.value > 0 ? "+" : ""}${plnum(tot?.value, "%")}. Fazy zestawiać ze ` +
+        `skumulowanym saldem Grupy (akumulacja/wyprzedaż) oraz wskaźnikami ${annexIRef("a")} i ${annexIRef("b")}.`,
+    );
+    findings.push(
+      `Fazy kursu: pump ${pump.value > 0 ? "+" : ""}${plnum(pump.value, "%")} (szczyt ${pump.session_day}), ` +
+        `dump ${plnum(dump?.value, "%")}; łącznie ${tot?.value != null && tot.value > 0 ? "+" : ""}${plnum(tot?.value, "%")}.`,
+    );
+  } else if (quotes) {
     sec.push(
       `Dynamika kursu w okresie od ${quotes.from} do ${quotes.to}: wzrost z ${plnum(quotes.start, "zł")} ` +
         `do maksimum ${plnum(quotes.maxClose, "zł")} (${quotes.peakDate}) — o ${plnum(quotes.changeStartMaxPct, "%")}; ` +
         `kurs na koniec okresu ${plnum(quotes.end, "zł")} (${plnum(quotes.changeStartEndPct, "%")} względem początku).`,
     );
-  else
+  } else {
     sec.push(`[Do uzupełnienia: dynamika kursu (kurs początkowy, maksymalny, data szczytu, skala wzrostu) — z pliku notowań.]`);
+  }
   sec.push(
-    `[Do uzupełnienia: identyfikacja fazy „pompowania" (kupno + pozytywne komunikaty) oraz fazy ` +
-      `wyprzedaży pakietu przez podmioty z Grupy, w powiązaniu z raportami bieżącymi spółki.]`,
+    `Identyfikację fazy „pompowania" (kupno + komunikaty) oraz fazy wyprzedaży pakietu przez podmioty ` +
+      `z Grupy należy powiązać z raportami bieżącymi spółki (rozdz. ESPI) oraz saldem Grupy. ` +
+      `[Do uzupełnienia: przypisanie konkretnych komunikatów do faz.]`,
   );
   return {
     kind: "pumpdump",
     chapterNo: no,
     title,
     bodyMd: sec.join("\n\n"),
-    data: { table: null, findings: [], legalRefs: [t.mar, t.rd] },
+    data: { table: saldoTable(metrics), findings, legalRefs: [t.mar, t.rd, annexIRef("a"), annexIRef("b")] },
   };
 }
 
