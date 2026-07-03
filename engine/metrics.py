@@ -189,11 +189,15 @@ def per_day_ohlc(transactions: list[dict]) -> list[dict]:
         price = r.get("KURS")
         if not price:  # None lub 0 — brak ceny
             continue
+        try:  # brudne komórki (np. tekst w kolumnie KURS) pomijamy zamiast wywracać silnik
+            p = float(price)
+        except (TypeError, ValueError):
+            continue
         d = session_date(r.get("DATA_SESJI"))
         if not d:
             continue
         sk = r.get("TRANSACTTIME_TXT") or r.get("CZAS_TR") or r.get("UTPEXID") or ""
-        days[d].append((str(sk), float(price)))
+        days[d].append((str(sk), p))
     out: list[dict] = []
     prev_close: float | None = None
     for d in sorted(days):
