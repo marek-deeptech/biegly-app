@@ -978,39 +978,89 @@ export default function CaseDetail({
                 sub={analysis.cancelPeak?.session_day ?? undefined}
               />
             </div>
-            <ul className="mb-3 space-y-1">
-              {metrics
-                .filter((m) => !m.session_day)
-                .map((m) => (
-                  <li key={m.key} className="flex justify-between border-b border-line py-1.5 text-sm">
-                    <span>{m.label}</span>
-                    <span className="font-medium tabular-nums">{fmt(m)}</span>
-                  </li>
-                ))}
-            </ul>
+            {(() => {
+              const S = analysisSections(metrics);
+              return (
+                <>
+                  <MetricSection title="Obrót ogółem" rows={S.totals} />
+                  {S.entities.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">
+                        Aktywność podmiotów (per podmiot)
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-inksoft">
+                              <th className="py-1 text-left">Podmiot</th>
+                              <th className="py-1 text-right">Udział sprzedaży</th>
+                              <th className="py-1 text-right">Wartość sprzedaży</th>
+                              <th className="py-1 text-right">Wolumen sprzedaży</th>
+                              <th className="py-1 text-right">Wartość kupna</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {S.entities.map((e) => (
+                              <tr key={e.entity} className="border-b border-line last:border-0">
+                                <td className="py-1.5">{capW(e.entity)}</td>
+                                <td className="py-1.5 text-right tabular-nums">{e.sellShare ? fmt(e.sellShare) : "—"}</td>
+                                <td className="py-1.5 text-right tabular-nums">{e.sellVal ? fmt(e.sellVal) : "—"}</td>
+                                <td className="py-1.5 text-right tabular-nums">{e.sellVol ? fmt(e.sellVol) : "—"}</td>
+                                <td className="py-1.5 text-right tabular-nums">{e.buyVal ? fmt(e.buyVal) : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  <MetricSection title="Dopasowane zlecenia (matched orders)" rows={S.imo} />
+                  <MetricSection title="Dopasowania — pary podmiotów" rows={S.imoPairs} limit={12} />
+                  <MetricSection title="Pary wewnątrzgrupowe (wash)" rows={S.washPairs} limit={12} />
+                  <MetricSection title="Fazy kursu (pump/dump)" rows={S.phases} />
+                  <MetricSection title="Pozostałe wskaźniki" rows={S.rest} />
+                </>
+              );
+            })()}
             {metrics.some((m) => m.session_day) && (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-inksoft">
-                    <th className="py-1 text-left">Sesja</th>
-                    <th className="py-1 text-right">Wash-trades</th>
-                    <th className="py-1 text-right">Anulacje kupna</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day))].map((day) => {
-                    const wash = metrics.find((m) => m.session_day === day && m.key.startsWith("wash_"));
-                    const cancel = metrics.find((m) => m.session_day === day && m.key.startsWith("cancel_"));
-                    return (
-                      <tr key={day} className="border-b border-line last:border-0">
-                        <td className="py-1.5">{day}</td>
-                        <td className="py-1.5 text-right tabular-nums">{wash ? fmt(wash) : "—"}</td>
-                        <td className="py-1.5 text-right tabular-nums">{cancel ? fmt(cancel) : "—"}</td>
+              <div className="mt-5">
+                <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">Per sesja</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-inksoft">
+                        <th className="py-1 text-left">Sesja</th>
+                        <th className="py-1 text-right">Kurs zamk.</th>
+                        <th className="py-1 text-right">Zmiana</th>
+                        <th className="py-1 text-right">Wash</th>
+                        <th className="py-1 text-right">Anulacje kupna</th>
+                        <th className="py-1 text-right">Fixing zamk.</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {[...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day as string))].sort().map((day) => {
+                        const at = (k: string, exact = false) =>
+                          metrics.find((m) => m.session_day === day && (exact ? m.key === k : m.key.startsWith(k))) ?? null;
+                        const close = at("day_close", true);
+                        const chg = at("day_change_pct", true);
+                        const wash = at("wash_");
+                        const cancel = at("cancel_");
+                        const fix = at("fix_close_share", true);
+                        return (
+                          <tr key={day} className="border-b border-line last:border-0">
+                            <td className="py-1.5">{day}</td>
+                            <td className="py-1.5 text-right tabular-nums">{close ? fmt(close) : "—"}</td>
+                            <td className="py-1.5 text-right tabular-nums">{chg ? fmt(chg) : "—"}</td>
+                            <td className="py-1.5 text-right tabular-nums">{wash ? fmt(wash) : "—"}</td>
+                            <td className="py-1.5 text-right tabular-nums">{cancel ? fmt(cancel) : "—"}</td>
+                            <td className="py-1.5 text-right tabular-nums">{fix ? fmt(fix) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </>
         )}
@@ -1068,6 +1118,59 @@ function fmt(m: Metric): string {
   if (m.unit === "%") return `${m.value}%`;
   const n = m.value.toLocaleString("pl-PL");
   return m.unit ? `${n} ${m.unit}` : n;
+}
+
+// Grupowanie wskaźników niedziennych w sensowne sekcje (zamiast jednej długiej listy).
+type EntActivity = { entity: string; sellShare: Metric | null; sellVal: Metric | null; sellVol: Metric | null; buyVal: Metric | null };
+function analysisSections(metrics: Metric[]) {
+  const nd = metrics.filter((m) => !m.session_day);
+  const pick = (re: RegExp) => nd.filter((m) => re.test(m.key));
+  const ent = (k: string) => k.split("::")[1];
+  const em = new Map<string, EntActivity>();
+  const getE = (e: string): EntActivity => em.get(e) ?? { entity: e, sellShare: null, sellVal: null, sellVol: null, buyVal: null };
+  for (const m of nd) {
+    if (m.key.startsWith("ent_sell_share::")) em.set(ent(m.key), { ...getE(ent(m.key)), sellShare: m });
+    else if (m.key.startsWith("ent_sell_val::")) em.set(ent(m.key), { ...getE(ent(m.key)), sellVal: m });
+    else if (m.key.startsWith("ent_sell_vol::")) em.set(ent(m.key), { ...getE(ent(m.key)), sellVol: m });
+    else if (m.key.startsWith("ent_buy_val::")) em.set(ent(m.key), { ...getE(ent(m.key)), buyVal: m });
+  }
+  const entities = [...em.values()].sort((a, b) => (b.sellVal?.value ?? 0) - (a.sellVal?.value ?? 0));
+  // „known" obejmuje też prefiksy dzienne (day_/ede_/lay_/rev_/conc_/fix_/imo_day_) —
+  // te są prezentowane w tabeli sesji; osierocone (bez daty, np. transakcje bez sesji)
+  // nie zaśmiecają sekcji „Pozostałe".
+  const known =
+    /^(totals_|group_turnover_|ent_sell_|ent_buy_|imo_|pair_intra::|phase_|day_|ede_|lay_|rev_|conc_|fix_|wash_|cancel_)/;
+  return {
+    totals: pick(/^(totals_|group_turnover_)/),
+    entities,
+    imo: pick(/^imo_(count|value|volume|thr_)/),
+    imoPairs: pick(/^imo_pair::/),
+    washPairs: pick(/^pair_intra::/),
+    phases: metrics.filter((m) => m.key.startsWith("phase_")), // mają datę, więc z całości
+    rest: nd.filter((m) => !known.test(m.key)),
+  };
+}
+const capW = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+function MetricSection({ title, rows, limit }: { title: string; rows: Metric[]; limit?: number }) {
+  if (!rows.length) return null;
+  const shown = limit ? rows.slice(0, limit) : rows;
+  return (
+    <div className="mt-4">
+      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">{title}</h3>
+      <ul className="space-y-1">
+        {shown.map((m) => (
+          <li key={m.key} className="flex justify-between border-b border-line py-1.5 text-sm last:border-0">
+            <span>{m.label}</span>
+            <span className="font-medium tabular-nums">{fmt(m)}</span>
+          </li>
+        ))}
+        {limit && rows.length > limit && (
+          <li className="py-1 text-[11px] text-inksoft">… i {rows.length - limit} więcej (pełny wykaz w rozdziałach opinii)</li>
+        )}
+      </ul>
+    </div>
+  );
 }
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
