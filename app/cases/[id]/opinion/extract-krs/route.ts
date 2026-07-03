@@ -37,20 +37,35 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!process.env.ANTHROPIC_API_KEY)
     return Response.json({ ok: false, reason: "Brak ANTHROPIC_API_KEY w zmiennych środowiskowych." });
 
+  const { data: caseRow0 } = await supabase.from("cases").select("group_roster").eq("id", id).single();
   const { data: docs } = await supabase
     .from("documents")
     .select("rel_path,storage_path")
     .eq("case_id", id)
     .eq("doc_type", "KRS_REJESTR")
-    .limit(40);
+    .limit(400);
+  // Tylko realne odpisy PDF — odsiej zapisane strony WWW i ich asset-dumpy
+  // (loader.js, ads.html, *.pobrane, jsapi_*), które bywają błędnie zaklasyfikowane.
+  const isKrsPdf = (fn: string) => /\.pdf$/i.test(fn) && !/loader|ads|sodar|zrt_|jsapi|cookie|lookup|\.pobrane/i.test(fn);
+  const roster =
+    ((caseRow0?.group_roster as { entities?: { fragment?: string }[] } | null)?.entities ?? [])
+      .map((e) => norm(String(e.fragment ?? "")))
+      .filter(Boolean);
   const seen = new Set<string>();
-  const uniq = (docs ?? []).filter((d) => {
+  const pdfs = (docs ?? []).filter((d) => {
     const fn = String(d.rel_path).split("/").pop() ?? "";
-    if (!d.storage_path || seen.has(fn)) return false;
+    if (!d.storage_path || !isKrsPdf(fn) || seen.has(fn)) return false;
     seen.add(fn);
     return true;
-  }).slice(0, 8);
-  if (!uniq.length) return Response.json({ ok: false, reason: "Brak odpisów KRS ze ścieżką w Storage." });
+  });
+  // Priorytet: odpisy, których nazwa pasuje do podmiotu z rostera; potem reszta.
+  pdfs.sort((a, b) => {
+    const ma = roster.some((r) => norm(a.rel_path).includes(r)) ? 0 : 1;
+    const mb = roster.some((r) => norm(b.rel_path).includes(r)) ? 0 : 1;
+    return ma - mb;
+  });
+  const uniq = pdfs.slice(0, 14);
+  if (!uniq.length) return Response.json({ ok: false, reason: "Brak odpisów KRS (PDF) ze ścieżką w Storage." });
 
   // Odczyt PDF-ów; wytnij sekcję „Dział 2 — Organy" (tam są osoby), plus nagłówek z nazwą.
   const texts: string[] = [];
@@ -133,8 +148,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         chapter_no: "IV",
         title: "Organy podmiotów — wyciąg z KRS",
         body_md:
-          `Wyciągnięto ${persons.length} osób w organach z odpisów KRS wgranych do sprawy (odczyt PDF)` +
-          (shared.length ? `; ${shared.length} osób pełni funkcje w więcej niż jednym podmiocie.` : "."),
+          `Odczytano ${uniq.length} odpisów KRS; wyodrębniono ${persons.length} osób w organach` +
+          (shared.length
+            ? `. Osoby pełniące funkcje w więcej niż jednym podmiocie (${shared.length}): ` +
+              shared.slice(0, 10).map((x) => `${x.name} (${(x.entities ?? []).join(", ")})`).join("; ") +
+              "."
+            : "; nie stwierdzono osób pełniących funkcje w więcej niż jednym z odczytanych podmiotów."),
         data: { table, persons, shared, findings: [`${persons.length} osób w organach; ${shared.length} w wielu podmiotach.`], legalRefs: [] },
         status: "szkic",
       },

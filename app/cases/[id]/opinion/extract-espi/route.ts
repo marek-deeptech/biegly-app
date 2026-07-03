@@ -40,14 +40,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .eq("case_id", id)
     .eq("doc_type", "RAPORT_ESPI_EBI")
     .limit(40);
+  const isPdf = (fn: string) => /\.pdf$/i.test(fn) && !/loader|ads|sodar|zrt_|jsapi|cookie|lookup|\.pobrane/i.test(fn);
   const seen = new Set<string>();
   const uniq = (docs ?? []).filter((d) => {
     const fn = String(d.rel_path).split("/").pop() ?? "";
-    if (!d.storage_path || seen.has(fn)) return false;
+    if (!d.storage_path || !isPdf(fn) || seen.has(fn)) return false;
     seen.add(fn);
     return true;
-  }).slice(0, 8);
-  if (!uniq.length) return Response.json({ ok: false, reason: "Brak raportów ESPI/EBI ze ścieżką w Storage." });
+  }).slice(0, 12);
+  if (!uniq.length) return Response.json({ ok: false, reason: "Brak raportów ESPI/EBI (PDF) ze ścieżką w Storage." });
 
   // Odczyt PDF-ów (fragmenty początkowe — tam jest data i temat).
   const texts: string[] = [];
@@ -118,7 +119,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         kind: "espi_events",
         chapter_no: "IV",
         title: "Zdarzenia ESPI/EBI (wyciąg z akt)",
-        body_md: `Wyciągnięto ${events.length} zdarzeń korporacyjnych z raportów ESPI/EBI wgranych do sprawy (odczyt PDF).`,
+        body_md:
+          `Odczytano ${uniq.length} raportów ESPI/EBI; wyodrębniono ${events.length} datowanych zdarzeń korporacyjnych` +
+          (events.length
+            ? ": " + events.slice(0, 10).map((e) => `${e.date || "—"} — ${(e.type || e.subject || "").trim()}`).join("; ") + "."
+            : "."),
         data: { table, events, findings: [`Zidentyfikowano ${events.length} datowanych zdarzeń ESPI/EBI.`], legalRefs: [] },
         status: "szkic",
       },

@@ -507,7 +507,9 @@ export default function OpinionView({
         )}
 
         <div className="space-y-4">
-          {subanalyses.filter((s) => !["techniki", "powiazania_dane", "powiazania_osint"].includes(s.kind)).map((s) => {
+          {subanalyses
+            .filter((s) => !["techniki", "powiazania_dane", "powiazania_osint", "espi_events", "krs_boards"].includes(s.kind))
+            .map((s) => {
             const approved = s.status === "zatwierdzona";
             return (
               <div key={s.id} className="border border-line bg-paper p-3">
@@ -607,6 +609,36 @@ export default function OpinionView({
             );
           })}
         </div>
+
+        {/* Materiały źródłowe (wyciągi z PDF zasilające tabele rozdziałów) — nie są
+            odrębnymi rozdziałami opinii, więc poza listą redakcyjną. */}
+        {subanalyses.some((s) => ["espi_events", "krs_boards"].includes(s.kind)) && (
+          <div className="mt-5 border-t border-line pt-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-inksoft">
+              Materiały źródłowe (zasilają tabele w rozdziałach)
+            </p>
+            <div className="space-y-2">
+              {subanalyses
+                .filter((s) => ["espi_events", "krs_boards"].includes(s.kind))
+                .map((s) => {
+                  const rows = (s.data as { table?: { rows?: string[][] } } | null)?.table?.rows?.length ?? 0;
+                  const target = s.kind === "espi_events" ? "IV.2 / IV.3" : "IV.7 (relacje)";
+                  return (
+                    <div key={s.id} className="border border-line bg-paper px-3 py-2 text-xs">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="font-medium">{s.title}</span>
+                        <span className="shrink-0 text-inksoft">→ {target} · {rows} wierszy tabeli</span>
+                      </div>
+                      <p className="text-inksoft">{s.body_md}</p>
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="mt-2 text-[11px] text-inksoft">
+              Odświeżasz je przyciskami „Wyciągnij ze źródeł (PDF)” w zakładce Recenzent.
+            </p>
+          </div>
+        )}
       </section>
 
       )}
