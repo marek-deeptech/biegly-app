@@ -5,6 +5,14 @@
     "api/analyze.py": {
       "includeFiles": "engine/**",
       "maxDuration": 60
+    },
+    "api/trem.py": {
+      "includeFiles": "engine/**",
+      "maxDuration": 60
+    },
+    "api/ip.py": {
+      "includeFiles": "engine/**",
+      "maxDuration": 60
     }
   }
 }
