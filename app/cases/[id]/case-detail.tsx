@@ -1078,6 +1078,10 @@ export default function CaseDetail({
           metrics={metrics}
           documents={documents}
           subanalyses={subanalyses}
+          onOpenFiles={(dt) => {
+            setDocTypeFilter(dt);
+            setTab("files");
+          }}
         />
       )}
 

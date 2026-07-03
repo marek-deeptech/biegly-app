@@ -73,12 +73,14 @@ export default function OpinionView({
   metrics,
   documents,
   subanalyses,
+  onOpenFiles,
 }: {
   caseId: string;
   caseRow: { name: string; signature: string | null };
   metrics: Metric[];
   documents: Doc[];
   subanalyses: SubRow[];
+  onOpenFiles?: (docType: string) => void;
 }) {
   const router = useRouter();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -680,6 +682,27 @@ export default function OpinionView({
                   {fs.map((f, i) => (
                     <li key={i} className={`text-sm ${sevText(f.severity)}`}>
                       {f.message}
+                      {f.refs?.map((r, j) => {
+                        if (r.internal)
+                          return (
+                            <span key={j} className="mt-0.5 block pl-3 text-xs text-inksoft">
+                              ↳ {r.label}
+                            </span>
+                          );
+                        const cnt = documents.filter((d) => d.doc_type === r.docType).length;
+                        return (
+                          <button
+                            key={j}
+                            onClick={() => r.docType && onOpenFiles?.(r.docType)}
+                            disabled={!cnt}
+                            title={cnt ? "Otwórz w zakładce Pliki (zawężone do tego dowodu)" : "Brak takiego dowodu w aktach"}
+                            className="mt-0.5 block pl-3 text-left text-xs text-ink underline decoration-ink/40 underline-offset-2 hover:decoration-ink disabled:cursor-default disabled:text-inksoft disabled:no-underline"
+                          >
+                            ↳ Źródło (załącznik): {r.label}{" "}
+                            {cnt ? `· ${cnt} dok. w aktach →` : "· brak w aktach — do pozyskania"}
+                          </button>
+                        );
+                      })}
                     </li>
                   ))}
                 </ul>

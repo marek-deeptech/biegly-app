@@ -2,10 +2,15 @@
 // Zero zgadywania przez model: same reguły nad strukturą opinii, metrykami i
 // subanalizami. Sześć kontroli adwersarialnych; każda zwraca uwagi lub „OK".
 
+import { DOC_TYPES } from "@/lib/intake/taxonomy";
+
 import type { Chapter, Opinion, StoredSub } from "./build";
 
 export type Severity = "ERROR" | "WARN" | "OK";
-export type ReviewFinding = { check: string; severity: Severity; message: string };
+// Odesłanie „[do uzupełnienia]" → źródło w aktach (załącznik). `docType` klikalne
+// (otwiera zakładkę Pliki zawężoną do dowodu); `internal` = odsyłacz do rozdziału.
+export type PlaceholderRef = { label: string; docType?: string; internal?: boolean };
+export type ReviewFinding = { check: string; severity: Severity; message: string; refs?: PlaceholderRef[] };
 
 type Metric = { key: string; value: number | null; unit: string | null; session_day: string | null };
 
@@ -30,6 +35,32 @@ function chapText(ch: Chapter): string {
 // Wszystkie tabele rozdziału (wiele numerowanych albo pojedyncza) — spójne z montażem.
 function chTables(ch: Chapter) {
   return ch.tables && ch.tables.length ? ch.tables : ch.table ? [ch.table] : [];
+}
+
+// Mapowanie „[do uzupełnienia]" → źródło w aktach (załącznik), z którego biegły
+// może uzupełnić brakującą daną. Klasyfikacja po kontekście poprzedzającym lukę
+// oraz treści samego placeholdera. Etykiety z jednego źródła prawdy (taksonomia).
+function placeholderSource(ctx: string, chapterNo: string): PlaceholderRef {
+  const s = ctx.toLowerCase();
+  if (/rozdzia|rozdz\.|właściw\w*\s+rozdzia/.test(s))
+    return { label: "odsyłacz wewnętrzny — wskaż właściwy rozdział opinii (np. IV.5)", internal: true };
+  if (/\bstor\b/.test(s)) return { label: DOC_TYPES.STOR.label, docType: "STOR" };
+  if (/adres\w*\s+ip|\bip\b|logowa/.test(s)) return { label: DOC_TYPES.DANE_IP.label, docType: "DANE_IP" };
+  if (/rejestrow|\bkrs\b|reprezentac|pełnomocnic|zarząd|organ\w*\s+podmiot|powiązań\w*\s+osobow|relacj\w*\s+osobow/.test(s))
+    return { label: DOC_TYPES.KRS_REJESTR.label, docType: "KRS_REJESTR" };
+  if (/espi|\bebi\b|raport\w*\s+bieżąc|komunikat|treść\w*[^.]*raport|datacj\w*[^.]*raport/.test(s))
+    return { label: DOC_TYPES.RAPORT_ESPI_EBI.label, docType: "RAPORT_ESPI_EBI" };
+  if (/sprawozda|finansow|fundament|bilans|rachunek\w*\s+zysk/.test(s))
+    return { label: DOC_TYPES.SPRAWOZDANIE_FIN.label, docType: "SPRAWOZDANIE_FIN" };
+  if (/strateg|rachunk|brokersk|firm\w*\s+inwestycyjn|dom\w*\s+maklersk/.test(s))
+    return { label: DOC_TYPES.DANE_BROKERSKIE.label, docType: "DANE_BROKERSKIE" };
+  if (/rozlicze|\btrem\b|kdpw|rozrachun/.test(s))
+    return { label: DOC_TYPES.DANE_TREM.label, docType: "DANE_TREM" };
+  // Fallback zależny od rozdziału: identyfikacja relacji → KRS, analiza ESPI →
+  // raporty bieżące; pozostałe rozdziały ilościowe → źródłowe dane transakcyjne.
+  if (chapterNo === "IV.3") return { label: DOC_TYPES.KRS_REJESTR.label, docType: "KRS_REJESTR" };
+  if (chapterNo === "IV.2") return { label: DOC_TYPES.RAPORT_ESPI_EBI.label, docType: "RAPORT_ESPI_EBI" };
+  return { label: DOC_TYPES.DANE_UTP.label, docType: "DANE_UTP" };
 }
 
 export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: StoredSub[]): ReviewFinding[] {
@@ -150,10 +181,38 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
     compIssues++;
   }
   // Wszystkie placeholdery do wypełnienia — nie tylko „[do uzupełnienia]", ale też
-  // „[oznaczenie …]", „[do ustalenia …]" itp., które inaczej trafiają do finału.
-  const placeholders = (allText.match(/\[(?:do uzupełnienia|oznaczenie|do ustalenia|do wskazania|nazwa)[^\]]*\]/gi) ?? []).length;
-  if (placeholders) {
-    add(C.complete, "WARN", `Pozostało ${placeholders} miejsc do uzupełnienia (m.in. „[do uzupełnienia]", „[oznaczenie …]").`);
+  // „[oznaczenie …]", „[do ustalenia …]" itp. Wyliczamy je pojedynczo: rozdział +
+  // fragment kontekstu + ODESŁANIE do źródła w aktach (załącznik), z którego biegły
+  // uzupełni brakującą daną. Odesłania z docType są klikalne (otwierają Pliki).
+  const phRe = /\[(?:do uzupełnienia|oznaczenie|do ustalenia|do wskazania|nazwa)[^\]]*\]/gi;
+  const phItems: { ch: string; snippet: string; ref: PlaceholderRef }[] = [];
+  const seenPh = new Set<string>();
+  for (const ch of opinion.chapters) {
+    const t = chapText(ch);
+    let m: RegExpExecArray | null;
+    phRe.lastIndex = 0;
+    while ((m = phRe.exec(t))) {
+      const before = t.slice(Math.max(0, m.index - 70), m.index).replace(/\s+/g, " ").trim();
+      const dedup = ch.no + "|" + before.slice(-40) + "|" + m[0];
+      if (seenPh.has(dedup)) continue;
+      seenPh.add(dedup);
+      phItems.push({ ch: ch.no, snippet: before.slice(-58), ref: placeholderSource(before + " " + m[0], ch.no) });
+    }
+  }
+  if (phItems.length) {
+    add(
+      C.complete,
+      "WARN",
+      `Pozostało ${phItems.length} miejsc do uzupełnienia — przy każdym wskazano źródło w aktach ` +
+        `(załącznik) do ręcznego uzupełnienia przez biegłego.`,
+    );
+    for (const p of phItems)
+      out.push({
+        check: C.complete,
+        severity: "WARN",
+        message: `Rozdz. ${p.ch}: „…${p.snippet} [do uzupełnienia]”`,
+        refs: [p.ref],
+      });
     compIssues++;
   }
   if (!compIssues) add(C.complete, "OK", "Opinia kompletna, z elementem falsyfikacji.");
