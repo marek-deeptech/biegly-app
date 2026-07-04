@@ -135,9 +135,13 @@ export function buildWnioskiRedactPrompt(inp: WnioskiRedactInput): { system: str
       "(3) odpowiedź na pytanie 2 — każda technika odrębnym akapitem z liczbami i odesłaniem do rozdziału IV.x; " +
       "(4) odpowiedź na pytanie 3 — okoliczności współdziałania (wspólne IP, zbieżność czasowa zleceń, powiązania " +
       "osobowe, anulacje) z liczbami; (5) odpowiedź na pytanie 4 — pozostałe okoliczności (zbieżność zdarzeń " +
-      "korporacyjnych z sesjami, koncentracja podaży i popytu); (6) akapit końcowy rozgraniczający ustalenia " +
+      "korporacyjnych z sesjami, koncentracja podaży i popytu); (6) sekcja „Atrybucja podmiotowa” — jeżeli szkielet " +
+      "zawiera numerowany rejestr aktywności rachunków Grupy (podmiot — sesje — kwoty), przenieś go W CAŁOŚCI " +
+      "i BEZ ZMIAN (każda pozycja w osobnej linii, z zachowaniem dat, kwot i numeracji); dopisz najwyżej 1–2 " +
+      "zdania wprowadzające; (7) akapit końcowy rozgraniczający ustalenia " +
       "faktyczne od ocen zastrzeżonych dla sądu. " +
-      "Objętość: 10–16 akapitów. Liczby wyłącznie z podanych danych; braki oznacz [do uzupełnienia]. " +
+      "Objętość: 10–16 akapitów (rejestr atrybucji liczy się jako jeden). Liczby wyłącznie z podanych danych; " +
+      "braki oznacz [do uzupełnienia]. " +
       "Nie przesądzaj o winie ani zamiarze. Zwróć samą treść rozdziału, bez nagłówka.",
   );
   return { system: SYSTEM, user: parts.join("\n\n") };

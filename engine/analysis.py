@@ -62,12 +62,15 @@ def compute_all(
         out.append(_m(f"ent_buy_vol::{e['entity']}", f"Wolumen kupna — {e['entity']}",
                       round(e["buy_volume"]), "szt"))
 
-    # Aktywność per (sesja, podmiot) — kto z Grupy i ile sprzedawał danego dnia (Tab. 24/25).
+    # Aktywność per (sesja, podmiot) — kto z Grupy i ile sprzedawał/kupował danego
+    # dnia (Tab. 24/25 + rozbicia per sesja w rozdziałach layering/aktywność).
     for r in metrics.per_day_entity(transactions, group_fragments):
-        if r["sval"] <= 0:
-            continue
-        out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
-        out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
+        if r["sval"] > 0:
+            out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
+            out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
+        if r["bval"] > 0:
+            out.append(_m(f"ede_bval::{r['entity']}", f"Kupno {r['entity']} (sesja)", round(r["bval"], 2), "zł", r["day"]))
+            out.append(_m(f"ede_bvol::{r['entity']}", f"Wolumen kupna {r['entity']} (sesja)", round(r["bvol"]), "szt", r["day"]))
 
     # Kurs i wolumen instrumentu per sesja (OHLC + zmiana) — „Tabela nr 8".
     for r in metrics.per_day_ohlc(transactions):
@@ -277,10 +280,12 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
             out.append(_m(f"imo_pair::{p['a']}|{p['b']}", f"Dopasowania — {p['a']} ↔ {p['b']} ({p['count']})",
                           round(p["value"], 2), "zł"))
     for r in metrics.per_day_entity(transactions, group_fragments):
-        if r["sval"] <= 0:
-            continue
-        out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
-        out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
+        if r["sval"] > 0:
+            out.append(_m(f"ede_sval::{r['entity']}", f"Sprzedaż {r['entity']} (sesja)", round(r["sval"], 2), "zł", r["day"]))
+            out.append(_m(f"ede_svol::{r['entity']}", f"Wolumen sprzedaży {r['entity']} (sesja)", round(r["svol"]), "szt", r["day"]))
+        if r["bval"] > 0:
+            out.append(_m(f"ede_bval::{r['entity']}", f"Kupno {r['entity']} (sesja)", round(r["bval"], 2), "zł", r["day"]))
+            out.append(_m(f"ede_bvol::{r['entity']}", f"Wolumen kupna {r['entity']} (sesja)", round(r["bvol"]), "szt", r["day"]))
     # Detektory zał. I MAR (lit. d/e/g) + fazy pump/dump — odporne na brak pól czasu.
     for r in metrics.fixing_activity(transactions, group_fragments):
         d = r["day"]

@@ -1,11 +1,15 @@
 // Serwerowy generator .docx z modelu opinii. Trzymany osobno od build.ts,
-// aby pakiet `docx` nie trafiał do bundla klienta (opinion-view importuje
-// wyłącznie build.ts).
+// aby pakiet `docx` (i rasteryzacja wykresów) nie trafiały do bundla klienta
+// (opinion-view importuje wyłącznie build.ts).
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import {
   AlignmentType,
   Document,
   Footer,
   HeadingLevel,
+  ImageRun,
   PageNumber,
   Paragraph,
   Table,
@@ -17,6 +21,37 @@ import {
 } from "docx";
 
 import type { Opinion } from "./build";
+import { chartSvg, type ChartSpec } from "./charts";
+
+// Rasteryzacja SVG→PNG (resvg, natywny binding) z fontem dostarczonym w repo —
+// środowisko serverless nie ma fontów systemowych. Każdy błąd → null, a DOCX
+// degraduje się do ramki placeholdera (generowanie opinii nigdy nie pada na wykresie).
+let fontPath: string | null | undefined;
+function chartPng(spec: ChartSpec): Buffer | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { Resvg } = require("@resvg/resvg-js") as typeof import("@resvg/resvg-js");
+    if (fontPath === undefined) {
+      const p = join(process.cwd(), "node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf");
+      try {
+        readFileSync(p); // istnieje i jest czytelny?
+        fontPath = p;
+      } catch {
+        fontPath = null;
+      }
+    }
+    const r = new Resvg(chartSvg(spec), {
+      fitTo: { mode: "width", value: 2000 }, // 2× dla ostrości wydruku
+      font: fontPath
+        ? { fontFiles: [fontPath], defaultFontFamily: "DejaVu Sans", loadSystemFonts: false }
+        : { loadSystemFonts: true },
+      background: "white",
+    });
+    return Buffer.from(r.render().asPng());
+  } catch {
+    return null;
+  }
+}
 
 export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): Document {
   const children: (Paragraph | Table | TableOfContents)[] = [];
@@ -91,8 +126,22 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
         docxTable(tbl.head, tbl.rows),
       );
     }
-    // Placeholdery wykresów/tabel — oznaczone miejsce z nazwą (biegły wstawia ręcznie).
+    // Wykresy z danych silnika (PNG) albo — bez danych — oznaczone miejsce z nazwą.
     for (const ph of ch.placeholders ?? []) {
+      const png = ph.chart ? chartPng(ph.chart) : null;
+      if (png) {
+        children.push(
+          new Paragraph({
+            spacing: { before: 120 },
+            children: [new ImageRun({ type: "png", data: png, transformation: { width: 600, height: 252 } })],
+          }),
+          new Paragraph({
+            spacing: { after: 120 },
+            children: [new TextRun({ text: `${ph.label ?? "Wykres"}. ${ph.name}`, italics: true, size: 18 })],
+          }),
+        );
+        continue;
+      }
       children.push(
         new Paragraph({ spacing: { before: 80 }, children: [] }),
         placeholderBlock(

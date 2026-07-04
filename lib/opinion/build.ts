@@ -23,13 +23,15 @@ import {
   type IVChapter,
   type IVKind,
 } from "./chapters";
+import type { ChartSpec } from "./charts";
 
 export type Conf = "grounded" | "review" | "todo";
 export type Para = { text: string; conf: Conf };
 export type OpTable = { caption: string; head: string[]; rows: string[][] };
-// Placeholder elementu graficznego/tabelarycznego, którego silnik jeszcze nie
-// renderuje — DOCX oznacza miejsce i nazwę, biegły wstawia element ręcznie.
-export type Placeholder = { kind: "wykres" | "tabela"; name: string; label?: string };
+// Placeholder elementu graficznego/tabelarycznego. Gdy silnik ma dane serii
+// (chart), DOCX renderuje prawdziwy wykres (charts.ts → PNG); bez danych —
+// oznaczone miejsce, biegły wstawia element ręcznie.
+export type Placeholder = { kind: "wykres" | "tabela"; name: string; label?: string; chart?: ChartSpec };
 export type Chapter = {
   no: string;
   title: string;
@@ -114,7 +116,71 @@ const CHAPTER_PLACEHOLDERS: Partial<Record<IVKind, Placeholder[]>> = {
   wash: [{ kind: "wykres", name: "Udział transakcji wewnątrzgrupowych (wash trades) w wolumenie sesji" }],
   layering: [{ kind: "wykres", name: "Udział anulowanego wolumenu kupna Grupy per sesja" }],
   relacje: [{ kind: "tabela", name: "Macierz powiązań osobowych i kapitałowych podmiotów Grupy" }],
+  pumpdump: [{ kind: "wykres", name: "Kurs zamknięcia w okresie analizy — fazy pump i dump" }],
 };
+
+// Dane serii wykresu dla placeholdera — wyłącznie z metryk silnika. Zwraca
+// undefined, gdy serii brak (placeholder zostaje ramką „do wstawienia").
+function chartFor(kind: IVKind, name: string, metrics: Metric[]): ChartSpec | undefined {
+  const days = mdays(metrics);
+  if (!days.length) return undefined;
+  const at = (key: string, d: string) => metrics.find((m) => m.key === key && m.session_day === d)?.value ?? null;
+  const byPrefix = (pfx: string, d: string) =>
+    metrics.find((m) => m.key.startsWith(pfx) && m.session_day === d)?.value ?? null;
+  const series = (f: (d: string) => number | null) => days.map(f);
+  const has = (vals: (number | null)[]) => vals.some((v) => v != null);
+
+  if (kind === "aktywnosc" && /kurs i wolumen/i.test(name)) {
+    const close = series((d) => at("day_close", d));
+    const vol = series((d) => at("day_sess_vol", d));
+    if (!has(close)) return undefined;
+    return {
+      title: name,
+      days,
+      left: { label: "Kurs zamknięcia", unit: "zł", values: close, kind: "line" },
+      right: has(vol) ? { label: "Wolumen sesji", unit: "szt", values: vol, kind: "bars" } : undefined,
+    };
+  }
+  if (kind === "aktywnosc" && /saldo/i.test(name)) {
+    const cumVol = series((d) => at("day_grp_cum_vol", d));
+    const cumCash = series((d) => at("day_grp_cum_cash", d));
+    if (!has(cumCash) && !has(cumVol)) return undefined;
+    return {
+      title: name,
+      days,
+      left: { label: "Skum. przychód Grupy", unit: "zł", values: cumCash, kind: "line" },
+      right: has(cumVol) ? { label: "Skum. saldo wolumenu (pozycja)", unit: "szt", values: cumVol, kind: "line" } : undefined,
+    };
+  }
+  if (kind === "wash") {
+    const wash = series((d) => byPrefix("wash_", d));
+    if (!has(wash)) return undefined;
+    return {
+      title: name,
+      days,
+      left: { label: "Udział transakcji wewnątrzgrupowych", unit: "%", values: wash, kind: "bars" },
+    };
+  }
+  if (kind === "layering") {
+    const cancels = series((d) => byPrefix("cancel_", d));
+    if (!has(cancels)) return undefined; // brak danych zleceń → ramka
+    return {
+      title: name,
+      days,
+      left: { label: "Anulowany wolumen kupna Grupy", unit: "%", values: cancels, kind: "bars" },
+    };
+  }
+  if (kind === "pumpdump") {
+    const close = series((d) => at("day_close", d));
+    if (!has(close)) return undefined;
+    return {
+      title: name,
+      days,
+      left: { label: "Kurs zamknięcia", unit: "zł", values: close, kind: "line" },
+    };
+  }
+  return undefined; // np. ekofin — wymaga danych porównawczych spoza silnika
+}
 
 // ── pomocnicze ───────────────────────────────────────────────────────────────
 function plnum(n: number | null | undefined, unit?: string | null): string {
@@ -287,6 +353,88 @@ function saldoTable(metrics: Metric[]): OpTable | null {
       plnum(at("day_grp_cum_cash", d), "zł"),
     ]),
   };
+}
+
+// ── Rozbicia per podmiot×sesja (wzorzec KM: Zal.1–10 „aktywność <data>") ──────
+// Aktywność każdego podmiotu Grupy danego dnia po obu stronach (ede_bval/…/ede_svol).
+type EdeRow = { entity: string; bval: number; bvol: number; sval: number; svol: number };
+function edeByDay(metrics: Metric[]): Map<string, Map<string, EdeRow>> {
+  const days = new Map<string, Map<string, EdeRow>>();
+  for (const m of metrics) {
+    if (!m.session_day || !m.key.startsWith("ede_")) continue;
+    const [field, entity] = [m.key.slice(4, 8), m.key.split("::")[1]];
+    if (!entity) continue;
+    const byEnt = days.get(m.session_day) ?? new Map<string, EdeRow>();
+    const row = byEnt.get(entity) ?? { entity, bval: 0, bvol: 0, sval: 0, svol: 0 };
+    if (field === "bval") row.bval = m.value ?? 0;
+    else if (field === "bvol") row.bvol = m.value ?? 0;
+    else if (field === "sval") row.sval = m.value ?? 0;
+    else if (field === "svol") row.svol = m.value ?? 0;
+    byEnt.set(entity, row);
+    days.set(m.session_day, byEnt);
+  }
+  return days;
+}
+
+// Tabela aktywności podmiotów Grupy w jednej sesji — kupno/sprzedaż/saldo.
+function sessionEntityTable(ede: Map<string, Map<string, EdeRow>>, day: string): OpTable | null {
+  const byEnt = ede.get(day);
+  if (!byEnt?.size) return null;
+  const rows = [...byEnt.values()].sort((a, b) => b.bval + b.sval - (a.bval + a.sval));
+  return {
+    caption: `Tabela. Aktywność podmiotów z Grupy w sesji ${day} — kupno, sprzedaż i saldo wolumenu`,
+    head: ["Podmiot", "Kupno (zł)", "Kupno (szt)", "Sprzedaż (zł)", "Sprzedaż (szt)", "Saldo wol. (szt)"],
+    rows: rows.map((r) => [
+      cap(r.entity),
+      plnum(r.bval > 0 ? r.bval : null, "zł"),
+      plnum(r.bvol > 0 ? r.bvol : null, "szt"),
+      plnum(r.sval > 0 ? r.sval : null, "zł"),
+      plnum(r.svol > 0 ? r.svol : null, "szt"),
+      plnum(r.bvol - r.svol, "szt"),
+    ]),
+  };
+}
+
+// Dobór sesji kluczowych do rozbicia (KM MLM: 10 sesji z 101). Kryterium jawne:
+// sesje z najwyższymi anulacjami kupna Grupy (cancel_); gdy brak danych zleceń —
+// sesje o największym udziale Grupy w wartości obrotu sesji. Zwrot chronologiczny.
+function keySessions(metrics: Metric[], max: number): { days: string[]; criterion: string } {
+  const cancels = metrics
+    .filter((m) => m.key.startsWith("cancel_") && m.session_day && (m.value ?? 0) > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  if (cancels.length)
+    return {
+      days: cancels.slice(0, max).map((m) => m.session_day as string).sort(),
+      criterion: "najwyższy udział anulowanego wolumenu kupna Grupy",
+    };
+  const share = new Map<string, number>();
+  for (const d of mdays(metrics)) {
+    const sv = metrics.find((m) => m.key === "day_sess_val" && m.session_day === d)?.value ?? 0;
+    const gv = metrics.find((m) => m.key === "day_grp_val" && m.session_day === d)?.value ?? 0;
+    if (sv > 0) share.set(d, gv / sv);
+  }
+  return {
+    days: [...share.entries()].sort((a, b) => b[1] - a[1]).slice(0, max).map(([d]) => d).sort(),
+    criterion: "największy udział Grupy w wartości obrotu sesji",
+  };
+}
+
+// Zdanie wprowadzające sesji (KM-style „Sesja giełdowa w dniu …") — z metryk dnia.
+function sessionNarrative(metrics: Metric[], d: string): string {
+  const at = (k: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  const sval = at("day_sess_val");
+  const gval = at("day_grp_val");
+  const close = at("day_close");
+  const chg = at("day_change_pct");
+  const shareTxt = sval && gval != null ? `${plnum(Math.round((gval / sval) * 10000) / 100, "%")}` : null;
+  return (
+    `Sesja giełdowa w dniu ${d}. Wartość obrotu wyniosła ${plnum(sval, "zł")}` +
+    (gval != null ? `, z czego transakcje z udziałem Grupy ${plnum(gval, "zł")}${shareTxt ? ` (${shareTxt})` : ""}` : ``) +
+    (close != null
+      ? `; kurs zamknięcia ${plnum(close, "zł")}${chg != null ? ` (zmiana ${chg > 0 ? "+" : ""}${plnum(chg, "%")})` : ""}`
+      : ``) +
+    `. Aktywność poszczególnych podmiotów Grupy w tej sesji przedstawia tabela.`
+  );
 }
 
 // Fixing (zał. I lit. A pkt g MAR) — udział Grupy przy ustalaniu kursów otwarcia
@@ -561,12 +709,26 @@ function buildLayeringSubanaliza(caseName: string, metrics: Metric[], perSession
           `${plnum(cancelPeak.value, "%")} zadeklarowanego wolumenu kupna.`
         : `[Do uzupełnienia: brak policzonych wskaźników anulacji — policz wskaźniki na zakładce Analiza liczbowa.]`),
   );
-  if (perSession)
-    sec.push(
-      `Analiza prowadzona jest sesja po sesji — dla każdej sesji giełdowej objętej postanowieniem ` +
-        `sporządza się odrębne zestawienie aktywności (załącznik per sesja). [Do uzupełnienia: rozbicie ` +
-        `na sesje z tabelami aktywności poszczególnych podmiotów — z rozszerzenia silnika.]`,
-    );
+  // Rozbicie sesja po sesji (wzorzec KM MLM: 10 sesji, każda z odrębnym zestawieniem
+  // aktywności podmiotów). Dobór sesji jawny — kryterium w treści rozdziału.
+  const ede = perSession ? edeByDay(metrics) : null;
+  const ks = perSession ? keySessions(metrics, 10) : null;
+  const sessionTables: OpTable[] = [];
+  if (perSession && ks && ede) {
+    const usable = ks.days.filter((d) => ede.get(d)?.size);
+    if (usable.length) {
+      sec.push(
+        `Analizę przeprowadzono sesja po sesji dla ${plnum(usable.length)} sesji kluczowych ` +
+          `(kryterium doboru: ${ks.criterion}). Dla każdej z tych sesji zestawiono aktywność ` +
+          `poszczególnych podmiotów Grupy po stronie kupna i sprzedaży wraz z saldem wolumenu.`,
+      );
+      for (const d of usable) {
+        sec.push(sessionNarrative(metrics, d));
+        const t = sessionEntityTable(ede, d);
+        if (t) sessionTables.push(t);
+      }
+    }
+  }
   sec.push(
     `Składanie i niezwłoczne anulowanie zleceń bez zamiaru ich realizacji wywołuje mylne wrażenie ` +
       `popytu lub podaży i wprowadza uczestników rynku w błąd co do rzeczywistej relacji popytu i podaży.`,
@@ -577,20 +739,29 @@ function buildLayeringSubanaliza(caseName: string, metrics: Metric[], perSession
       `Anulacje zleceń kupna Grupy sięgały ${plnum(cancelPeak.value, "%")} zadeklarowanego wolumenu ` +
         `(${cancelPeak.session_day}) — sygnał techniki layering & spoofing.`,
     );
+  if (sessionTables.length)
+    findings.push(`Rozbicie aktywności podmiotów Grupy sesja po sesji: ${plnum(sessionTables.length)} sesji kluczowych.`);
+  // Tabela anulacji tylko przy policzonych danych zleceń (bez danych = nie
+  // produkujemy tabeli samych „—").
+  const cancelTable =
+    (perSession ? layeringSessionTable(metrics) : null) ??
+    (cancelPeak?.value != null
+      ? dailyTable(
+          metrics,
+          "cancel_",
+          "Tabela. Udział anulowanego wolumenu w zadeklarowanym wolumenie kupna Grupy",
+          "Anulacje kupna (%)",
+        )
+      : null);
+  const tables = [...(cancelTable ? [cancelTable] : []), ...sessionTables];
   return {
     kind: "layering",
     chapterNo: no,
     title,
     bodyMd: sec.join("\n\n"),
     data: {
-      table:
-        (perSession ? layeringSessionTable(metrics) : null) ??
-        dailyTable(
-          metrics,
-          "cancel_",
-          "Tabela. Udział anulowanego wolumenu w zadeklarowanym wolumenie kupna Grupy",
-          "Anulacje kupna (%)",
-        ),
+      table: tables[0] ?? null,
+      tables: tables.length ? tables : undefined,
       findings,
       legalRefs: [t.mar, t.rd, annexIRef("f")],
     },
@@ -825,6 +996,25 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents
         `15-minutowym odpowiadała ${plnum(concPeak.value, "%")} wolumenu całej sesji (${concPeak.session_day}).`,
     );
 
+  // Rozbicie per sesja — aktywność każdego podmiotu Grupy dzień po dniu (jak
+  // załączniki „aktywność <data>" w opinii wzorcowej). Krótkie okno → wszystkie
+  // sesje; dłuższe → sesje kluczowe wg jawnego kryterium.
+  const edeAkt = edeByDay(metrics);
+  const allDays = mdays(metrics);
+  const aktDays = (allDays.length <= 15 ? allDays : keySessions(metrics, 15).days).filter((d) => edeAkt.get(d)?.size);
+  const aktTables: OpTable[] = [];
+  if (aktDays.length) {
+    sec.push(
+      `Rozbicie per sesja. Dla ${allDays.length <= 15 ? "każdej sesji objętej analizą" : `${plnum(aktDays.length)} sesji kluczowych (kryterium: ${keySessions(metrics, 15).criterion})`} ` +
+        `zestawiono niżej aktywność poszczególnych podmiotów Grupy po stronie kupna i sprzedaży wraz z saldem ` +
+        `wolumenu — obraz tego, kto, kiedy i po której stronie obrotu występował.`,
+    );
+    for (const d of aktDays) {
+      const t = sessionEntityTable(edeAkt, d);
+      if (t) aktTables.push(t);
+    }
+  }
+
   // Zbieżność czasowa skoków kursu z raportami bieżącymi (cross-link do IV.2).
   const espi = byType(documents, "RAPORT_ESPI_EBI");
   if (espi.length)
@@ -851,9 +1041,15 @@ function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents
   if (espi.length)
     findings.push(`W aktach ${espi.length} raportów ESPI/EBI do zestawienia czasowego ze skokami kursu (rozdz. IV.2).`);
 
-  const tables = [ohlcTable(metrics), entityTable(metrics), entityBuyTable(metrics), saldoTable(metrics), fixingTable(metrics)].filter(
-    (t): t is OpTable => t != null,
-  );
+  const tables = [
+    ohlcTable(metrics),
+    entityTable(metrics),
+    entityBuyTable(metrics),
+    saldoTable(metrics),
+    fixingTable(metrics),
+    ...aktTables,
+  ].filter((t): t is OpTable => t != null);
+  if (aktTables.length) findings.push(`Rozbicie aktywności per sesja: ${plnum(aktTables.length)} zestawień podmiot×sesja.`);
   return {
     kind: "aktywnosc",
     chapterNo: no,
@@ -1113,6 +1309,70 @@ export function buildTeoriaIII(caseName: string): SubResult {
   };
 }
 
+// ── Atrybucja podmiotowa — rejestr aktywności rachunków Grupy (KM-style) ──────
+// Wzorzec KM: „Texla PTE Ltd. — 20, 30 maja, 1, 3 czerwca, 21 września (5 dni)".
+// Deterministycznie z ede_* (sesje, w których podmiot wystąpił po stronie kupna
+// lub sprzedaży) + wartości. ≤10 sesji → wymień wszystkie daty; więcej → zakres.
+function attributionRegister(metrics: Metric[], maxEntities = 12): string[] {
+  type Acc = { entity: string; days: Set<string>; bval: number; sval: number };
+  const acc = new Map<string, Acc>();
+  for (const m of metrics) {
+    if (!m.session_day || !m.key.startsWith("ede_")) continue;
+    const entity = m.key.split("::")[1];
+    if (!entity) continue;
+    const a = acc.get(entity) ?? { entity, days: new Set<string>(), bval: 0, sval: 0 };
+    a.days.add(m.session_day);
+    if (m.key.startsWith("ede_bval::")) a.bval += m.value ?? 0;
+    if (m.key.startsWith("ede_sval::")) a.sval += m.value ?? 0;
+    acc.set(entity, a);
+  }
+  const all = [...acc.values()].sort((a, b) => b.bval + b.sval - (a.bval + a.sval));
+  if (!all.length) return [];
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+  const lines = all.slice(0, maxEntities).map((a, i) => {
+    const days = [...a.days].sort();
+    const daysTxt =
+      days.length <= 10
+        ? days.join(", ")
+        : `od ${days[0]} do ${days[days.length - 1]}`;
+    const saldo = round2(a.sval - a.bval);
+    return (
+      `${i + 1}. ${cap(a.entity)} — sesje: ${daysTxt} (${days.length} ${days.length === 1 ? "sesja" : "sesji"}); ` +
+      `kupno łącznie ${plnum(round2(a.bval), "zł")}, sprzedaż łącznie ${plnum(round2(a.sval), "zł")}, ` +
+      `saldo gotówkowe ${saldo > 0 ? "+" : ""}${plnum(saldo, "zł")}.`
+    );
+  });
+  const rest = all.slice(maxEntities);
+  if (rest.length) {
+    const rb = round2(rest.reduce((s, a) => s + a.bval, 0));
+    const rs = round2(rest.reduce((s, a) => s + a.sval, 0));
+    lines.push(
+      `${maxEntities + 1}. Pozostałe podmioty z Grupy (${rest.length}) — łącznie kupno ${plnum(rb, "zł")}, ` +
+        `sprzedaż ${plnum(rs, "zł")}.`,
+    );
+  }
+  return lines;
+}
+
+// Relacje transakcyjne wewnątrz Grupy — pary wash (pair_intra::) i dopasowań (imo_pair::).
+function pairRegister(metrics: Metric[]): string[] {
+  const fmtPair = (k: string, pfx: string) => k.slice(pfx.length).split("|").map(cap).join(" ↔ ");
+  const wash = metrics
+    .filter((m) => m.key.startsWith("pair_intra::"))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    .slice(0, 5)
+    .map((m) => `${fmtPair(m.key, "pair_intra::")} (obrót wzajemny ${plnum(m.value, "zł")})`);
+  const imo = metrics
+    .filter((m) => m.key.startsWith("imo_pair::"))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    .slice(0, 3)
+    .map((m) => `${fmtPair(m.key, "imo_pair::")} (zlecenia dopasowane ≤2 s, ${plnum(m.value, "zł")})`);
+  const out: string[] = [];
+  if (wash.length) out.push(`pary o największym obrocie wzajemnym: ${wash.join("; ")}`);
+  if (imo.length) out.push(`pary o dopasowaniach czasowych zleceń: ${imo.join("; ")}`);
+  return out;
+}
+
 // ── II. Wnioski — synteza WYŁĄCZNIE z zatwierdzonych analiz dowodowych (IV) ────
 // Zasada evidence-only: nie przejmujemy tez ani konkluzji z opinii KM, ani z
 // zawiadomienia UKNF/GPW. Wnioski potwierdzają (lub nie) zarzuty na podstawie
@@ -1280,6 +1540,21 @@ export function buildWnioskiSubanaliza(
     if (buyer && buyer.entity !== seller?.entity)
       q4.push(`po stronie kupna dominował podmiot ${cap(buyer.entity)} (${plnum(buyer.val, "zł")})`);
     parts.push(q4.length ? `Odpowiedź na Q4 — okoliczności dodatkowe: ${q4.join("; ")}.` : `Odpowiedź na Q4: [do uzupełnienia].`);
+
+    // ── Atrybucja podmiotowa — kto, kiedy i w jakiej skali (rejestr z ede_*) ──
+    const reg = attributionRegister(metrics);
+    if (reg.length) {
+      parts.push(
+        `Atrybucja podmiotowa. Rejestr aktywności rachunków Grupy — sesje, w których dany podmiot ` +
+          `występował po stronie kupna lub sprzedaży, wraz z łącznymi wartościami (dane transakcyjne ` +
+          `UTP/TREM; szczegółowe rozbicia per sesja — rozdział IV):\n${reg.join("\n")}`,
+      );
+      const pairs = pairRegister(metrics);
+      if (pairs.length)
+        parts.push(
+          `Relacje transakcyjne wewnątrz Grupy istotne dla oceny współdziałania: ${pairs.join("; ")}.`,
+        );
+    }
 
     // Pozostałe zatwierdzone rozdziały IV (ekofin/ESPI/aktywność/relacje) — zestawienie.
     const other = approved.filter((s) => !techKinds.has(s.kind));
@@ -1474,12 +1749,17 @@ export function buildOpinion(
     if (!cur.some((t) => t.caption === aux.caption)) ch.tables = [...cur, aux];
   }
 
-  // Placeholdery wykresów/tabel — oznaczone miejsca do wstawienia przez biegłego.
+  // Placeholdery wykresów/tabel. Gdy silnik ma serie danych — wykres renderuje
+  // się naprawdę (chart); bez danych zostaje oznaczone miejsce dla biegłego.
   for (const p of plan) {
     const ph = CHAPTER_PLACEHOLDERS[p.kind];
     if (!ph?.length) continue;
     const ch = merged.find((x) => x.no === p.no);
-    if (ch && ch.status !== "todo") ch.placeholders = ph.map((x) => ({ ...x }));
+    if (ch && ch.status !== "todo")
+      ch.placeholders = ph.map((x) => ({
+        ...x,
+        chart: x.kind === "wykres" ? chartFor(p.kind, x.name, metrics) : undefined,
+      }));
   }
 
   // Globalna numeracja tabel (Tabela nr N) w kolejności rozdziałów — spójna dla
@@ -1494,16 +1774,17 @@ export function buildOpinion(
       toc.push({ n: tno, caption: t.caption.replace(/^Tabela nr \d+\.\s*/, ""), chNo: c.no });
     }
   }
-  // Numeracja wykresów (na razie wyłącznie placeholdery — jak wykresy nr 1–5 w KM).
+  // Numeracja wykresów: wyrenderowane z danych silnika (chart) + oznaczone
+  // miejsca „do wstawienia" — wspólna, globalna numeracja jak w KM.
   let wno = 0;
-  const chartToc: { n: number; name: string; chNo: string }[] = [];
+  const chartToc: { n: number; name: string; chNo: string; rendered: boolean }[] = [];
   for (const c of merged) {
     if (c.no === "VI") continue;
     for (const ph of c.placeholders ?? []) {
       if (ph.kind === "wykres") {
         wno++;
-        ph.label = `Wykres nr ${wno} — do wstawienia`;
-        chartToc.push({ n: wno, name: ph.name, chNo: c.no });
+        ph.label = ph.chart ? `Wykres nr ${wno}` : `Wykres nr ${wno} — do wstawienia`;
+        chartToc.push({ n: wno, name: ph.name, chNo: c.no, rendered: !!ph.chart });
       } else {
         ph.label = "Tabela — do wstawienia";
       }
@@ -1514,7 +1795,10 @@ export function buildOpinion(
     vi.status = "ready";
     vi.paras = [
       ...toc.map((e) => ({ conf: "grounded" as Conf, text: `Tabela nr ${e.n}. ${e.caption} (rozdz. ${e.chNo}).` })),
-      ...chartToc.map((e) => ({ conf: "review" as Conf, text: `Wykres nr ${e.n}. ${e.name} (rozdz. ${e.chNo}) — do wstawienia.` })),
+      ...chartToc.map((e) => ({
+        conf: (e.rendered ? "grounded" : "review") as Conf,
+        text: `Wykres nr ${e.n}. ${e.name} (rozdz. ${e.chNo})${e.rendered ? "" : " — do wstawienia"}.`,
+      })),
     ];
   }
 
