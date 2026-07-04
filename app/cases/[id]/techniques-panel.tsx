@@ -4,12 +4,14 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
-import { TECH_KINDS, type IVKind } from "@/lib/opinion/chapters";
+import { CATALOG_KINDS, TECH_KINDS, type IVKind } from "@/lib/opinion/chapters";
 import { TECHNIQUES, type TechniqueId } from "@/lib/opinion/legal";
 import { proposeTechniques } from "@/lib/opinion/techniques-detect";
 
-// A2 — Techniki manipulacji (Krok 3). Propozycja z sygnałów dowodowych (metryki
-// silnika) + katalog MAR art. 12; biegły potwierdza. Wybór buduje zestaw rozdziałów.
+// A2 — Moduły analizy IV (Krok 3). Propozycja z sygnałów dowodowych (metryki
+// silnika) + katalog MAR art. 12; biegły potwierdza. Wybór buduje zestaw rozdziałów
+// wg wzorca-matki KM (IV.1 ekon-fin i IV.2 ESPI zawsze; relacje auto-pozycjonowane).
+// „aktywnosc" to moduł przeglądowy (nie technika MAR) — stąd specjalna etykieta.
 
 type Metric = { key: string; value: number | null; unit: string | null; session_day: string | null };
 
@@ -42,8 +44,12 @@ export default function TechniquesPanel({
   async function save() {
     setBusy(true);
     setMsg("");
-    const ids = TECH_KINDS.filter((k) => sel.has(k));
+    // Kolejność wyboru = kolejność rozdziałów IV: zachowaj porządek już zapisany,
+    // nowo dodane dopisz w kolejności katalogu.
+    const prev = selected.filter((k) => sel.has(k));
+    const ids = [...prev, ...CATALOG_KINDS.filter((k) => sel.has(k) && !prev.includes(k))];
     const lines = ids.map((k) => {
+      if (k === "aktywnosc") return "• Aktywność podmiotów z Grupy (moduł przeglądowy)";
       const t = TECHNIQUES[k as TechniqueId];
       return `• ${t.label} (${t.mar}; ${t.rd})`;
     });
@@ -54,8 +60,13 @@ export default function TechniquesPanel({
         kind: "techniki",
         chapter_no: "IV",
         title: "Dobór technik (A2)",
-        body_md: ids.length ? `Zidentyfikowane techniki manipulacji:\n${lines.join("\n")}` : "Nie wskazano technik.",
-        data: { selected: ids, table: null, findings: [], legalRefs: ids.map((k) => TECHNIQUES[k as TechniqueId].rd) },
+        body_md: ids.length ? `Zidentyfikowane moduły analizy:\n${lines.join("\n")}` : "Nie wskazano technik.",
+        data: {
+          selected: ids,
+          table: null,
+          findings: [],
+          legalRefs: ids.filter((k) => TECH_KINDS.includes(k as IVKind)).map((k) => TECHNIQUES[k as TechniqueId].rd),
+        },
         status: "zatwierdzona",
       },
       { onConflict: "case_id,kind" },
@@ -83,21 +94,21 @@ export default function TechniquesPanel({
         (zakładka Analiza liczbowa) lub dodaj technikę ręcznie.
       </p>
       <div className="space-y-2">
-        {TECH_KINDS.map((k) => {
-          const t = TECHNIQUES[k as TechniqueId];
+        {CATALOG_KINDS.map((k) => {
+          const t = k === "aktywnosc" ? null : TECHNIQUES[k as TechniqueId];
           const p = signalOf(k);
           return (
             <label key={k} className="flex cursor-pointer items-start gap-3 border border-line bg-paper p-3">
               <input type="checkbox" checked={sel.has(k)} onChange={() => toggle(k)} className="mt-1 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{t.label}</span>
+                  <span className="text-sm font-medium">{t ? t.label : "Aktywność podmiotów z Grupy"}</span>
                   {p?.auto && (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-800">sygnał</span>
                   )}
                 </div>
                 <div className="text-xs text-inksoft">
-                  {t.mar}; {t.rd}
+                  {t ? `${t.mar}; ${t.rd}` : "moduł przeglądowy IV (nie technika MAR) — obecność Grupy sesja po sesji; z nim relacje domykają IV, bez niego idą zaraz po ESPI"}
                 </div>
                 {p && <div className="mt-0.5 text-xs text-inksoft">Sygnał: {p.signal}</div>}
               </div>

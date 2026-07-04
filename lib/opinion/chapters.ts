@@ -1,8 +1,19 @@
 // Plan rozdziału IV (ANALIZA) per sprawa — konfigurowalny zestaw i kolejność.
 //
-// Zweryfikowane na finalnych opiniach KM: szkielet I–VI jest stały, a rdzeń IV
-// (rozdziały 1–7) różni się między sprawami zestawem i kolejnością technik.
-// Numer „IV.x" przypisuje TU plan sprawy — buildery nie zaszywają go na sztywno.
+// WZORZEC-MATKA (zweryfikowany na OBU finalnych opiniach KM — HUBTECH i MLM,
+// identyczna powłoka co do słowa):
+//   I.  Przedmiot i podstawa prawna opinii      [stałe]
+//   II. Wnioski                                 [stałe]
+//   III.Wstęp — ujęcie teoretyczne              [stałe]
+//   IV. Analiza:
+//        1. ekonomiczno-finansowa, 2. ESPI/EBI  [zawsze, w tej kolejności]
+//        3..N. moduły z katalogu per sprawa     [dowody decydują — dobór w A2]
+//        + relacje (wcześnie lub jako synteza — patrz buildPlanFromTechniques)
+//   V.  Podsumowanie                            [stałe]
+//   VI. Spis tabel i wykresów                   [stałe]
+// Różnica między sprawami to WYŁĄCZNIE dobór modułów IV, nie konstrukcja
+// dokumentu. Numer „IV.x" przypisuje TU plan sprawy — buildery nie zaszywają
+// go na sztywno.
 
 export type IVKind =
   | "ekofin"
@@ -79,6 +90,12 @@ export function planTechniques(caseName: string): IVKind[] {
 // Techniczne rodzaje rozdziałów (uzasadnienia technik manipulacji).
 export const TECH_KINDS: IVKind[] = ["wash", "imo", "layering", "pumpdump"];
 
+// Katalog modułów IV wybieralnych per sprawa (A2). „aktywnosc" to moduł
+// przeglądowy, nie technika MAR: KM użył go w HUBTECH (12 sesji — pełny
+// przegląd wykonalny), pominął w MLM (101 sesji — przegląd zastępuje analiza
+// per technika, layering sesja-po-sesji).
+export const CATALOG_KINDS: IVKind[] = ["aktywnosc", ...TECH_KINDS];
+
 const IV_TITLE: Record<IVKind, string> = {
   ekofin: "Analiza ekonomiczno-finansowa oraz otoczenia rynkowego",
   espi: "Analiza raportów bieżących w systemie ESPI i EBI",
@@ -90,21 +107,29 @@ const IV_TITLE: Record<IVKind, string> = {
   pumpdump: "Pump and dump",
 };
 
-// Plan IV budowany z technik wybranych w A2 (z dowodów), nie z presetu.
-// Stały szkielet: ekon-fin, ESPI/EBI, aktywność, [techniki], relacje.
-export function buildPlanFromTechniques(techniques: IVKind[]): IVChapter[] {
+// Plan IV budowany z modułów wybranych w A2 (z dowodów), nie z presetu.
+// Reguła wzorca-matki (odtwarza DOKŁADNIE oba finały KM):
+//   IV.1 ekon-fin, IV.2 ESPI — zawsze;
+//   moduły techniczne w kolejności wyboru (KM nie ma jednej kanonicznej);
+//   relacje — gdy JEST moduł „aktywnosc": na końcu jako synteza (styl HUBTECH:
+//   3 aktywność … 7 relacje); gdy go BRAK: zaraz po ESPI jako identyfikacja
+//   Grupy przed technikami (styl MLM: 3 relacje, 4-6 techniki).
+export function buildPlanFromTechniques(selected: IVKind[]): IVChapter[] {
+  const mods = selected.filter((k) => CATALOG_KINDS.includes(k));
+  const hasAkt = mods.includes("aktywnosc");
+  const techs = mods.filter((k) => k !== "aktywnosc");
   const order: IVKind[] = [
     "ekofin",
     "espi",
-    "aktywnosc",
-    ...TECH_KINDS.filter((k) => techniques.includes(k)),
-    "relacje",
+    ...((hasAkt ? ["aktywnosc"] : ["relacje"]) as IVKind[]),
+    ...techs,
+    ...((hasAkt ? ["relacje"] : []) as IVKind[]),
   ];
   return order.map((kind, i) => ({ kind, no: `IV.${i + 1}`, title: IV_TITLE[kind] }));
 }
 
-// Plan sprawy: z wyboru technik (A2) jeśli jest; inaczej preset (Hub/MLM/domyślny).
+// Plan sprawy: z wyboru modułów (A2) jeśli jest; inaczej preset (Hub/MLM/domyślny).
 export function resolvePlan(caseName: string, selected?: IVKind[] | null): IVChapter[] {
-  const techs = (selected ?? []).filter((k) => TECH_KINDS.includes(k));
-  return techs.length ? buildPlanFromTechniques(techs) : casePlan(caseName);
+  const mods = (selected ?? []).filter((k) => CATALOG_KINDS.includes(k));
+  return mods.length ? buildPlanFromTechniques(mods) : casePlan(caseName);
 }
