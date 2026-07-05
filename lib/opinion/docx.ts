@@ -14,11 +14,20 @@ import {
   Paragraph,
   Table,
   TableCell,
+  TableLayoutType,
   TableOfContents,
   TableRow,
   TextRun,
   WidthType,
 } from "docx";
+
+// Geometria strony: A4, marginesy 2,5 cm (standard pism procesowych).
+// Szerokości tabel podajemy w DXA (1/20 pkt) z układem FIXED — zapis „100%"
+// w w:tblW typu pct Word interpretuje błędnie (kolumny zapadają się do 1 znaku).
+const PAGE_W = 11906; // A4
+const PAGE_H = 16838;
+const MARGIN = 1417; // 2,5 cm
+const CONTENT_W = PAGE_W - 2 * MARGIN; // 9072 DXA
 
 import type { Opinion } from "./build";
 import { chartSvg, type ChartSpec } from "./charts";
@@ -125,7 +134,8 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
     for (const p of ch.paras) {
       children.push(
         new Paragraph({
-          spacing: { after: 100 },
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { after: 120, line: 288 }, // interlinia 1,2
           children: [new TextRun({ text: (p.conf === "todo" ? "[do uzupełnienia] " : "") + p.text })],
         }),
       );
@@ -199,8 +209,26 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
 
   return new Document({
     features: { updateFields: true },
+    // Krój pisma pism procesowych: Times New Roman 11 pt; nagłówki spójne.
+    styles: {
+      default: {
+        document: { run: { font: "Times New Roman", size: 22 } },
+        heading1: { run: { font: "Times New Roman", size: 30, bold: true, color: "000000" } },
+        heading2: {
+          run: { font: "Times New Roman", size: 26, bold: true, color: "000000" },
+          paragraph: { spacing: { before: 240, after: 120 } },
+        },
+        heading3: { run: { font: "Times New Roman", size: 23, bold: true, color: "000000" } },
+      },
+    },
     sections: [
       {
+        properties: {
+          page: {
+            size: { width: PAGE_W, height: PAGE_H },
+            margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN },
+          },
+        },
         footers: {
           default: new Footer({
             children: [
@@ -220,12 +248,16 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
 // Ramka placeholdera (wyróżnione tło) — oznacza miejsce na wykres/tabelę do wstawienia.
 function placeholderBlock(text: string): Table {
   return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    width: { size: CONTENT_W, type: WidthType.DXA },
+    columnWidths: [CONTENT_W],
+    margins: { top: 60, bottom: 60, left: 100, right: 100 },
     rows: [
       new TableRow({
         children: [
           new TableCell({
             shading: { fill: "eef1f6" },
+            width: { size: CONTENT_W, type: WidthType.DXA },
             children: [new Paragraph({ children: [new TextRun({ text, italics: true, size: 18, color: "44506a" })] })],
           }),
         ],
@@ -235,14 +267,22 @@ function placeholderBlock(text: string): Table {
 }
 
 function docxTable(head: string[], rows: string[][]): Table {
+  // Układ FIXED + jawne szerokości kolumn (DXA) — Word nie zapada kolumn do
+  // szerokości znaku. Pierwsza kolumna (Sesja/Data/Podmiot) dostaje więcej.
+  const n = Math.max(1, head.length);
+  const first = n >= 4 ? Math.min(1900, Math.floor(CONTENT_W / n) + 500) : Math.floor(CONTENT_W / n);
+  const rest = Math.floor((CONTENT_W - first) / Math.max(1, n - 1));
+  const columnWidths = [first, ...Array.from({ length: n - 1 }, () => rest)];
+  const cellW = (i: number) => ({ size: columnWidths[i] ?? rest, type: WidthType.DXA });
   // String(x ?? "") — komórki z ekstrakcji PDF bywają null (dane MLM), a docx
   // wywraca się na TextRun(null).
   const headRow = new TableRow({
     tableHeader: true,
     children: head.map(
-      (h) =>
+      (h, i) =>
         new TableCell({
           shading: { fill: "f0ede6" },
+          width: cellW(i),
           children: [new Paragraph({ children: [new TextRun({ text: String(h ?? ""), bold: true, size: 18 })] })],
         }),
     ),
@@ -251,12 +291,19 @@ function docxTable(head: string[], rows: string[][]): Table {
     (r) =>
       new TableRow({
         children: r.map(
-          (c) =>
+          (c, i) =>
             new TableCell({
+              width: cellW(i),
               children: [new Paragraph({ children: [new TextRun({ text: String(c ?? ""), size: 18 })] })],
             }),
         ),
       }),
   );
-  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [headRow, ...bodyRows] });
+  return new Table({
+    layout: TableLayoutType.FIXED,
+    width: { size: CONTENT_W, type: WidthType.DXA },
+    columnWidths,
+    margins: { top: 40, bottom: 40, left: 80, right: 80 },
+    rows: [headRow, ...bodyRows],
+  });
 }
