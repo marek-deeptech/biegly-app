@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { pdfText } from "@/lib/intake/pdf";
+import { keywordWindows, pdfText } from "@/lib/intake/pdf";
 import { createClient } from "@/lib/supabase/server";
 
 // Wyciąga kluczowe wielkości ekonomiczno-finansowe emitenta ze sprawozdań w aktach
@@ -35,15 +35,28 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!process.env.ANTHROPIC_API_KEY)
     return Response.json({ ok: false, reason: "Brak ANTHROPIC_API_KEY w zmiennych środowiskowych." });
 
-  const { data: docs } = await supabase
+  // Sprawozdania właściwe + raporty okresowe z ESPI (kwartalne/roczne zawierają
+  // skrócone sprawozdania — w NewConnect często jedyne dane finansowe w aktach).
+  const { data: docsFin } = await supabase
     .from("documents")
     .select("rel_path,storage_path")
     .eq("case_id", id)
     .eq("doc_type", "SPRAWOZDANIE_FIN")
     .limit(30);
+  const { data: docsEspi } = await supabase
+    .from("documents")
+    .select("rel_path,storage_path")
+    .eq("case_id", id)
+    .eq("doc_type", "RAPORT_ESPI_EBI")
+    .limit(200);
+  const okresowy = (fn: string) => /raport[-_ ]?za|kwarta|roczn|polrocz|półrocz|wyniki/i.test(fn);
+  const docs = [
+    ...(docsFin ?? []),
+    ...(docsEspi ?? []).filter((d) => okresowy(String(d.rel_path).split("/").pop() ?? "")),
+  ];
   const isPdf = (fn: string) => /\.pdf$/i.test(fn) && !/loader|ads|sodar|zrt_|jsapi|cookie|lookup|\.pobrane/i.test(fn);
   const seen = new Set<string>();
-  const uniq = (docs ?? [])
+  const uniq = docs
     .filter((d) => {
       const fn = String(d.rel_path).split("/").pop() ?? "";
       if (!d.storage_path || !isPdf(fn) || seen.has(fn)) return false;
@@ -53,6 +66,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .slice(0, 8);
   if (!uniq.length) return Response.json({ ok: false, reason: "Brak sprawozdań finansowych (PDF) ze ścieżką w Storage." });
 
+  // Tabele finansowe leżą głęboko w dokumentach — czytamy pełny tekst i tniemy
+  // okna wokół pozycji sprawozdawczych, nie początek pliku.
+  const FIN_KW = /przychody\s+netto|zysk\s*\(strata\)|strata\s+netto|zysk\s+netto|suma\s+bilansowa|aktywa\s+razem|kapitał\s*\(fundusz\)?\s*własny|rachunek zysków|przepływy pieniężne/gi;
   const texts: string[] = [];
   for (const d of uniq) {
     const fn = String(d.rel_path).split("/").pop() ?? "";
@@ -62,8 +78,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         texts.push(`### ${fn}\n[nie udało się pobrać pliku]`);
         continue;
       }
-      const text = await pdfText(await blob.arrayBuffer(), 9000);
-      texts.push(`### ${fn}\n${text}`);
+      const full = await pdfText(await blob.arrayBuffer(), 200000);
+      if (!full) {
+        texts.push(`### ${fn}\n[brak warstwy tekstowej — skan]`);
+        continue;
+      }
+      texts.push(`### ${fn}\n${keywordWindows(full, FIN_KW, 700, 9000)}`);
     } catch (e) {
       texts.push(`### ${fn}\n[błąd odczytu PDF: ${(e as Error).message}]`);
     }
