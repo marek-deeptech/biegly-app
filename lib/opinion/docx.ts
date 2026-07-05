@@ -55,6 +55,19 @@ function chartPng(spec: ChartSpec): Buffer | null {
 
 export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): Document {
   const children: (Paragraph | Table | TableOfContents)[] = [];
+  // Podpis źródła pod każdą tabelą/wykresem — konwencja opinii wzorcowych.
+  const sourceLine = () =>
+    new Paragraph({
+      spacing: { after: 120 },
+      children: [
+        new TextRun({
+          text: `Źródło: opracowanie własne na podstawie akt sprawy${op.signature ? ` ${op.signature}` : ""}.`,
+          italics: true,
+          size: 16,
+          color: "6b6f7a",
+        }),
+      ],
+    });
 
   children.push(
     new Paragraph({
@@ -124,6 +137,7 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
           children: [new TextRun({ text: tbl.caption, italics: true, size: 18 })],
         }),
         docxTable(tbl.head, tbl.rows),
+        sourceLine(),
       );
     }
     // Wykresy z danych silnika (PNG) albo — bez danych — oznaczone miejsce z nazwą.
@@ -136,9 +150,9 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
             children: [new ImageRun({ type: "png", data: png, transformation: { width: 600, height: 252 } })],
           }),
           new Paragraph({
-            spacing: { after: 120 },
             children: [new TextRun({ text: `${ph.label ?? "Wykres"}. ${ph.name}`, italics: true, size: 18 })],
           }),
+          sourceLine(),
         );
         continue;
       }

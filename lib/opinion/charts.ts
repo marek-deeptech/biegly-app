@@ -75,8 +75,14 @@ export function chartSvg(spec: ChartSpec): string {
   const band = iw / n;
   const xC = (i: number) => ML + band * i + band / 2;
 
-  const L = scaleOf(spec.left);
-  const R = spec.right ? scaleOf(spec.right) : null;
+  // Dwie serie słupkowe o tej samej jednostce = słupki grupowane na WSPÓLNEJ osi
+  // (np. kupno vs sprzedaż per podmiot); w innym razie druga seria ma prawą oś.
+  const grouped =
+    !!spec.right && spec.left.kind === "bars" && spec.right.kind === "bars" && spec.left.unit === spec.right.unit;
+  const L = grouped
+    ? scaleOf({ ...spec.left, values: [...spec.left.values, ...(spec.right?.values ?? [])] })
+    : scaleOf(spec.left);
+  const R = grouped ? null : spec.right ? scaleOf(spec.right) : null;
   const yOf = (v: number, s: { lo: number; hi: number }) => MT + ih - ((v - s.lo) / (s.hi - s.lo)) * ih;
 
   const el: string[] = [];
@@ -109,14 +115,14 @@ export function chartSvg(spec: ChartSpec): string {
   el.push(`<line x1="${ML}" y1="${MT + ih}" x2="${W - MR}" y2="${MT + ih}" stroke="${INK}" stroke-width="1"/>`);
 
   // Serie: najpierw prawa (tło — słupki), potem lewa (linia na wierzchu).
-  const drawBars = (s: ChartSeries, sc: { lo: number; hi: number }, color: string) => {
+  const drawBars = (s: ChartSeries, sc: { lo: number; hi: number }, color: string, off = 0, wf = 0.62) => {
     const y0 = yOf(Math.max(sc.lo, 0), sc);
     s.values.forEach((v, i) => {
       if (v == null || !isFinite(v)) return;
       const y = yOf(v, sc);
-      const bw = Math.max(1.5, band * 0.62);
+      const bw = Math.max(1.5, band * wf);
       el.push(
-        `<rect x="${xC(i) - bw / 2}" y="${Math.min(y, y0)}" width="${bw}" height="${Math.max(0.75, Math.abs(y0 - y))}" fill="${color}"/>`,
+        `<rect x="${xC(i) + off - bw / 2}" y="${Math.min(y, y0)}" width="${bw}" height="${Math.max(0.75, Math.abs(y0 - y))}" fill="${color}"/>`,
       );
     });
   };
@@ -136,12 +142,22 @@ export function chartSvg(spec: ChartSpec): string {
     });
     flush();
   };
-  if (spec.right && R) (spec.right.kind === "bars" ? drawBars : drawLine)(spec.right, R, spec.right.kind === "bars" ? RIGHT_BAR : RIGHT_LINE);
-  (spec.left.kind === "bars" ? drawBars : drawLine)(spec.left, L, spec.left.kind === "bars" ? RIGHT_BAR : LEFT_COLOR);
+  if (grouped && spec.right) {
+    drawBars(spec.left, L, LEFT_COLOR, -band * 0.17, 0.3);
+    drawBars(spec.right, L, RIGHT_BAR, band * 0.17, 0.3);
+  } else {
+    if (spec.right && R)
+      (spec.right.kind === "bars" ? drawBars : drawLine)(spec.right, R, spec.right.kind === "bars" ? RIGHT_BAR : RIGHT_LINE);
+    (spec.left.kind === "bars" ? drawBars : drawLine)(spec.left, L, spec.left.kind === "bars" ? RIGHT_BAR : LEFT_COLOR);
+  }
 
   // Legenda (prawy górny róg).
   const legend: { label: string; color: string; bar: boolean }[] = [
-    { label: `${spec.left.label} (${spec.left.unit})`, color: spec.left.kind === "bars" ? RIGHT_BAR : LEFT_COLOR, bar: spec.left.kind === "bars" },
+    {
+      label: `${spec.left.label} (${spec.left.unit})`,
+      color: grouped ? LEFT_COLOR : spec.left.kind === "bars" ? RIGHT_BAR : LEFT_COLOR,
+      bar: spec.left.kind === "bars",
+    },
   ];
   if (spec.right)
     legend.push({

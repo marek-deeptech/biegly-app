@@ -153,6 +153,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         );
       }
     }
+    // Ekofin: dołącz pozycje finansowe emitenta z wyciągu ze sprawozdań (fin_stats).
+    if (chapter === "ekofin") {
+      const fin = (subs ?? []).find((s) => s.kind === "fin_stats");
+      const items =
+        (fin?.data as { items?: { position?: string; period?: string; value?: string; unit?: string }[] } | null)
+          ?.items ?? [];
+      inventory.push(
+        ...items
+          .slice(0, 20)
+          .map((i) => `Dane finansowe: ${i.position} ${i.period ?? ""}: ${i.value} ${i.unit ?? ""}`.trim()),
+      );
+    }
     // Relacje: dołącz osoby pełniące funkcje w wielu podmiotach (z wyciągu KRS).
     if (chapter === "relacje") {
       const kb = (subs ?? []).find((s) => s.kind === "krs_boards");
@@ -224,7 +236,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const client = new Anthropic();
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: isWnioski ? 5000 : isIv ? 5500 : chapter === "III" ? 8000 : 2500,
+      // Rozdziały z rozbiciem per sesja (akapit na każdą sesję) potrzebują zapasu.
+      max_tokens:
+        isWnioski ? 6500
+        : chapter === "layering" || chapter === "aktywnosc" ? 9000
+        : isIv ? 5500
+        : chapter === "III" ? 8000
+        : 2500,
       system,
       messages: [{ role: "user", content: userPrompt }],
     });

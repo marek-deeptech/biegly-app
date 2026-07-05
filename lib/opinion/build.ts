@@ -395,17 +395,20 @@ function sessionEntityTable(ede: Map<string, Map<string, EdeRow>>, day: string):
   };
 }
 
-// Dobór sesji kluczowych do rozbicia (KM MLM: 10 sesji z 101). Kryterium jawne:
-// sesje z najwyższymi anulacjami kupna Grupy (cancel_); gdy brak danych zleceń —
-// sesje o największym udziale Grupy w wartości obrotu sesji. Zwrot chronologiczny.
+// Dobór sesji kluczowych do rozbicia (KM MLM: 10 sesji z 101). Kryterium jawne
+// i zwalidowane na wyroczni: ranking po SUMIE anulowanego wolumenu kupna Grupy
+// w sesji (lay_cancelled::) odtwarza 7/10 sesji wskazanych w finale KM; czysty
+// odsetek anulacji (cancel_) trafia 0/10 (wygrywają mikrosesje). Gdy brak danych
+// zleceń — udział Grupy w wartości obrotu sesji. Zwrot chronologiczny.
 function keySessions(metrics: Metric[], max: number): { days: string[]; criterion: string } {
-  const cancels = metrics
-    .filter((m) => m.key.startsWith("cancel_") && m.session_day && (m.value ?? 0) > 0)
-    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-  if (cancels.length)
+  const cancelledVol = new Map<string, number>();
+  for (const m of metrics)
+    if (m.key.startsWith("lay_cancelled::") && m.session_day)
+      cancelledVol.set(m.session_day, (cancelledVol.get(m.session_day) ?? 0) + (m.value ?? 0));
+  if (cancelledVol.size)
     return {
-      days: cancels.slice(0, max).map((m) => m.session_day as string).sort(),
-      criterion: "najwyższy udział anulowanego wolumenu kupna Grupy",
+      days: [...cancelledVol.entries()].sort((a, b) => b[1] - a[1]).slice(0, max).map(([d]) => d).sort(),
+      criterion: "największy anulowany wolumen zleceń kupna Grupy w sesji",
     };
   const share = new Map<string, number>();
   for (const d of mdays(metrics)) {
@@ -1738,6 +1741,7 @@ export function buildOpinion(
   const AUX_TABLES: [IVKind, string][] = [
     ["espi", "espi_events"],
     ["relacje", "krs_boards"],
+    ["ekofin", "fin_stats"],
   ];
   for (const [kind, auxKind] of AUX_TABLES) {
     const p = plan.find((x) => x.kind === kind);
@@ -1774,6 +1778,39 @@ export function buildOpinion(
       toc.push({ n: tno, caption: t.caption.replace(/^Tabela nr \d+\.\s*/, ""), chNo: c.no });
     }
   }
+  // Wykresy per sesja (słupki grupowane kupno/sprzedaż per podmiot) — dla
+  // rozdziałów z tabelami „w sesji <data>" (layering perSession, aktywność).
+  // Wzorzec KM MLM: dziesiątki wykresów sesyjnych przy analizie layeringu.
+  const edeAll = edeByDay(metrics);
+  for (const ch of merged) {
+    if (ch.status === "todo") continue;
+    const dates = [
+      ...new Set(
+        chapterTables(ch)
+          .map((t) => t.caption.match(/w sesji (\d{4}-\d{2}-\d{2})/)?.[1])
+          .filter((d): d is string => !!d),
+      ),
+    ].slice(0, 12);
+    if (!dates.length) continue;
+    const extra: Placeholder[] = [];
+    for (const d of dates) {
+      const byEnt = edeAll.get(d);
+      if (!byEnt?.size) continue;
+      const rows = [...byEnt.values()].sort((a, b) => b.bval + b.sval - (a.bval + a.sval)).slice(0, 14);
+      extra.push({
+        kind: "wykres",
+        name: `Aktywność podmiotów z Grupy w sesji ${d} — wartość kupna i sprzedaży`,
+        chart: {
+          title: `Aktywność podmiotów z Grupy — sesja ${d}`,
+          days: rows.map((r) => cap(r.entity).slice(0, 18)),
+          left: { label: "Kupno", unit: "zł", values: rows.map((r) => (r.bval > 0 ? r.bval : null)), kind: "bars" },
+          right: { label: "Sprzedaż", unit: "zł", values: rows.map((r) => (r.sval > 0 ? r.sval : null)), kind: "bars" },
+        },
+      });
+    }
+    if (extra.length) ch.placeholders = [...(ch.placeholders ?? []), ...extra];
+  }
+
   // Numeracja wykresów: wyrenderowane z danych silnika (chart) + oznaczone
   // miejsca „do wstawienia" — wspólna, globalna numeracja jak w KM.
   let wno = 0;

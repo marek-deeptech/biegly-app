@@ -211,11 +211,23 @@ export function buildIvRedactPrompt(inp: IvRedactInput): { system: string; user:
       "Dokumenty w aktach (możesz się na nie powołać rodzajowo; nie zmyślaj innych):\n" +
         inp.inventory.map((f) => "- " + f).join("\n"),
     );
+  // Rozdziały z rozbiciem per sesja (wzorzec KM: strona-dwie analizy na sesję,
+  // nie jedno zdanie) — wymagany odrębny akapit analityczny dla KAŻDEJ sesji.
+  const perSession = (inp.kind === "layering" || inp.kind === "aktywnosc") && /w sesji \d{4}-\d{2}-\d{2}/.test(inp.tableText ?? "");
+  if (perSession)
+    parts.push(
+      "ROZBICIE PER SESJA: dane zawierają zestawienia „Aktywność podmiotów z Grupy w sesji <data>”. " +
+        "Dla KAŻDEJ takiej sesji napisz ODRĘBNY, pełny akapit analityczny zaczynający się od „Sesja giełdowa " +
+        "w dniu <data>.”: kto dominował po stronie kupna i po stronie sprzedaży (podmioty i kwoty z tabeli tej " +
+        "sesji), saldo wolumenu, oraz — jeśli w danych — udział Grupy w obrocie sesji, zmiana kursu i skala " +
+        "anulacji; zakończ zdaniem o znaczeniu sesji dla obrazu całości. Nie streszczaj sesji zbiorczo.",
+    );
   parts.push(
     "Napisz gęstą analizę w stylu opinii biegłego: (1) wprowadzenie z odesłaniem do rozdziału III (ujęcie teoretyczne), " +
       "(2) omówienie danych pozycja po pozycji z interpretacją (dni/podmioty szczytowe, tendencje), " +
       "(3) zakotwiczenie w art. 12 MAR oraz załączniku II do rozporządzenia 2016/522, (4) wniosek cząstkowy. " +
-      "Objętość: 6–12 akapitów. Liczby wyłącznie z podanych danych — nie wymyślaj żadnych; czego brak, oznacz [do uzupełnienia]. " +
+      `Objętość: ${perSession ? "12–24 akapity (w tym akapit na każdą sesję z rozbicia)" : "6–12 akapitów"}. ` +
+      "Liczby wyłącznie z podanych danych — nie wymyślaj żadnych; czego brak, oznacz [do uzupełnienia]. " +
       "Nie przesądzaj o winie ani zamiarze. Zwróć samą treść rozdziału, bez nagłówka.",
   );
   return { system: SYSTEM, user: parts.join("\n\n") };

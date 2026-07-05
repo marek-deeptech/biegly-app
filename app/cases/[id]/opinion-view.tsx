@@ -272,8 +272,8 @@ export default function OpinionView({
 
   const hasKind = (k: string) => subanalyses.some((s) => s.kind === k);
 
-  // Wyciąganie danych ze źródeł PDF (ESPI/KRS) → zasila rozdziały IV.3 / IV.7.
-  async function extractSource(kind: "espi" | "krs") {
+  // Wyciąganie danych ze źródeł PDF (ESPI/KRS/sprawozdania) → zasila rozdziały IV.
+  async function extractSource(kind: "espi" | "krs" | "fin") {
     setExBusy(kind);
     setExMsg("");
     setExTable(null);
@@ -304,6 +304,17 @@ export default function OpinionView({
             p.entity || "—",
             p.name || "—",
             p.role || "—",
+          ]),
+        });
+      if (kind === "fin" && Array.isArray(j.items))
+        setExTable({
+          caption: "Dane finansowe emitenta (wyciąg ze sprawozdań)",
+          head: ["Pozycja", "Okres", "Wartość", "Jednostka"],
+          rows: j.items.map((i: { position?: string; period?: string; value?: string; unit?: string }) => [
+            i.position || "—",
+            i.period || "—",
+            i.value || "—",
+            i.unit || "—",
           ]),
         });
       router.refresh();
@@ -510,7 +521,7 @@ export default function OpinionView({
 
         <div className="space-y-4">
           {subanalyses
-            .filter((s) => !["techniki", "powiazania_dane", "powiazania_osint", "espi_events", "krs_boards"].includes(s.kind))
+            .filter((s) => !["techniki", "powiazania_dane", "powiazania_osint", "espi_events", "krs_boards", "fin_stats"].includes(s.kind))
             .map((s) => {
             const approved = s.status === "zatwierdzona";
             return (
@@ -614,17 +625,17 @@ export default function OpinionView({
 
         {/* Materiały źródłowe (wyciągi z PDF zasilające tabele rozdziałów) — nie są
             odrębnymi rozdziałami opinii, więc poza listą redakcyjną. */}
-        {subanalyses.some((s) => ["espi_events", "krs_boards"].includes(s.kind)) && (
+        {subanalyses.some((s) => ["espi_events", "krs_boards", "fin_stats"].includes(s.kind)) && (
           <div className="mt-5 border-t border-line pt-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-inksoft">
               Materiały źródłowe (zasilają tabele w rozdziałach)
             </p>
             <div className="space-y-2">
               {subanalyses
-                .filter((s) => ["espi_events", "krs_boards"].includes(s.kind))
+                .filter((s) => ["espi_events", "krs_boards", "fin_stats"].includes(s.kind))
                 .map((s) => {
                   const rows = (s.data as { table?: { rows?: string[][] } } | null)?.table?.rows?.length ?? 0;
-                  const target = s.kind === "espi_events" ? "IV.2 / IV.3" : "IV.7 (relacje)";
+                  const target = s.kind === "espi_events" ? "IV.2 / IV.3" : s.kind === "fin_stats" ? "IV.1 (ekofin)" : "IV.7 (relacje)";
                   return (
                     <div key={s.id} className="border border-line bg-paper px-3 py-2 text-xs">
                       <div className="mb-1 flex items-center justify-between gap-2">
@@ -771,11 +782,19 @@ export default function OpinionView({
             >
               {exBusy === "krs" ? "Czytam PDF…" : "Zarządy z KRS → IV.7"}
             </button>
+            <button
+              onClick={() => extractSource("fin")}
+              disabled={exBusy !== null}
+              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+            >
+              {exBusy === "fin" ? "Czytam PDF…" : "Dane finansowe → IV.1"}
+            </button>
             {exMsg && <span className="text-xs text-inksoft">{exMsg}</span>}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-inksoft">
-            Odczytuje wgrane PDF‑y (raporty ESPI/EBI, odpisy KRS), wyodrębnia datowane zdarzenia i osoby w organach,
-            zapisuje jako materiał zasilający cross‑link kursu (IV.3) i analizę powiązań (IV.7). Wyłącznie z treści akt.
+            Odczytuje wgrane PDF‑y (raporty ESPI/EBI, odpisy KRS, sprawozdania finansowe), wyodrębnia datowane
+            zdarzenia, osoby w organach i pozycje finansowe emitenta; zapisuje jako materiał zasilający cross‑link
+            kursu (IV.3), analizę powiązań (IV.7) i test falsyfikacji (IV.1). Wyłącznie z treści akt.
           </p>
           {exTable && (
             <div className="mt-3">
