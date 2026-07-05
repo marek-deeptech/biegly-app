@@ -160,8 +160,10 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
     "Analiza raportów bieżących ESPI/EBI — czy komunikaty spółki były cenotwórcze, czy wypełniały definicję " +
     "informacji poufnej, czy nosiły znamiona manipulacji informacją. Dla KAŻDEGO datowanego zdarzenia z inwentarza " +
     "omów: streszczoną treść komunikatu (pole „treść:”), zbieżną sesję oraz reakcję sesji (zmiana kursu, wolumen — " +
-    "liczby z silnika w inwentarzu i tabeli) — te elementy SĄ dostarczone, więc ich NIE oznaczaj [do uzupełnienia]; " +
-    "ocenę prawną cenotwórczości pozostaw wyważoną (należy do biegłego i sądu).",
+    "liczby z silnika w inwentarzu i tabeli) — te elementy SĄ dostarczone, więc ich NIE oznaczaj [do uzupełnienia]. " +
+    "Zdarzenie BEZ zbieżnej sesji (np. sprzed okresu analizy) opisz wprost jako poprzedzające okres lub pozostające " +
+    "poza nim — to ustalenie faktyczne, nie luka; nie wstawiaj przy nim [do uzupełnienia]. " +
+    "Ocenę prawną cenotwórczości pozostaw wyważoną (należy do biegłego i sądu).",
   aktywnosc:
     "Aktywność podmiotów z Grupy — dynamika kursu (OHLC) i wolumenu w powiązaniu ze skalą i koncentracją obecności Grupy w obrocie; omów tabelę kursu sesja po sesji (wzrosty, spadki, kurs maksymalny), zestawienia per podmiot odrębnie po stronie sprzedaży i kupna, oraz saldo Grupy (skumulowane saldo wolumenu = pozycja, i gotówki = przychód) jako obraz akumulacji i wyprzedaży pakietu, oraz aktywność przy fixingu otwarcia/zamknięcia i koncentrację śródsesyjną (zał. I lit. A pkt g i e MAR). Zaznacz zbieżność czasową skoków kursu z raportami bieżącymi spółki (ESPI) obecnymi w aktach — odeślij do rozdz. IV.2 — bez wymyślania numerów ani dat komunikatów (oznacz [do uzupełnienia]).",
   relacje:
