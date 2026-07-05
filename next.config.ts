@@ -10,6 +10,10 @@ const CHART_ASSETS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Natywny binding resvg nie jest bundlowalny (Turbopack: "non-ecmascript
+  // placeable asset") — pakiet zostaje external i ładuje się w runtime
+  // z node_modules; tracing dokłada właściwy binding platformy.
+  serverExternalPackages: ["@resvg/resvg-js"],
   outputFileTracingIncludes: {
     "/cases/[id]/opinion/docx": CHART_ASSETS,
     "/cases/[id]/opinion/docx/route": CHART_ASSETS,
