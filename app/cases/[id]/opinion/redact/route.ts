@@ -133,7 +133,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (chapter === "aktywnosc" || chapter === "espi") {
       const ev = (subs ?? []).find((s) => s.kind === "espi_events");
       const events =
-        (ev?.data?.events as { date?: string; type?: string; subject?: string; session?: string }[] | undefined) ?? [];
+        (ev?.data?.events as
+          | { date?: string; type?: string; subject?: string; content?: string; session?: string; chg?: number | null; vol?: number | null }[]
+          | undefined) ?? [];
       if (events.length) {
         inventory.push(
           ...events
@@ -141,7 +143,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             .map(
               (e) =>
                 `ESPI zdarzenie: ${e.date || "—"} — ${(e.type || "").trim()}${e.subject ? " — " + e.subject : ""}` +
-                (e.session ? ` (zbieżne z sesją ${e.session})` : ""),
+                (e.content ? ` | treść: ${e.content}` : "") +
+                (e.session
+                  ? ` | zbieżna sesja ${e.session}` +
+                    (e.chg != null ? `: zmiana kursu ${e.chg > 0 ? "+" : ""}${e.chg.toLocaleString("pl-PL")}%` : "") +
+                    (e.vol != null ? `, wolumen ${e.vol.toLocaleString("pl-PL")} szt` : "")
+                  : ""),
             ),
         );
       } else {

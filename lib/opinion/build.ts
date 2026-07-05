@@ -1450,7 +1450,7 @@ export function buildWnioskiSubanaliza(
   // Materiał wyciągnięty z akt (ekstrakcje PDF) — zapisany jako subanalizy pomocnicze.
   const events =
     (stored.find((s) => s.kind === "espi_events")?.data as unknown as {
-      events?: { date?: string; type?: string; subject?: string; session?: string }[];
+      events?: { date?: string; type?: string; subject?: string; session?: string; chg?: number | null }[];
     } | null)?.events ?? [];
   const evSess = events.filter((e) => e.session);
   const shared =
@@ -1563,7 +1563,14 @@ export function buildWnioskiSubanaliza(
     if (evSess.length)
       q4.push(
         `zbieżność czasowa zdarzeń korporacyjnych z sesjami o skrajnych parametrach obrotu: ` +
-          evSess.map((e) => `${e.date} — ${(e.type || e.subject || "").trim()} (sesja ${e.session})`).join("; ") +
+          evSess
+            .map(
+              (e) =>
+                `${e.date} — ${(e.type || e.subject || "").trim()} (sesja ${e.session}` +
+                (e.chg != null ? `, zmiana kursu ${e.chg > 0 ? "+" : ""}${plnum(e.chg, "%")}` : "") +
+                `)`,
+            )
+            .join("; ") +
           ` — rozdz. IV.2`,
       );
     if (seller)
