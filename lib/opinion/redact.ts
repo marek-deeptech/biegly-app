@@ -159,7 +159,7 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
   espi:
     "Analiza raportów bieżących ESPI/EBI — czy komunikaty spółki były cenotwórcze, czy wypełniały definicję " +
     "informacji poufnej, czy nosiły znamiona manipulacji informacją. Dla KAŻDEGO datowanego zdarzenia z inwentarza " +
-    "omów: streszczoną treść komunikatu (pole „treść:"), zbieżną sesję oraz reakcję sesji (zmiana kursu, wolumen — " +
+    "omów: streszczoną treść komunikatu (pole „treść:”), zbieżną sesję oraz reakcję sesji (zmiana kursu, wolumen — " +
     "liczby z silnika w inwentarzu i tabeli) — te elementy SĄ dostarczone, więc ich NIE oznaczaj [do uzupełnienia]; " +
     "ocenę prawną cenotwórczości pozostaw wyważoną (należy do biegłego i sądu).",
   aktywnosc:
