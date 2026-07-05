@@ -9,7 +9,7 @@ import {
   type IvRedactKind,
   type RedactChapter,
 } from "@/lib/opinion/redact";
-import { buildWnioskiSubanaliza, type StoredSub } from "@/lib/opinion/build";
+import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opinion/build";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -176,6 +176,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       );
     }
     const ivIntro = String((subs ?? []).find((s) => s.kind === "proza_i")?.body_md ?? "").slice(0, 500) || null;
+    // Fakty dnia dla akapitów sesyjnych — sesje z captionów tabel rozbicia.
+    const sessDays = [
+      ...new Set(
+        tbls
+          .map((t) => (t.caption ?? "").match(/w sesji (\d{4}-\d{2}-\d{2})/)?.[1])
+          .filter((d): d is string => !!d),
+      ),
+    ].sort();
     const p = buildIvRedactPrompt({
       kind: chapter as IvRedactKind,
       title: (sub.title as string) || chapter,
@@ -187,6 +195,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       findings: (sub.data?.findings ?? []) as string[],
       inventory,
       legalRefs: (sub.data?.legalRefs ?? []) as string[],
+      sessionFacts: sessDays.length ? sessionFacts(m, sessDays) : undefined,
     });
     system = p.system;
     userPrompt = p.user;

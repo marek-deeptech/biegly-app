@@ -422,6 +422,37 @@ function keySessions(metrics: Metric[], max: number): { days: string[]; criterio
   };
 }
 
+// Fakty sesji dla promptu redakcji (layering/aktywność) — liczby dnia, które
+// model ma przepisać w akapitach sesyjnych zamiast oznaczać [do uzupełnienia].
+export function sessionFacts(metrics: Metric[], days: string[]): string[] {
+  const out: string[] = [];
+  for (const d of days) {
+    const at = (k: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+    const byPfx = (p: string) => metrics.find((m) => m.key.startsWith(p) && m.session_day === d)?.value ?? null;
+    const sval = at("day_sess_val");
+    const gval = at("day_grp_val");
+    const close = at("day_close");
+    const chg = at("day_change_pct");
+    const cancel = byPfx("cancel_");
+    const layCancelled = metrics
+      .filter((m) => m.key.startsWith("lay_cancelled::") && m.session_day === d)
+      .reduce((a, m) => a + (m.value ?? 0), 0);
+    const parts: string[] = [];
+    if (sval != null) parts.push(`obrót sesji ${plnum(sval, "zł")}`);
+    if (gval != null)
+      parts.push(
+        `z udziałem Grupy ${plnum(gval, "zł")}` +
+          (sval ? ` (${plnum(Math.round((gval / sval) * 10000) / 100, "%")})` : ""),
+      );
+    if (close != null)
+      parts.push(`kurs zamknięcia ${plnum(close, "zł")}${chg != null ? ` (zmiana ${chg > 0 ? "+" : ""}${plnum(chg, "%")})` : ""}`);
+    if (cancel != null) parts.push(`anulacje kupna Grupy ${plnum(cancel, "%")} zadeklarowanego wolumenu`);
+    if (layCancelled > 0) parts.push(`anulowany wolumen kupna Grupy ${plnum(Math.round(layCancelled), "szt")}`);
+    if (parts.length) out.push(`${d} — ${parts.join("; ")}`);
+  }
+  return out;
+}
+
 // Zdanie wprowadzające sesji (KM-style „Sesja giełdowa w dniu …") — z metryk dnia.
 function sessionNarrative(metrics: Metric[], d: string): string {
   const at = (k: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
