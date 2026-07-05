@@ -11,7 +11,7 @@ import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
-import Zenek from "./zenek";
+import Albin from "./albin";
 
 type CaseRow = { id: string; name: string; signature: string | null };
 type Doc = {
@@ -1091,7 +1091,7 @@ export default function CaseDetail({
         </div>
       )}
 
-      <Zenek caseId={caseRow.id} />
+      <Albin caseId={caseRow.id} />
     </main>
   );
 }

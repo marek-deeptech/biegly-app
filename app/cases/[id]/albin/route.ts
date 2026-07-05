@@ -5,7 +5,7 @@ import { DOC_TYPES, REQUIRED } from "@/lib/intake/taxonomy";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 
-// Zenek — asystent sprawy dla biegłego. Zna kontekst sprawy (roster, wskaźniki
+// Albin — asystent sprawy dla biegłego. Zna kontekst sprawy (roster, wskaźniki
 // silnika, ustalenia rozdziałów, zdarzenia ESPI/KRS, pełny wykaz akt) i potrafi
 // CZYTAĆ dokumenty z akt (tool read_document → Storage → PDF/TXT), żeby odpowiadać
 // na pytania o ich treść. Evidence-only: odpowiada wyłącznie na podstawie danych
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 type Doc = { id: string; rel_path: string; doc_type: string; provenance: string | null; storage_path: string | null };
-type ChatMsg = { role: "user" | "zenek"; text: string };
+type ChatMsg = { role: "user" | "albin"; text: string };
 
 const base = (p: string) => p.split("/").pop() || p;
 const norm = (s: string) =>
@@ -138,7 +138,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .join("\n");
 
   const system =
-    `Jesteś Zenek — asystent biegłego sądowego w sprawie ${caseRow.name}` +
+    `Jesteś Albin — asystent biegłego sądowego w sprawie ${caseRow.name}` +
     (caseRow.signature ? ` (sygn. ${caseRow.signature})` : "") +
     `. Pomagasz biegłemu poruszać się po aktach: znasz wykaz dokumentów, podmioty i osoby sprawy, wskaźniki ` +
     `deterministycznego silnika oraz ustalenia rozdziałów opinii. Umiesz CZYTAĆ dokumenty narzędziem read_document ` +

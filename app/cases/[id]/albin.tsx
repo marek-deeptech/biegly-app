@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
 
-// Zenek — asystent sprawy (model + narzędzie czytania akt po stronie serwera).
+// Albin — asystent sprawy (model + narzędzie czytania akt po stronie serwera).
 // Zna roster, wskaźniki silnika, ustalenia rozdziałów i wykaz akt; na pytania
 // o treść dokumentów czyta pliki ze Storage (PDF/TXT) i cytuje źródła.
 
 type ReadDoc = { name: string; storage_path: string | null };
-type Msg = { role: "user" | "zenek"; text: string; read?: ReadDoc[] };
+type Msg = { role: "user" | "albin"; text: string; read?: ReadDoc[] };
 
 const STARTERS = [
   "Czego brakuje w aktach?",
@@ -18,14 +18,14 @@ const STARTERS = [
   "Które osoby zasiadają w wielu podmiotach?",
 ];
 
-export default function Zenek({ caseId }: { caseId: string }) {
+export default function Albin({ caseId }: { caseId: string }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([
     {
-      role: "zenek",
-      text: "Cześć, jestem Zenek — asystent tej sprawy. Znam akta, podmioty i wskaźniki; mogę też przeczytać konkretny dokument. O co pytasz?",
+      role: "albin",
+      text: "Cześć, jestem Albin — asystent tej sprawy. Znam akta, podmioty i wskaźniki; mogę też przeczytać konkretny dokument. O co pytasz?",
     },
   ]);
   const endRef = useRef<HTMLDivElement>(null);
@@ -42,7 +42,7 @@ export default function Zenek({ caseId }: { caseId: string }) {
     setInput("");
     setBusy(true);
     try {
-      const r = await fetch(`/cases/${caseId}/zenek`, {
+      const r = await fetch(`/cases/${caseId}/albin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, text: m.text })).slice(-12) }),
@@ -51,11 +51,11 @@ export default function Zenek({ caseId }: { caseId: string }) {
       setMsgs((cur) => [
         ...cur,
         j.ok
-          ? { role: "zenek", text: j.text as string, read: (j.read ?? []) as ReadDoc[] }
-          : { role: "zenek", text: `Nie dałem rady: ${j.reason || `HTTP ${r.status}`}` },
+          ? { role: "albin", text: j.text as string, read: (j.read ?? []) as ReadDoc[] }
+          : { role: "albin", text: `Nie dałem rady: ${j.reason || `HTTP ${r.status}`}` },
       ]);
     } catch {
-      setMsgs((cur) => [...cur, { role: "zenek", text: "Błąd sieci — spróbuj ponownie." }]);
+      setMsgs((cur) => [...cur, { role: "albin", text: "Błąd sieci — spróbuj ponownie." }]);
     } finally {
       setBusy(false);
     }
@@ -75,7 +75,7 @@ export default function Zenek({ caseId }: { caseId: string }) {
         className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-ink px-4 py-3 text-xs uppercase tracking-wider text-paper shadow-lg transition-opacity hover:opacity-90"
       >
         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-paper text-[11px] font-semibold text-ink">Z</span>
-        Zenek
+        Albin
       </button>
     );
   }
@@ -85,7 +85,7 @@ export default function Zenek({ caseId }: { caseId: string }) {
       <div className="flex items-center justify-between border-b border-ink/20 px-3 py-2">
         <span className="flex items-center gap-2 text-xs uppercase tracking-wider">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[11px] font-semibold text-paper">Z</span>
-          Zenek · asystent sprawy
+          Albin · asystent sprawy
         </span>
         <button onClick={() => setOpen(false)} className="text-inksoft transition-colors hover:text-ink" aria-label="Zamknij">
           ✕
@@ -123,7 +123,7 @@ export default function Zenek({ caseId }: { caseId: string }) {
         ))}
         {busy && (
           <div className="inline-block border border-ink/20 bg-card px-3 py-2 text-xs text-inksoft">
-            Zenek pracuje… (może czytać dokumenty)
+            Albin pracuje… (może czytać dokumenty)
           </div>
         )}
         {msgs.length === 1 && !busy && (
