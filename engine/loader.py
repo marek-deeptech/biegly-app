@@ -48,7 +48,20 @@ def load_rows(path: Path, sheet_name: str) -> list[dict]:
                 break
         if header is None:
             return []
-        return [dict(zip(header, r)) for r in rows]
+        out = [dict(zip(header, r)) for r in rows]
+        # Forward-fill DATA_SESJI: część eksportów (np. MLM UTP) wpisuje datę
+        # tylko w pierwszym wierszu bloku sesji (konwencja scalonych komórek) —
+        # puste wiersze należą do tej samej sesji co ostatnia wpisana data.
+        # Pliki w pełni datowane (HubTech) pozostają bez zmiany.
+        if "DATA_SESJI" in header:
+            last = None
+            for row in out:
+                v = row.get("DATA_SESJI")
+                if v is None or (isinstance(v, str) and not v.strip()):
+                    row["DATA_SESJI"] = last
+                else:
+                    last = v
+        return out
     finally:
         wb.close()
 
