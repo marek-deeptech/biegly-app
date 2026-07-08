@@ -2,10 +2,11 @@
 // aby pakiet `docx` (i rasteryzacja wykresów) nie trafiały do bundla klienta
 // (opinion-view importuje wyłącznie build.ts).
 //
-// Typografia: skład książkowy (wzorzec „Statystyka opisowa", PUZ Włocławek 2020):
-// Times New Roman 11 pt, tekst justowany z WCIĘCIEM PIERWSZEJ LINII i bez odstępów
-// międzyakapitowych; żywa pagina (small caps + linia); podpisy tabel wyśrodkowane
-// nad tabelą, „Źródło:" pod tabelą mniejszym pismem; cienkie obramowania.
+// Typografia: zasady UX/WCAG czytelności długich opracowań (nie ciasny skład):
+// wyrównanie DO LEWEJ (justowanie tworzy „rzeki" — gorsze dla czytania), interlinia
+// 1,5, odstęp międzyakapitowy ≈ rozmiar pisma, wyraźna hierarchia nagłówków
+// (rozdziały główne wyśrodkowane), umiarkowane rozmiary. Times New Roman 11 pt.
+// Podpisy tabel wyśrodkowane nad tabelą, „Źródło:" pod tabelą; cienkie obramowania.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -33,10 +34,13 @@ const PAGE_W = 11906; // A4
 const PAGE_H = 16838;
 const MARGIN = 1417; // 2,5 cm
 const CONTENT_W = PAGE_W - 2 * MARGIN; // 9072 DXA
-const FIRST_LINE = 510; // wcięcie pierwszego wiersza akapitu (~0,9 cm)
-const LINE = 276; // interlinia ~1,15
+const LINE = 360; // interlinia 1,5 (WCAG/UX: min 1.5× dla czytelności)
+const PARA_AFTER = 200; // odstęp międzyakapitowy ≈ rozmiar pisma (oddech)
+const BODY = 22; // tekst 11 pt
 const GRID = "808080"; // kolor cienkich linii tabel
 const HEADBG = "F2F2F2"; // subtelne tło nagłówka tabeli
+// Rozdział główny (I–VI) vs podrozdział (IV.1, IV.2 …) — dla hierarchii nagłówków.
+const isTopChapter = (no: string) => /^(I|II|III|IV|V|VI|VII)$/.test(no.trim());
 
 import type { Opinion } from "./build";
 import { chartSvg, type ChartSpec } from "./charts";
@@ -72,12 +76,11 @@ function chartPng(spec: ChartSpec): Buffer | null {
   }
 }
 
-// Akapit tekstu ciągłego: justowany, z wcięciem pierwszej linii, bez odstępu po.
+// Akapit tekstu ciągłego: wyrównany do lewej, interlinia 1,5, odstęp po akapicie.
 function bodyPara(runs: TextRun[]): Paragraph {
   return new Paragraph({
-    alignment: AlignmentType.JUSTIFIED,
-    spacing: { after: 0, line: LINE },
-    indent: { firstLine: FIRST_LINE },
+    alignment: AlignmentType.LEFT,
+    spacing: { after: PARA_AFTER, line: LINE },
     children: runs,
   });
 }
@@ -134,18 +137,18 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
 
   // ── Podstawa prawna ──
   children.push(
-    new Paragraph({ heading: HeadingLevel.HEADING_2, pageBreakBefore: true, children: [new TextRun("Podstawa prawna")] }),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER, pageBreakBefore: true, children: [new TextRun("Podstawa prawna")] }),
   );
   for (const lb of op.legalBasis) {
-    children.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, line: LINE }, bullet: { level: 0 }, children: [new TextRun(lb)] }));
+    children.push(new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 100, line: LINE }, bullet: { level: 0 }, children: [new TextRun(lb)] }));
   }
 
   // ── Rozdziały ──
   for (const ch of op.chapters) {
     children.push(
       new Paragraph({
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 320, after: 140 },
+        heading: isTopChapter(ch.no) ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2,
+        alignment: isTopChapter(ch.no) ? AlignmentType.CENTER : AlignmentType.LEFT,
         children: [new TextRun({ text: `${ch.no}. ${ch.title}` })],
       }),
     );
@@ -183,13 +186,13 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
       );
     }
     if (ch.findings?.length) {
-      children.push(new Paragraph({ spacing: { before: 160, after: 60 }, children: [new TextRun({ text: "Wnioski cząstkowe:", bold: true })] }));
+      children.push(new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: "Wnioski cząstkowe:", bold: true })] }));
       for (const f of ch.findings) {
-        children.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, line: LINE }, bullet: { level: 0 }, children: [new TextRun(f.text)] }));
+        children.push(new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 100, line: LINE }, bullet: { level: 0 }, children: [new TextRun(f.text)] }));
       }
     }
     if (ch.attachments?.length) {
-      ch.attachments.forEach((a, i) => children.push(new Paragraph({ spacing: { after: 20, line: LINE }, children: [new TextRun({ text: `Zał. ${i + 1}. ${a}`, size: 20 })] })));
+      ch.attachments.forEach((a, i) => children.push(new Paragraph({ spacing: { after: 60, line: LINE }, children: [new TextRun({ text: `Zał. ${i + 1}. ${a}`, size: 20 })] })));
     }
   }
 
@@ -220,10 +223,11 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
     features: { updateFields: true },
     styles: {
       default: {
-        document: { run: { font: "Times New Roman", size: 22 }, paragraph: { spacing: { line: LINE } } },
-        heading1: { run: { font: "Times New Roman", size: 30, bold: true, color: "000000" }, paragraph: { spacing: { before: 360, after: 160 } } },
-        heading2: { run: { font: "Times New Roman", size: 26, bold: true, color: "000000" }, paragraph: { spacing: { before: 320, after: 140 } } },
-        heading3: { run: { font: "Times New Roman", size: 23, bold: true, color: "000000" }, paragraph: { spacing: { before: 200, after: 80 } } },
+        document: { run: { font: "Times New Roman", size: BODY }, paragraph: { spacing: { line: LINE, after: PARA_AFTER } } },
+        // Umiarkowane rozmiary (UX): H1 13 pt, H2 12 pt, H3 11 pt bold; duży oddech przed.
+        heading1: { run: { font: "Times New Roman", size: 26, bold: true, color: "1a1a1a" }, paragraph: { spacing: { before: 480, after: 220, line: LINE } } },
+        heading2: { run: { font: "Times New Roman", size: 24, bold: true, color: "1a1a1a" }, paragraph: { spacing: { before: 340, after: 160, line: LINE } } },
+        heading3: { run: { font: "Times New Roman", size: 22, bold: true, color: "1a1a1a" }, paragraph: { spacing: { before: 240, after: 100, line: LINE } } },
       },
     },
     sections: [
