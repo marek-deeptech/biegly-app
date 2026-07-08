@@ -1,13 +1,20 @@
 // Serwerowy generator .docx z modelu opinii. Trzymany osobno od build.ts,
 // aby pakiet `docx` (i rasteryzacja wykresów) nie trafiały do bundla klienta
 // (opinion-view importuje wyłącznie build.ts).
+//
+// Typografia: skład książkowy (wzorzec „Statystyka opisowa", PUZ Włocławek 2020):
+// Times New Roman 11 pt, tekst justowany z WCIĘCIEM PIERWSZEJ LINII i bez odstępów
+// międzyakapitowych; żywa pagina (small caps + linia); podpisy tabel wyśrodkowane
+// nad tabelą, „Źródło:" pod tabelą mniejszym pismem; cienkie obramowania.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   AlignmentType,
+  BorderStyle,
   Document,
   Footer,
+  Header,
   HeadingLevel,
   ImageRun,
   PageNumber,
@@ -22,19 +29,22 @@ import {
 } from "docx";
 
 // Geometria strony: A4, marginesy 2,5 cm (standard pism procesowych).
-// Szerokości tabel podajemy w DXA (1/20 pkt) z układem FIXED — zapis „100%"
-// w w:tblW typu pct Word interpretuje błędnie (kolumny zapadają się do 1 znaku).
 const PAGE_W = 11906; // A4
 const PAGE_H = 16838;
 const MARGIN = 1417; // 2,5 cm
 const CONTENT_W = PAGE_W - 2 * MARGIN; // 9072 DXA
+const FIRST_LINE = 510; // wcięcie pierwszego wiersza akapitu (~0,9 cm)
+const LINE = 276; // interlinia ~1,15
+const GRID = "808080"; // kolor cienkich linii tabel
+const HEADBG = "F2F2F2"; // subtelne tło nagłówka tabeli
 
 import type { Opinion } from "./build";
 import { chartSvg, type ChartSpec } from "./charts";
 
-// Rasteryzacja SVG→PNG (resvg, natywny binding) z fontem dostarczonym w repo —
-// środowisko serverless nie ma fontów systemowych. Każdy błąd → null, a DOCX
-// degraduje się do ramki placeholdera (generowanie opinii nigdy nie pada na wykresie).
+const thin = { style: BorderStyle.SINGLE, size: 2, color: GRID };
+const TABLE_BORDERS = { top: thin, bottom: thin, left: thin, right: thin, insideHorizontal: thin, insideVertical: thin };
+
+// Rasteryzacja SVG→PNG (resvg) z fontem z repo; błąd → null (DOCX degraduje się do ramki).
 let fontPath: string | null | undefined;
 function chartPng(spec: ChartSpec): Buffer | null {
   try {
@@ -43,14 +53,14 @@ function chartPng(spec: ChartSpec): Buffer | null {
     if (fontPath === undefined) {
       const p = join(process.cwd(), "node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf");
       try {
-        readFileSync(p); // istnieje i jest czytelny?
+        readFileSync(p);
         fontPath = p;
       } catch {
         fontPath = null;
       }
     }
     const r = new Resvg(chartSvg(spec), {
-      fitTo: { mode: "width", value: 2000 }, // 2× dla ostrości wydruku
+      fitTo: { mode: "width", value: 2000 },
       font: fontPath
         ? { fontFiles: [fontPath], defaultFontFamily: "DejaVu Sans", loadSystemFonts: false }
         : { loadSystemFonts: true },
@@ -62,89 +72,95 @@ function chartPng(spec: ChartSpec): Buffer | null {
   }
 }
 
+// Akapit tekstu ciągłego: justowany, z wcięciem pierwszej linii, bez odstępu po.
+function bodyPara(runs: TextRun[]): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { after: 0, line: LINE },
+    indent: { firstLine: FIRST_LINE },
+    children: runs,
+  });
+}
+
 export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): Document {
   const children: (Paragraph | Table | TableOfContents)[] = [];
-  // Podpis źródła pod każdą tabelą/wykresem — konwencja opinii wzorcowych.
   const sourceLine = () =>
     new Paragraph({
-      spacing: { after: 120 },
+      spacing: { before: 40, after: 200 },
       children: [
         new TextRun({
           text: `Źródło: opracowanie własne na podstawie akt sprawy${op.signature ? ` ${op.signature}` : ""}.`,
-          italics: true,
           size: 16,
-          color: "6b6f7a",
+          color: "595959",
         }),
       ],
     });
 
+  // ── Strona tytułowa (układ wyśrodkowany, książkowy) ──
   children.push(
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 1400, after: 40 }, children: [new TextRun({ text: "Sygn. akt " + (op.signature ?? "—"), size: 22 })] }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: "OPINIA BIEGŁEGO" + (opts.final ? "" : " (projekt roboczy)"), bold: true, size: 30 })],
+      spacing: { before: 1200, after: 160 },
+      children: [new TextRun({ text: "OPINIA BIEGŁEGO", bold: true, size: 44 })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 80 },
-      children: [new TextRun({ text: op.caseName + (op.signature ? ` — sygn. ${op.signature}` : "") })],
+      children: [new TextRun({ text: opts.final ? "" : "(projekt roboczy)", italics: true, size: 22, color: "808080" })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { after: 240 },
-      children: [new TextRun({ text: op.expert, italics: true, size: 20 })],
+      spacing: { before: 400, after: 60 },
+      children: [new TextRun({ text: "w sprawie " + op.caseName, size: 26 })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 1600, after: 0 },
+      children: [new TextRun({ text: op.expert, italics: true, size: 22 })],
     }),
   );
 
-  // Spis treści (pole TOC Worda) — buduje się z nagłówków rozdziałów; Word
-  // aktualizuje pole przy otwarciu (features.updateFields poniżej).
+  // ── Spis treści ──
   children.push(
     new Paragraph({
-      spacing: { before: 120, after: 80 },
-      children: [new TextRun({ text: "SPIS TREŚCI", bold: true })],
+      alignment: AlignmentType.CENTER,
+      pageBreakBefore: true,
+      spacing: { after: 240 },
+      children: [new TextRun({ text: "Spis treści", bold: true, size: 28 })],
     }),
     new TableOfContents("Spis treści", { hyperlink: true, headingStyleRange: "1-3" }),
   );
 
+  // ── Podstawa prawna ──
   children.push(
-    new Paragraph({
-      heading: HeadingLevel.HEADING_2,
-      pageBreakBefore: true,
-      children: [new TextRun("Podstawa prawna")],
-    }),
+    new Paragraph({ heading: HeadingLevel.HEADING_2, pageBreakBefore: true, children: [new TextRun("Podstawa prawna")] }),
   );
   for (const lb of op.legalBasis) {
-    children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(lb)] }));
+    children.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, line: LINE }, bullet: { level: 0 }, children: [new TextRun(lb)] }));
   }
 
+  // ── Rozdziały ──
   for (const ch of op.chapters) {
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_2,
-        spacing: { before: 240 },
-        children: [new TextRun({ text: `${ch.no}. ${ch.title}` })],
+        spacing: { before: 320, after: 140 },
+        children: [new TextRun({ text: `${ch.no}. ${ch.title}` })],
       }),
     );
     if (ch.source && !opts.final) {
-      children.push(
-        new Paragraph({
-          children: [new TextRun({ text: `Źródło: ${ch.source}`, italics: true, size: 18, color: "6b6f7a" })],
-        }),
-      );
+      children.push(new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: `Źródło: ${ch.source}`, italics: true, size: 18, color: "808080" })] }));
     }
     for (const p of ch.paras) {
-      children.push(
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { after: 120, line: 288 }, // interlinia 1,2
-          children: [new TextRun({ text: (p.conf === "todo" ? "[do uzupełnienia] " : "") + p.text })],
-        }),
-      );
+      children.push(bodyPara([new TextRun({ text: (p.conf === "todo" ? "[do uzupełnienia] " : "") + p.text })]));
     }
     for (const tbl of ch.tables ?? (ch.table ? [ch.table] : [])) {
       children.push(
         new Paragraph({
-          spacing: { before: 80 },
-          children: [new TextRun({ text: tbl.caption, italics: true, size: 18 })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 200, after: 60 },
+          children: [new TextRun({ text: tbl.caption, bold: true, size: 18 })],
         }),
         docxTable(tbl.head, tbl.rows),
         sourceLine(),
@@ -155,70 +171,59 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
       const png = ph.chart ? chartPng(ph.chart) : null;
       if (png) {
         children.push(
-          new Paragraph({
-            spacing: { before: 120 },
-            children: [new ImageRun({ type: "png", data: png, transformation: { width: 600, height: 252 } })],
-          }),
-          new Paragraph({
-            children: [new TextRun({ text: `${ph.label ?? "Wykres"}. ${ph.name}`, italics: true, size: 18 })],
-          }),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200 }, children: [new ImageRun({ type: "png", data: png, transformation: { width: 560, height: 235 } })] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 40, after: 20 }, children: [new TextRun({ text: `${ph.label ?? "Wykres"}. ${ph.name}`, bold: true, size: 18 })] }),
           sourceLine(),
         );
         continue;
       }
       children.push(
-        new Paragraph({ spacing: { before: 80 }, children: [] }),
-        placeholderBlock(
-          `[${ph.label ?? (ph.kind === "wykres" ? "Wykres — do wstawienia" : "Tabela — do wstawienia")}] ${ph.name}`,
-        ),
+        new Paragraph({ spacing: { before: 120 }, children: [] }),
+        placeholderBlock(`[${ph.label ?? (ph.kind === "wykres" ? "Wykres — do wstawienia" : "Tabela — do wstawienia")}] ${ph.name}`),
       );
     }
     if (ch.findings?.length) {
-      children.push(
-        new Paragraph({
-          spacing: { before: 120 },
-          children: [new TextRun({ text: "Wnioski cząstkowe:", bold: true })],
-        }),
-      );
+      children.push(new Paragraph({ spacing: { before: 160, after: 60 }, children: [new TextRun({ text: "Wnioski cząstkowe:", bold: true })] }));
       for (const f of ch.findings) {
-        children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(f.text)] }));
+        children.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, line: LINE }, bullet: { level: 0 }, children: [new TextRun(f.text)] }));
       }
     }
     if (ch.attachments?.length) {
-      ch.attachments.forEach((a, i) =>
-        children.push(new Paragraph({ children: [new TextRun(`Zał. ${i + 1}. ${a}`)] })),
-      );
+      ch.attachments.forEach((a, i) => children.push(new Paragraph({ spacing: { after: 20, line: LINE }, children: [new TextRun({ text: `Zał. ${i + 1}. ${a}`, size: 20 })] })));
     }
   }
 
+  // ── Klauzula i podpis ──
   children.push(
-    new Paragraph({
-      spacing: { before: 360 },
-      children: [
-        new TextRun({
-          text:
-            "Świadom odpowiedzialności karnej za złożenie fałszywej opinii (art. 233 § 4 k.k.) " +
-            "oświadczam, że opinię sporządziłem zgodnie z najlepszą wiedzą.",
-          italics: true,
-          size: 18,
-        }),
-      ],
-    }),
-    new Paragraph({ spacing: { before: 240 }, children: [new TextRun({ text: op.expert })] }),
+    bodyPara([new TextRun({
+      text:
+        "Świadom odpowiedzialności karnej za złożenie fałszywej opinii (art. 233 § 4 k.k.) " +
+        "oświadczam, że opinię sporządziłem zgodnie z najlepszą wiedzą.",
+      italics: true,
+    })]),
+    new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 480 }, children: [new TextRun({ text: op.expert })] }),
   );
+
+  // Żywa pagina: tytuł opinii kapitalikami (small caps) z dolną linią.
+  const runningHeader = new Header({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        spacing: { after: 120 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "AAAAAA", space: 4 } },
+        children: [new TextRun({ text: `Opinia biegłego${op.signature ? " — sygn. " + op.signature : ""}`, smallCaps: true, size: 16, color: "666666" })],
+      }),
+    ],
+  });
 
   return new Document({
     features: { updateFields: true },
-    // Krój pisma pism procesowych: Times New Roman 11 pt; nagłówki spójne.
     styles: {
       default: {
-        document: { run: { font: "Times New Roman", size: 22 } },
-        heading1: { run: { font: "Times New Roman", size: 30, bold: true, color: "000000" } },
-        heading2: {
-          run: { font: "Times New Roman", size: 26, bold: true, color: "000000" },
-          paragraph: { spacing: { before: 240, after: 120 } },
-        },
-        heading3: { run: { font: "Times New Roman", size: 23, bold: true, color: "000000" } },
+        document: { run: { font: "Times New Roman", size: 22 }, paragraph: { spacing: { line: LINE } } },
+        heading1: { run: { font: "Times New Roman", size: 30, bold: true, color: "000000" }, paragraph: { spacing: { before: 360, after: 160 } } },
+        heading2: { run: { font: "Times New Roman", size: 26, bold: true, color: "000000" }, paragraph: { spacing: { before: 320, after: 140 } } },
+        heading3: { run: { font: "Times New Roman", size: 23, bold: true, color: "000000" }, paragraph: { spacing: { before: 200, after: 80 } } },
       },
     },
     sections: [
@@ -228,16 +233,14 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
             size: { width: PAGE_W, height: PAGE_H },
             margin: { top: MARGIN, right: MARGIN, bottom: MARGIN, left: MARGIN },
           },
+          titlePage: true, // pierwsza strona (tytułowa) bez żywej paginy
         },
+        headers: { default: runningHeader },
         footers: {
           default: new Footer({
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ children: ["Strona ", PageNumber.CURRENT, " / ", PageNumber.TOTAL_PAGES], size: 16 })],
-              }),
-            ],
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: [PageNumber.CURRENT], size: 18, color: "666666" })] })],
           }),
+          first: new Footer({ children: [new Paragraph({ children: [] })] }),
         },
         children,
       },
@@ -267,26 +270,24 @@ function placeholderBlock(text: string): Table {
 }
 
 function docxTable(head: string[], rows: string[][]): Table {
-  // Układ FIXED + jawne szerokości kolumn (DXA) — Word nie zapada kolumn do
-  // szerokości znaku. Pierwsza kolumna (Sesja/Data/Podmiot) dostaje więcej.
   const n = Math.max(1, head.length);
   const first = n >= 4 ? Math.min(1900, Math.floor(CONTENT_W / n) + 500) : Math.floor(CONTENT_W / n);
   const rest = Math.floor((CONTENT_W - first) / Math.max(1, n - 1));
   const columnWidths = [first, ...Array.from({ length: n - 1 }, () => rest)];
   const cellW = (i: number) => ({ size: columnWidths[i] ?? rest, type: WidthType.DXA });
-  // String(x ?? "") — komórki z ekstrakcji PDF bywają null (dane MLM), a docx
-  // wywraca się na TextRun(null).
+  // Nagłówek: wyśrodkowany, pogrubiony, subtelne tło (styl wzorca książkowego).
   const headRow = new TableRow({
     tableHeader: true,
     children: head.map(
       (h, i) =>
         new TableCell({
-          shading: { fill: "f0ede6" },
+          shading: { fill: HEADBG },
           width: cellW(i),
-          children: [new Paragraph({ children: [new TextRun({ text: String(h ?? ""), bold: true, size: 18 })] })],
+          children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { line: 240 }, children: [new TextRun({ text: String(h ?? ""), bold: true, size: 18 })] })],
         }),
     ),
   });
+  // Pierwsza kolumna (Sesja/Data/Podmiot) wyróżniona lekko; pozostałe zwykłe.
   const bodyRows = rows.map(
     (r) =>
       new TableRow({
@@ -294,7 +295,7 @@ function docxTable(head: string[], rows: string[][]): Table {
           (c, i) =>
             new TableCell({
               width: cellW(i),
-              children: [new Paragraph({ children: [new TextRun({ text: String(c ?? ""), size: 18 })] })],
+              children: [new Paragraph({ spacing: { line: 240 }, children: [new TextRun({ text: String(c ?? ""), size: 18 })] })],
             }),
         ),
       }),
@@ -302,8 +303,10 @@ function docxTable(head: string[], rows: string[][]): Table {
   return new Table({
     layout: TableLayoutType.FIXED,
     width: { size: CONTENT_W, type: WidthType.DXA },
+    alignment: AlignmentType.CENTER,
     columnWidths,
-    margins: { top: 40, bottom: 40, left: 80, right: 80 },
+    borders: TABLE_BORDERS,
+    margins: { top: 40, bottom: 40, left: 90, right: 90 },
     rows: [headRow, ...bodyRows],
   });
 }
