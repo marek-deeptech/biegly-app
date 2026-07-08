@@ -9,9 +9,13 @@ zbieżność (dowód), nie przesądzenie o koordynacji — interpretuje biegły.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 import openpyxl
+
+# Wartości w formacie FIX: `tag(Nazwa)=wartość`, np. `2(Username)=fortune`.
+_FIX = re.compile(r"^\s*\d+\(([^)]+)\)=(.*)$", re.S)
 
 
 def _val(cell) -> str:
@@ -20,6 +24,27 @@ def _val(cell) -> str:
         return ""
     s = str(cell).strip()
     return s.split("=", 1)[1].strip() if "=" in s else s
+
+
+def _fields(row: dict) -> dict[str, str]:
+    """Mapuje wiersz na {nazwa_pola (małe litery): wartość}.
+
+    Preferuje nazwę pola ze znacznika FIX zawartego w treści komórki
+    (`(Username)`, `(IpAddress)`) — dzięki temu działa niezależnie od etykiety
+    nagłówka kolumny (w części plików „User”, w innych „Username”). Gdy komórka
+    nie jest w formacie FIX, kluczem jest nazwa z nagłówka.
+    """
+    out: dict[str, str] = {}
+    for header, cell in row.items():
+        if cell is None:
+            continue
+        s = str(cell).strip()
+        m = _FIX.match(s)
+        if m:
+            out[m.group(1).strip().lower()] = m.group(2).strip()
+        elif header:
+            out[str(header).strip().lower()] = s
+    return out
 
 
 def load_logins(file) -> list[dict]:
@@ -50,8 +75,9 @@ def ip_correlation(rows: list[dict], max_users_per_ip: int = 8) -> dict:
     """
     ip_users: dict[str, set] = defaultdict(set)
     for r in rows:
-        u = _val(r.get("Username"))
-        ip = _val(r.get("IpAddress"))
+        f = _fields(r)
+        u = f.get("username") or f.get("user") or f.get("login")
+        ip = f.get("ipaddress") or f.get("ip") or f.get("ipaddr") or f.get("adres ip")
         if u and ip:
             ip_users[ip].add(u)
 
