@@ -90,7 +90,15 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
       const key = ch.no + "|" + c;
       if (numSet.has(c) || seenNum.has(key)) continue;
       seenNum.add(key);
-      add(C.numbers, "WARN", `Liczba ${c} (rozdz. ${ch.no}) nie ma pokrycia w policzonych wskaźnikach ani w tabelach — zweryfikuj.`);
+      // Odesłanie do pliku źródłowego, w którym biegły zweryfikuje niespójność:
+      // dane transakcyjne (UTP) dla rozdziałów ilościowych, z override'em na
+      // raporty ESPI (IV.2) i KRS (IV.3) — ta sama heurystyka co placeholdery.
+      out.push({
+        check: C.numbers,
+        severity: "WARN",
+        message: `Liczba ${c} (rozdz. ${ch.no}) nie ma pokrycia w policzonych wskaźnikach ani w tabelach — zweryfikuj w źródle.`,
+        refs: [placeholderSource("", ch.no)],
+      });
       numIssues++;
     }
   }
