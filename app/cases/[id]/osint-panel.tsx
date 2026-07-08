@@ -86,7 +86,7 @@ export default function OsintPanel({
   const router = useRouter();
   const existing = stored.find((s) => s.kind === "powiazania_osint");
   const init = (existing?.data as { osint?: OsintData } | null)?.osint ?? {};
-  const [section, setSection] = useState<"A" | "B">("A");
+  const [section, setSection] = useState<"A" | "B" | "C">("A");
   const [roster, setRoster] = useState<Entity[]>([]);
   const [links, setLinks] = useState<Link[]>(init.links ?? []);
   const [profiles, setProfiles] = useState<Hit[]>(init.profiles ?? []);
@@ -257,6 +257,32 @@ export default function OsintPanel({
     router.refresh();
   }
 
+  // C · Generuj Analizę OSINT — pobiera gotowy PDF z route'u (hybryda: kuratorowany
+  // szkielet + zapisane w panelu powiązania). Zapisz OSINT przed generowaniem, by
+  // najświeższe powiązania trafiły do dokumentu.
+  async function generateOsintPdf() {
+    setBusy("pdf");
+    setMsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/osint/pdf`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Analiza_OSINT.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setMsg("Wygenerowano PDF — sprawdź pobrane pliki.");
+    } catch (e) {
+      setMsg(`PDF: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const grouped = useMemo(() => {
     const g: Record<string, WebResult[]> = {};
     if (ctx) for (const r of results) (g[categorize(r, ctx.frag)] ??= []).push(r);
@@ -300,7 +326,7 @@ export default function OsintPanel({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="mr-auto text-xs font-semibold uppercase tracking-[0.12em]">Powiązania — OSINT (Krok 5)</h2>
         <div className="flex gap-1 rounded-lg border border-ink/20 p-0.5">
-          {(["A", "B"] as const).map((s) => (
+          {(["A", "B", "C"] as const).map((s) => (
             <button
               key={s}
               onClick={() => {
@@ -312,7 +338,7 @@ export default function OsintPanel({
                 section === s ? "bg-ink text-paper" : "text-inksoft hover:text-ink"
               }`}
             >
-              {s === "A" ? "A · Informacje" : "B · Powiązania"}
+              {s === "A" ? "A · Informacje" : s === "B" ? "B · Powiązania" : "C · Analiza OSINT"}
             </button>
           ))}
         </div>
@@ -446,6 +472,30 @@ export default function OsintPanel({
           )}
 
           {resultsBlock}
+        </div>
+      )}
+
+      {/* ── Sekcja C — generowanie analizy OSINT (PDF) ── */}
+      {section === "C" && (
+        <div>
+          <p className="mb-3 text-[11px] leading-relaxed text-inksoft">
+            Generuje kompletną <strong>Analizę OSINT</strong> w formacie PDF (jakość dokumentu finalnego): strona
+            tytułowa, spis treści, wnioski z klastrami powiązań, chronologia przejęcia kontroli, łańcuchy powiązań
+            w KRS, podmioty i osoby, wnioski końcowe oraz graf powiązań. Powiązania zapisane w zakładkach A/B zostaną
+            dołączone do tabeli relacji — <strong>zapisz OSINT</strong> przed generowaniem, aby uwzględnić najnowsze.
+          </p>
+          <div className="rounded-lg border border-line bg-paper p-4">
+            <button
+              onClick={generateOsintPdf}
+              disabled={busy !== null}
+              className="border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {busy === "pdf" ? "Generuję PDF…" : "Generuj Analizę OSINT (PDF)"}
+            </button>
+            <p className="mt-2 text-[11px] text-inksoft">
+              Dołączonych powiązań z panelu: {links.filter((l) => l.podmioty.trim() && l.zrodlo.trim()).length}.
+            </p>
+          </div>
         </div>
       )}
 

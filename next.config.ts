@@ -9,15 +9,24 @@ const CHART_ASSETS = [
   "./node_modules/@resvg/resvg-js*/**",
 ];
 
+// Analiza OSINT (PDF): fonty IBM Plex Sans czytane przez fs.readFileSync z
+// assets/fonts nie są śledzone statycznie — trzeba je dołączyć do paczki funkcji.
+const OSINT_ASSETS = ["./assets/fonts/*.ttf"];
+
 const nextConfig: NextConfig = {
   // Natywny binding resvg nie jest bundlowalny (Turbopack: "non-ecmascript
   // placeable asset") — pakiet zostaje external i ładuje się w runtime
   // z node_modules; tracing dokłada właściwy binding platformy.
-  serverExternalPackages: ["@resvg/resvg-js"],
+  // pdfmake (+ pdfkit) używa dynamicznych require i plików danych (.afm) —
+  // również zostaje external, by działał w runtime z node_modules.
+  serverExternalPackages: ["@resvg/resvg-js", "pdfmake"],
   outputFileTracingIncludes: {
     "/cases/[id]/opinion/docx": CHART_ASSETS,
     "/cases/[id]/opinion/docx/route": CHART_ASSETS,
     "app/cases/[id]/opinion/docx/route": CHART_ASSETS,
+    "/cases/[id]/osint/pdf": OSINT_ASSETS,
+    "/cases/[id]/osint/pdf/route": OSINT_ASSETS,
+    "app/cases/[id]/osint/pdf/route": OSINT_ASSETS,
   },
 };
 
