@@ -85,6 +85,7 @@ export default function OsintPanel({
 }) {
   const router = useRouter();
   const existing = stored.find((s) => s.kind === "powiazania_osint");
+  const hasAnalysis = stored.some((s) => s.kind === "osint_analysis");
   const init = (existing?.data as { osint?: OsintData } | null)?.osint ?? {};
   const [section, setSection] = useState<"A" | "B" | "C">("A");
   const [roster, setRoster] = useState<Entity[]>([]);
@@ -257,15 +258,36 @@ export default function OsintPanel({
     router.refresh();
   }
 
-  // C · Generuj Analizę OSINT — pobiera gotowy PDF z route'u (hybryda: kuratorowany
-  // szkielet + zapisane w panelu powiązania). Zapisz OSINT przed generowaniem, by
-  // najświeższe powiązania trafiły do dokumentu.
+  // C · Przeprowadź analizę OSINT — uruchamia agenta (akta + GLEIF + Brave → synteza
+  // modelu), zapisuje wynik jako `osint_analysis`. To pełen proces per sprawa.
+  async function runAnalysis() {
+    setBusy("analyze");
+    setMsg("Analiza w toku (akta, GLEIF, wyszukiwania, synteza) — to może potrwać kilka minut…");
+    try {
+      const r = await fetch(`/cases/${caseId}/osint/analyze`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
+      const s = j.stats;
+      setMsg(`Analiza gotowa: ${s.relations} powiązań w ${s.clusters} klastrach · źródła: ${s.pdfs} dok. akt, ${s.gleif} GLEIF, ${s.web} wyszukiwań. Możesz pobrać PDF.`);
+      router.refresh();
+    } catch (e) {
+      setMsg(`Analiza: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // C · Generuj PDF — pobiera analizę przeprowadzoną dla sprawy (hybrydowo + powiązania
+  // z panelu). Gdy analizy jeszcze nie ma (409), komunikat prowadzi do „Przeprowadź analizę".
   async function generateOsintPdf() {
     setBusy("pdf");
     setMsg("");
     try {
       const r = await fetch(`/cases/${caseId}/osint/pdf`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        throw new Error(j?.reason || `HTTP ${r.status}`);
+      }
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -475,15 +497,37 @@ export default function OsintPanel({
         </div>
       )}
 
-      {/* ── Sekcja C — generowanie analizy OSINT (PDF) ── */}
+      {/* ── Sekcja C — pełna analiza OSINT + PDF ── */}
       {section === "C" && (
         <div>
           <p className="mb-3 text-[11px] leading-relaxed text-inksoft">
-            Generuje kompletną <strong>Analizę OSINT</strong> w formacie PDF (jakość dokumentu finalnego): strona
-            tytułowa, spis treści, wnioski z klastrami powiązań, chronologia przejęcia kontroli, łańcuchy powiązań
-            w KRS, podmioty i osoby, wnioski końcowe oraz graf powiązań. Powiązania zapisane w zakładkach A/B zostaną
-            dołączone do tabeli relacji — <strong>zapisz OSINT</strong> przed generowaniem, aby uwzględnić najnowsze.
+            Pełen proces analityka OSINT dla tej sprawy: <strong>Krok 1</strong> — agent zbiera materiał (roster + akta:
+            postanowienie/KRS/załączniki, rekordy GLEIF po LEI, wyszukiwania web per podmiot/osoba) i syntetyzuje
+            ustaloną strukturę powiązań (evidence-only: każde powiązanie z cytowanym źródłem, pozycje niepewne
+            oznaczone „(do potwierdzenia)”). <strong>Krok 2</strong> — pobierasz gotowy PDF w dopracowanej formie
+            (strona tytułowa, spis treści, klastry, chronologia, łańcuchy KRS, podmioty, wnioski, graf).
           </p>
+
+          {/* Krok 1 — przeprowadź analizę */}
+          <div className="mb-3 rounded-lg border border-line bg-paper p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={runAnalysis}
+                disabled={busy !== null}
+                className="border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {busy === "analyze" ? "Analizuję…" : hasAnalysis ? "Przeprowadź ponownie" : "Przeprowadź analizę OSINT"}
+              </button>
+              <span className="text-[11px] text-inksoft">
+                {hasAnalysis ? "✓ analiza zapisana dla tej sprawy" : "analiza jeszcze nieprzeprowadzona"}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] text-inksoft">
+              Wymaga rostera (Sprawa → Krok 2) oraz akt w Storage. Przebieg trwa kilka minut (wyszukiwania + synteza modelu).
+            </p>
+          </div>
+
+          {/* Krok 2 — pobierz PDF */}
           <div className="rounded-lg border border-line bg-paper p-4">
             <button
               onClick={generateOsintPdf}
@@ -493,7 +537,8 @@ export default function OsintPanel({
               {busy === "pdf" ? "Generuję PDF…" : "Generuj Analizę OSINT (PDF)"}
             </button>
             <p className="mt-2 text-[11px] text-inksoft">
-              Dołączonych powiązań z panelu: {links.filter((l) => l.podmioty.trim() && l.zrodlo.trim()).length}.
+              Renderuje analizę przeprowadzoną w Kroku 1 + dołączone powiązania z panelu A/B:{" "}
+              {links.filter((l) => l.podmioty.trim() && l.zrodlo.trim()).length}. „Zapisz OSINT” przed pobraniem, by uwzględnić najnowsze.
             </p>
           </div>
         </div>

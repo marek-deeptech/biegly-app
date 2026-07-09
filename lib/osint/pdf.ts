@@ -4,6 +4,7 @@
 import { BLUE, HEADBG, SUB, LINKC, GRAY, USABLE, gridLayout, dataTable, h1Nodes, frame, renderPdf, type Pm } from "@/lib/pdf/kit";
 
 import { milisystemGraphSvg } from "./graph";
+import { buildGraphSvg } from "./graph-generic";
 import type { OsintContent, Block, Run } from "./content";
 
 function runs(rs: Run[]): Pm[] {
@@ -27,7 +28,7 @@ function relTable(title: string, rows: [string, Run[]][]): Pm {
   return { table: { headerRows: 1, widths: [118, USABLE - 118 - 8], body }, layout: gridLayout(), margin: [0, 0, 0, 11] };
 }
 
-function blockToNodes(b: Block): Pm[] {
+function blockToNodes(b: Block, c: OsintContent): Pm[] {
   switch (b.t) {
     case "p":
       return [{ text: runs(b.runs), style: "body", margin: [b.bullet ? 16 : 0, 0, 0, 6] }];
@@ -52,7 +53,8 @@ function blockToNodes(b: Block): Pm[] {
         ], margin: [0, 1, 0, 11],
       }];
     case "graph":
-      return [{ svg: milisystemGraphSvg(), width: USABLE, alignment: "center", margin: [0, 6, 0, 8] }];
+      // Dane grafu z agenta → render generyczny; brak = kuratorowany graf MLM.
+      return [{ svg: c.graphData ? buildGraphSvg(c.graphData) : milisystemGraphSvg(), width: USABLE, alignment: "center", margin: [0, 6, 0, 8] }];
   }
 }
 
@@ -81,10 +83,10 @@ function docDefinition(c: OsintContent): Pm {
   c.sections.forEach((s, i) => {
     const brk = i === 0 || s.heading.startsWith("ZAŁĄCZNIK");
     content.push(...h1Nodes(s.heading, brk));
-    for (const b of s.blocks) content.push(...blockToNodes(b));
+    for (const b of s.blocks) content.push(...blockToNodes(b, c));
   });
 
-  return { ...frame(`Analiza OSINT — Grupa Milisystem (${c.meta.sygn})`), content };
+  return { ...frame(`Analiza OSINT — ${c.meta.nazwa ?? c.meta.dotyczy} (${c.meta.sygn})`), content };
 }
 
 export async function renderOsintPdf(c: OsintContent): Promise<Buffer> {

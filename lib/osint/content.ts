@@ -17,12 +17,38 @@ export type Block =
   | { t: "graph" };
 export type Section = { heading: string; blocks: Block[] };
 export type OsintContent = {
-  meta: { sygn: string; dotyczy: string; przedmiot: string; podtytul: string; zrodla: string };
+  // nazwa: krótka etykieta sprawy do stopki (np. „Grupa Milisystem”).
+  meta: { sygn: string; dotyczy: string; przedmiot: string; podtytul: string; zrodla: string; nazwa?: string };
   sections: Section[];
+  // Dane grafu (agent OSINT) — render generyczny; brak = kuratorowany graf MLM.
+  graphData?: import("./graph-generic").GraphData;
 };
 export type PanelLink = { typ: string; podmioty: string; opis: string; zrodlo: string; data: string };
 
 const KNF = "https://www.knf.gov.pl";
+
+// Hybryda: dołącza powiązania zapisane w panelu OSINT (zakładki A/B) jako tabelę
+// na końcu sekcji „WNIOSKI ZE ZGROMADZONEGO MATERIAŁU" (lub przed ostatnią sekcją).
+// Wspólne dla treści kuratorowanej (MLM) i wygenerowanej przez agenta.
+export function appendPanelLinks(content: OsintContent, panelLinks: PanelLink[]): OsintContent {
+  const cleanLinks = (panelLinks ?? [])
+    .map((l) => ({ ...l, podmioty: (l.podmioty || "").trim(), zrodlo: (l.zrodlo || "").trim() }))
+    .filter((l) => l.podmioty && l.zrodlo);
+  if (!cleanLinks.length) return content;
+  const blocks: Block[] = [
+    { t: "h2", text: "Powiązania zarejestrowane w panelu OSINT", toc: true },
+    { t: "p", runs: [`Poniższe ${cleanLinks.length} powiązań ustalono i zapisano w toku pracy w panelu OSINT (zakładki „Informacje” i „Powiązania”); każde z cytowanym źródłem.`] },
+    { t: "data", headers: ["Typ", "Podmioty / osoby", "Opis", "Źródło", "Data"],
+      rows: cleanLinks.map((l) => [l.typ, l.podmioty, l.opis, l.zrodlo, l.data]),
+      widths: [22, 24, 30, 16, 8] },
+    { t: "src", label: "Panel OSINT (Krok 5) — powiązania zapisane w aktach sprawy", url: KNF },
+  ];
+  const target =
+    content.sections.find((s) => /WNIOSKI ZE ZGROMADZONEGO/i.test(s.heading)) ??
+    content.sections[Math.max(0, content.sections.length - 2)];
+  target?.blocks.push(...blocks);
+  return content;
+}
 
 export function milisystemOsint(panelLinks: PanelLink[] = []): OsintContent {
   // ── sekcja: WNIOSKI ZE ZGROMADZONEGO MATERIAŁU (+ hybryda) ──
@@ -68,28 +94,14 @@ export function milisystemOsint(panelLinks: PanelLink[] = []): OsintContent {
     { t: "src", label: "GLEIF — rekordy LEI (Texla/Texolla/NVA/NVM/ICM/Alpha)", url: "https://api.gleif.org" },
   ];
 
-  // Hybryda: dołącz zapisane w panelu powiązania (jeśli są) jako dodatkową tabelę.
-  const cleanLinks = panelLinks
-    .map((l) => ({ ...l, podmioty: (l.podmioty || "").trim(), zrodlo: (l.zrodlo || "").trim() }))
-    .filter((l) => l.podmioty && l.zrodlo);
-  if (cleanLinks.length) {
-    wnioskiBlocks.push(
-      { t: "h2", text: "Powiązania zarejestrowane w panelu OSINT", toc: true },
-      { t: "p", runs: [`Poniższe ${cleanLinks.length} powiązań ustalono i zapisano w toku pracy w panelu OSINT (zakładki „Informacje” i „Powiązania”); każde z cytowanym źródłem.`] },
-      { t: "data", headers: ["Typ", "Podmioty / osoby", "Opis", "Źródło", "Data"],
-        rows: cleanLinks.map((l) => [l.typ, l.podmioty, l.opis, l.zrodlo, l.data]),
-        widths: [22, 24, 30, 16, 8] },
-      { t: "src", label: "Panel OSINT (Krok 5) — powiązania zapisane w aktach sprawy", url: KNF },
-    );
-  }
-
-  return {
+  const content: OsintContent = {
     meta: {
       sygn: "RP I Ds 4.2019",
       dotyczy: "Grupa Milisystem (d. Intelligent Gaming Solutions S.A. / 2intellect.com S.A.)",
       przedmiot: "rynek NewConnect (GPW) — akcje Milisystem S.A., ISIN PL2INTC00018",
       podtytul: "Ustalenie powiązań osobowych, kapitałowych i organizacyjnych pomiędzy podmiotami i osobami wskazanymi w postanowieniu",
       zrodla: "Źródła jawne: KRS · GLEIF · KNF · ESPI · rejestry zagraniczne · media",
+      nazwa: "Grupa Milisystem",
     },
     sections: [
       // ── 1. INFORMACJE DO USTALENIA ──
@@ -229,4 +241,5 @@ export function milisystemOsint(panelLinks: PanelLink[] = []): OsintContent {
       ] },
     ],
   };
+  return appendPanelLinks(content, panelLinks);
 }
