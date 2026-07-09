@@ -10,7 +10,7 @@ import { BLUE, CELLBG, SUB, gridLayout, dataTable, h1Nodes, frame, renderPdf, ty
 import { chartSvg, type ChartSpec } from "./charts";
 
 export type SpoofOrder = { entity: string; side: string; entry: string; cancel: string; limit: number; vol: number; realised: number; cancelled: number; cls: string };
-export type SpoofSeries = { times: string[]; buy: number[]; sell: number[]; saldo: number[]; price: (number | null)[] };
+export type SpoofSeries = { times: string[]; sumK: number[]; sumS: number[]; diff: number[]; price: (number | null)[] };
 export type SpoofDay = {
   day: string; declared_buy: number; cancelled_buy: number; cancel_ratio: number; buy_orders: number;
   layer_orders: number; price_levels: number; price_min: number | null; price_max: number | null;
@@ -50,58 +50,64 @@ function svgToPng(svg: string, width = 1400): string | null {
 }
 const chartDataUrl = (spec: ChartSpec): string | null => svgToPng(chartSvg(spec));
 
-// Wykres śróddziennej aktywności arkusza dla jednej sesji (odpowiednik wykresu wzoru):
-// obszar żółty = saldo (kupno−sprzedaż), linia zielona = wolumen kupna Grupy,
-// linia różowa = wolumen sprzedaży, linia czerwona = cena transakcyjna (oś prawa).
+// Wykres śróddziennej aktywności arkusza dla jednej sesji — odpowiednik wykresu wzoru:
+// obszary SumaWolK (kupno, zielony) i SumaWolS (sprzedaż, różowy poniżej zera), Różnica
+// (żółty) oraz linie cen BestBid (zielona) i BestAsk (czerwona) na osi prawej.
 function sessionChartSvg(s: SpoofSeries, day: string): string {
-  const W = 720, H = 300, ML = 56, MR = 54, MT = 26, MB = 30;
-  const pw = W - ML - MR, ph = H - MT - MB;
-  const n = s.times.length;
+  const W = 760, H = 320, ML = 60, MR = 52, MT = 28, MB = 44;
+  const pw = W - ML - MR, ph = H - MT - MB, n = s.times.length;
   const x = (i: number) => ML + (pw * i) / Math.max(1, n - 1);
-  const px = s.price.filter((p): p is number => p != null);
-  const plo = px.length ? Math.min(...px) : 0, phi = px.length ? Math.max(...px) : 1;
-  const vhi = Math.max(1, ...s.buy, ...s.saldo);
-  const vlo = Math.min(0, ...s.saldo);
-  const yV = (v: number) => MT + ph * (1 - (v - vlo) / (vhi - vlo || 1));
-  const yP = (p: number) => MT + ph * (1 - (p - plo) / (phi - plo || 1));
+  const top = Math.max(1, ...s.sumK, ...s.diff);
+  const bot = Math.max(1, ...s.sumS, ...s.diff.map((v) => -v));
+  const vhi = top, vlo = -bot;
+  const yV = (v: number) => MT + ph * (1 - (v - vlo) / (vhi - vlo));
+  const zeroY = yV(0);
+  const prices = s.price.filter((p): p is number => p != null);
+  const plo = prices.length ? Math.min(...prices) : 0, phi = prices.length ? Math.max(...prices) : 1;
+  const pad = (phi - plo) * 0.12 || 0.1;
+  const yP = (p: number) => MT + ph * (1 - (p - (plo - pad)) / (phi + pad - (plo - pad)));
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-  const poly = (arr: number[]) => arr.map((v, i) => `${x(i).toFixed(1)},${yV(v).toFixed(1)}`).join(" ");
+  const area = (arr: number[], sign = 1) =>
+    `<polygon points="${x(0).toFixed(1)},${zeroY.toFixed(1)} ` +
+    arr.map((v, i) => `${x(i).toFixed(1)},${yV(sign * v).toFixed(1)}`).join(" ") +
+    ` ${x(n - 1).toFixed(1)},${zeroY.toFixed(1)}"`;
+  const line = (arr: (number | null)[], mapY: (v: number) => number) =>
+    arr.map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${mapY(v).toFixed(1)}`)).filter(Boolean).join(" ");
   const el: string[] = [];
   el.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="DejaVu Sans" font-size="10" fill="#333">`);
   el.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="white"/>`);
-  el.push(`<text x="${ML}" y="16" font-size="12" font-weight="bold" fill="#1F3864">${esc(`Aktywność arkusza — sesja ${day} (rekonstrukcja z danych UTP)`)}</text>`);
-  // siatka + osie wolumenu (lewa)
+  el.push(`<text x="${ML}" y="16" font-size="12" font-weight="bold" fill="#1F3864">${esc(`Aktywność arkusza — sesja ${day} (rekonstrukcja ze zleceń UTP)`)}</text>`);
   for (let k = 0; k <= 4; k++) {
     const v = vlo + ((vhi - vlo) * k) / 4, y = yV(v);
     el.push(`<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W - MR}" y2="${y.toFixed(1)}" stroke="#E5E7EB" stroke-width="1"/>`);
     el.push(`<text x="${ML - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#888">${Math.round(v).toLocaleString("pl-PL")}</text>`);
   }
-  // oś ceny (prawa)
   for (let k = 0; k <= 4; k++) {
-    const p = plo + ((phi - plo) * k) / 4, y = yP(p);
+    const p = plo - pad + ((phi + pad - (plo - pad)) * k) / 4, y = yP(p);
     el.push(`<text x="${W - MR + 6}" y="${(y + 3).toFixed(1)}" fill="#C0392B">${p.toFixed(2)}</text>`);
   }
-  // oś czasu
   for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 8))) {
-    el.push(`<text x="${x(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#888">${esc(s.times[i])}</text>`);
+    el.push(`<text x="${x(i).toFixed(1)}" y="${H - 24}" text-anchor="middle" fill="#888">${esc(s.times[i])}</text>`);
   }
-  const zeroY = yV(0);
-  el.push(`<line x1="${ML}" y1="${zeroY.toFixed(1)}" x2="${W - MR}" y2="${zeroY.toFixed(1)}" stroke="#B0B0B0" stroke-width="1"/>`);
-  // saldo — obszar żółty
-  el.push(`<polygon points="${x(0).toFixed(1)},${zeroY.toFixed(1)} ${poly(s.saldo)} ${x(n - 1).toFixed(1)},${zeroY.toFixed(1)}" fill="#F5D90A" fill-opacity="0.55" stroke="none"/>`);
-  // wolumen kupna (zielony) i sprzedaży (różowy)
-  el.push(`<polyline points="${poly(s.buy)}" fill="none" stroke="#2E7D32" stroke-width="1.4"/>`);
-  el.push(`<polyline points="${poly(s.sell)}" fill="none" stroke="#D06B8C" stroke-width="1.2"/>`);
-  // cena (czerwona, oś prawa)
-  const pricePts = s.price.map((p, i) => (p == null ? null : `${x(i).toFixed(1)},${yP(p).toFixed(1)}`)).filter(Boolean).join(" ");
-  if (pricePts) el.push(`<polyline points="${pricePts}" fill="none" stroke="#C0392B" stroke-width="1.6"/>`);
+  // obszary: SumaWolK (zielony, w górę), SumaWolS (różowy, w dół), Różnica (żółty, na wierzchu)
+  el.push(`${area(s.sumK)} fill="#C6EFCE" stroke="none"/>`);
+  el.push(`${area(s.sumS, -1)} fill="#F8C7CE" stroke="none"/>`);
+  el.push(`${area(s.diff)} fill="#F5D90A" fill-opacity="0.72" stroke="none"/>`);
+  el.push(`<line x1="${ML}" y1="${zeroY.toFixed(1)}" x2="${W - MR}" y2="${zeroY.toFixed(1)}" stroke="#9AA0AA" stroke-width="1"/>`);
+  // linia kursu transakcyjnego (czerwona) — oś prawa
+  const pricePts = line(s.price, yP);
+  if (pricePts) el.push(`<polyline points="${pricePts}" fill="none" stroke="#C0392B" stroke-width="1.7"/>`);
   // legenda
-  const lg: [string, string][] = [["#F5D90A", "saldo (kupno−sprzedaż)"], ["#2E7D32", "wolumen kupna Grupy"], ["#D06B8C", "wolumen sprzedaży"], ["#C0392B", "cena (zł, oś prawa)"]];
+  const lg: [string, string, boolean][] = [
+    ["#C6EFCE", "wolumen kupna Grupy", false], ["#F8C7CE", "wolumen sprzedaży", false], ["#F5D90A", "Różnica (saldo)", false],
+    ["#C0392B", "kurs transakcyjny (zł)", true],
+  ];
   let lx = ML;
-  for (const [c, t] of lg) {
-    el.push(`<rect x="${lx}" y="${H - 24}" width="10" height="8" fill="${c}"/>`);
-    el.push(`<text x="${lx + 14}" y="${H - 17}" fill="#555">${esc(t)}</text>`);
-    lx += 30 + t.length * 5.4;
+  for (const [c, t, isLine] of lg) {
+    if (isLine) el.push(`<line x1="${lx}" y1="${H - 12}" x2="${lx + 14}" y2="${H - 12}" stroke="${c}" stroke-width="2.2"/>`);
+    else el.push(`<rect x="${lx}" y="${H - 16}" width="14" height="9" fill="${c}"/>`);
+    el.push(`<text x="${lx + 18}" y="${H - 9}" fill="#555">${esc(t)}</text>`);
+    lx += 24 + t.length * 6.2;
   }
   el.push(`</svg>`);
   return el.join("");

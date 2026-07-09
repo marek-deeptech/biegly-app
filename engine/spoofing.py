@@ -74,16 +74,20 @@ def _tx_time_col(r: dict) -> str:
     return _time(v)
 
 
-def session_series(raw_orders: list[dict], tx_day: list[tuple[int, float]]) -> dict:
-    """Śróddzienna rekonstrukcja arkusza (przybliżona, z danych UTP) dla jednej sesji.
+def session_series(recs: list[dict], tx_prices: list[tuple[int, float]]) -> dict:
+    """Śróddzienna rekonstrukcja aktywności arkusza dla sesji (odpowiednik wykresu wzoru).
 
-    Dla każdego zlecenia Grupy aktywnego danego dnia wyznaczamy okno [wejście, koniec]
-    (koniec = anulacja/modyfikacja albo zamknięcie sesji) i zadeklarowany wolumen. Na
-    siatce czasu sumujemy aktywny wolumen kupna i sprzedaży Grupy (obszary), saldo
-    (kupno−sprzedaż) oraz nanosimy cenę transakcyjną (linia). Odpowiednik wykresu wzoru.
+    Z realnych zleceń GRUPY (zlecenia-warstwy realnie leżą w arkuszu do anulacji, więc
+    ich obecność jest wiarygodna) — okno [wejście, koniec] × zadeklarowany wolumen. Na
+    siatce czasu: SumaWolK = zgłoszony wolumen kupna Grupy, SumaWolS = sprzedaży,
+    Różnica = SumaWolK − SumaWolS, oraz kurs transakcyjny (z transakcji) jako linia.
+
+    Uwaga metodyczna: prawdziwych linii BestBid/BestAsk nie da się wiernie odtworzyć z
+    arkusza UTP (jeden wiersz na zlecenie, bez momentów realizacji) — wymagałyby pełnego
+    „widoku arkusza zleceń"/silnika dopasowań. Zamiast nich — realny kurs transakcyjny.
     """
     intervals = []  # (side, start_s, end_s, vol)
-    for o in raw_orders:
+    for o in recs:
         vol = o["vol"]
         if vol <= 0:
             continue
@@ -92,32 +96,35 @@ def session_series(raw_orders: list[dict], tx_day: list[tuple[int, float]]) -> d
         start = es if es is not None else OPEN_S
         end = cs if cs is not None else CLOSE_S
         if end <= start:
-            end = min(CLOSE_S, start + 60)
+            end = min(CLOSE_S, start + 30)
         intervals.append((o["side"], start, end, vol))
 
     step = (CLOSE_S - OPEN_S) / (N_POINTS - 1)
     grid = [OPEN_S + int(step * i) for i in range(N_POINTS)]
-    buy = [0.0] * N_POINTS
-    sell = [0.0] * N_POINTS
+    sumK = [0.0] * N_POINTS
+    sumS = [0.0] * N_POINTS
     for side, s, e, vol in intervals:
-        tgt = buy if side == "K" else sell
         for i, t in enumerate(grid):
             if s <= t < e:
-                tgt[i] += vol
-    tx_sorted = sorted(tx_day)
-    price = []
+                if side == "K":
+                    sumK[i] += vol
+                elif side == "S":
+                    sumS[i] += vol
+
+    txs = sorted(tx_prices)
+    price: list[float | None] = []
     j, last = 0, None
     for t in grid:
-        while j < len(tx_sorted) and tx_sorted[j][0] <= t:
-            last = tx_sorted[j][1]
+        while j < len(txs) and txs[j][0] <= t:
+            last = txs[j][1]
             j += 1
         price.append(last)
 
     return {
         "times": [f"{t // 3600:02d}:{(t % 3600) // 60:02d}" for t in grid],
-        "buy": [round(x) for x in buy],
-        "sell": [round(x) for x in sell],
-        "saldo": [round(b - s) for b, s in zip(buy, sell)],
+        "sumK": [round(x) for x in sumK],
+        "sumS": [round(x) for x in sumS],
+        "diff": [round(k - s) for k, s in zip(sumK, sumS)],
         "price": price,
     }
 
@@ -142,7 +149,6 @@ def detect_layering(
     sell = defaultdict(lambda: {"declared": 0.0, "exec": 0.0, "orders": 0, "exec_orders": 0})
     seq: dict[str, list[dict]] = defaultdict(list)
     ents_day: dict[str, set] = defaultdict(set)
-    day_raw: dict[str, list[dict]] = defaultdict(list)  # do rekonstrukcji śróddziennej
 
     for r in orders:
         d = session_date(r.get("Data"))
@@ -160,11 +166,6 @@ def detect_layering(
         entry = _time(r.get("OrderEntry Time"))
         cancel = _time(r.get("CancelReplaceTime"))
         ents_day[d].add(ent)
-        day_raw[d].append({
-            "day": d, "side": side, "vol": vol,
-            "entry_d": _date(r.get("OrderEntry Time")), "entry_t": entry,
-            "cancel_d": _date(r.get("CancelReplaceTime")), "cancel_t": cancel,
-        })
 
         if side == "K":
             b = buy[(d, ent)]
@@ -234,25 +235,40 @@ def detect_layering(
     manip_days = [d["day"] for d in sorted(days_map.values(), key=lambda x: -x["cancelled_buy"]) if d["manip"]]
     entities = sorted({e for d in days for e in d["entities"]})
 
-    # Szereg czasowy (rekonstrukcja arkusza) dla najsilniejszych sesji manip. — do wykresów.
+    # Szereg czasowy (rekonstrukcja arkusza z WSZYSTKICH zleceń) dla najsilniejszych sesji.
     top_days = [d["day"] for d in sorted((x for x in days_map.values() if x["manip"]), key=lambda x: -x["cancelled_buy"])[:12]]
     if top_days:
-        tx_by_day: dict[str, list[tuple[int, float]]] = defaultdict(list)
         wanted = set(top_days)
+        # kurs transakcyjny per dzień (z transakcji, po czasie)
+        px: dict[str, list[tuple[int, float]]] = defaultdict(list)
         for t in transactions:
             d = session_date(t.get("DATA_SESJI"))
             if d not in wanted:
                 continue
             sec = _sec(_tx_time_col(t))
-            px = t.get("KURS")
-            if sec is None or not px:
+            pr = t.get("KURS")
+            if sec is None or not pr:
                 continue
             try:
-                tx_by_day[d].append((sec, float(px)))
+                px[d].append((sec, float(pr)))
             except (TypeError, ValueError):
                 continue
+        # zlecenia GRUPY dni top (warstwy realnie leżą w arkuszu do anulacji)
+        recs: dict[str, list[dict]] = defaultdict(list)
+        for r in orders:
+            d = session_date(r.get("Data"))
+            if d not in wanted:
+                continue
+            owner = owner_map.get((norm_acct(r.get("Biuro")), norm_acct(r.get("Konto"))))
+            if not canonical_group(owner, fragments):
+                continue
+            recs[d].append({
+                "day": d, "side": r.get("K/S"), "vol": _f(r.get("Wolumen")),
+                "entry_d": _date(r.get("OrderEntry Time")), "entry_t": _time(r.get("OrderEntry Time")),
+                "cancel_d": _date(r.get("CancelReplaceTime")), "cancel_t": _time(r.get("CancelReplaceTime")),
+            })
         for d in top_days:
-            days_map[d]["series"] = session_series(day_raw[d], tx_by_day.get(d, []))
+            days_map[d]["series"] = session_series(recs[d], px.get(d, []))
     return {
         "days": days,
         "manip_days": manip_days,
