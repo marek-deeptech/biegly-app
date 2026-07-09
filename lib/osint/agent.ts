@@ -34,7 +34,7 @@ type AnalysisJSON = {
   chains: AChain[]; entities: AEntityDetail[]; conclusions: string[]; caveats: string[];
 };
 type Critique = { gaps: string[]; unsupported: string[]; queries: string[]; converged: boolean };
-type Evidence = { caseName: string; sig: string; rosterText: string; gleifText: string; aktaText: string; webText: string; queries: string[] };
+type Evidence = { caseName: string; sig: string; rosterText: string; gleifText: string; aktaText: string; webText: string; panelText: string; queries: string[] };
 export type RunStage = "gather" | "search" | "synth" | "review" | "finalize" | "done";
 type RunState = { stage: RunStage; round: number; evidence: Evidence; analysis: AnalysisJSON | null; notes: string[] };
 export type AdvanceResult = { stage: RunStage; round: number; done: boolean; note: string; stats?: Record<string, number> };
@@ -105,6 +105,7 @@ function evidenceBlock(ev: Evidence): string {
   return [
     `SPRAWA: ${ev.caseName}  (sygn. ${ev.sig})`, "",
     "ROSTER (podmioty i osoby z akt):", ev.rosterText || "(brak)", "",
+    "USTALENIA BIEGŁEGO Z PANELU OSINT (ręczne, każde z cytowanym źródłem — traktuj jako materiał):", ev.panelText || "(brak)", "",
     "REKORDY GLEIF:", ev.gleifText || "(brak)", "",
     "WYNIKI WYSZUKIWAŃ WEB:", ev.webText || "(brak)", "",
     "FRAGMENTY AKT (postanowienie / KRS / załączniki):", ev.aktaText || "(brak)",
@@ -146,6 +147,15 @@ async function stepGather(supabase: Supa, caseId: string): Promise<Evidence> {
     const g = await gleifByName(nm); if (g) { gleif.push(g); have.add(g.name.toLowerCase()); }
   }
 
+  // Ustalenia biegłego z panelu (A/B) — dodatkowe źródło (evidence-only, z URL).
+  const { data: pl } = await supabase.from("subanalyses").select("data").eq("case_id", caseId).eq("kind", "powiazania_osint").maybeSingle();
+  type PL = { typ?: string; podmioty?: string; opis?: string; zrodlo?: string; data?: string };
+  const links = ((pl?.data as { osint?: { links?: PL[] } } | null)?.osint?.links) ?? [];
+  const panelText = links
+    .filter((l) => (l.podmioty || "").trim() && (l.zrodlo || "").trim())
+    .map((l) => `- ${l.podmioty} | ${l.typ ?? ""} | ${l.opis ?? ""} | źródło: ${l.zrodlo}`)
+    .join("\n");
+
   const queries: string[] = [];
   for (const p of podmioty.slice(0, 8)) queries.push(`${cleanName(p.name)} KRS zarząd powiązania`);
   const people = osoby.slice(0, 4).map((e) => cleanName(e.name));
@@ -158,6 +168,7 @@ async function stepGather(supabase: Supa, caseId: string): Promise<Evidence> {
     gleifText: fmtGleif(gleif),
     aktaText: akta.join("\n\n").slice(0, 42000),
     webText: "",
+    panelText,
     queries,
   };
 }

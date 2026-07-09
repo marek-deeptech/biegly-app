@@ -362,26 +362,38 @@ export default function OsintPanel({
 
   return (
     <section className="border border-ink/60 bg-card p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="mr-auto text-xs font-semibold uppercase tracking-[0.12em]">Powiązania — OSINT (Krok 5)</h2>
-        <div className="flex gap-1 rounded-lg border border-ink/20 p-0.5">
-          {(["A", "B", "C"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setSection(s);
-                setResults([]);
-                setCtx(null);
-              }}
-              className={`rounded px-3 py-1 text-xs transition-colors ${
-                section === s ? "bg-ink text-paper" : "text-inksoft hover:text-ink"
-              }`}
-            >
-              {s === "A" ? "A · Informacje" : s === "B" ? "B · Powiązania" : "C · Analiza OSINT"}
-            </button>
-          ))}
-        </div>
+      <div className="mb-2 flex items-baseline gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Powiązania — OSINT (Krok 5)</h2>
+        <span className="text-[10px] text-inksoft">trzy kroki po kolei: A → B → C</span>
       </div>
+
+      {/* Stepper — czym jest każdy krok i w jakiej kolejności (klik = przełącz sekcję). */}
+      <div className="mb-4 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+        {([
+          { k: "A", t: "Informacje", d: "Zbierz dane o podmiotach i osobach (rejestry, prasa, social)." },
+          { k: "B", t: "Powiązania", d: "Znajdź powiązania i zapisz je do rejestru — każde ze źródłem (URL)." },
+          { k: "C", t: "Analiza OSINT (PDF)", d: "Agent składa gotową analizę → pobierasz dokument PDF." },
+        ] as const).map((x, i) => (
+          <button
+            key={x.k}
+            onClick={() => { setSection(x.k); setResults([]); setCtx(null); }}
+            className={`rounded-lg border p-2.5 text-left transition-colors ${
+              section === x.k ? "border-ink bg-ink/[0.06]" : "border-line hover:border-ink/40"
+            }`}
+          >
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+              <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${section === x.k ? "bg-ink text-paper" : "bg-ink/10 text-ink"}`}>{x.k}</span>
+              <span>{i + 1}. {x.t}</span>
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-inksoft">{x.d}</p>
+          </button>
+        ))}
+      </div>
+
+      <p className="mb-3 text-[10px] leading-relaxed text-inksoft">
+        A i B są opcjonalne i <strong>ręczne</strong> — Twoje ustalenia zasilają analizę w C oraz opinię (rozdz. IV). C jest{" "}
+        <strong>automatyczne</strong> — agent sam zbiera materiał (akta, GLEIF, web). Nie musisz robić A/B, by uruchomić C.
+      </p>
 
       {roster.length === 0 && (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -518,55 +530,70 @@ export default function OsintPanel({
       {section === "C" && (
         <div>
           <p className="mb-3 text-[11px] leading-relaxed text-inksoft">
-            Pełen proces analityka OSINT dla tej sprawy: <strong>Krok 1</strong> — agent zbiera materiał (roster + akta:
-            postanowienie/KRS/załączniki, rekordy GLEIF po LEI, wyszukiwania web per podmiot/osoba) i syntetyzuje
-            ustaloną strukturę powiązań (evidence-only: każde powiązanie z cytowanym źródłem, pozycje niepewne
-            oznaczone „(do potwierdzenia)”). <strong>Krok 2</strong> — pobierasz gotowy PDF w dopracowanej formie
-            (strona tytułowa, spis treści, klastry, chronologia, łańcuchy KRS, podmioty, wnioski, graf).
+            Dwa kroki. <strong>1)</strong> agent automatycznie zbiera materiał (roster, akta: postanowienie/KRS/załączniki,
+            GLEIF, wyszukiwania web oraz Twoje zapisane ustalenia z A/B) i syntetyzuje strukturę powiązań z pętlą
+            recenzenta — evidence-only, każde powiązanie ze źródłem, niepewne „(do potwierdzenia)”. <strong>2)</strong>{" "}
+            pobierasz gotowy PDF (strona tytułowa, spis treści, klastry, chronologia, łańcuchy KRS, podmioty, wnioski, graf).
           </p>
 
           {/* Krok 1 — przeprowadź analizę */}
-          <div className="mb-3 rounded-lg border border-line bg-paper p-4">
+          <div className="mb-2 rounded-lg border border-line bg-paper p-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[10px] text-paper">1</span>
+              Przeprowadź analizę OSINT (agent)
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={runAnalysis}
                 disabled={busy !== null}
                 className="border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
               >
-                {busy === "analyze" ? "Analizuję…" : hasAnalysis ? "Przeprowadź ponownie" : "Przeprowadź analizę OSINT"}
+                {busy === "analyze" ? "Analizuję…" : hasAnalysis ? "Przeprowadź ponownie" : "Przeprowadź analizę"}
               </button>
-              <span className="text-[11px] text-inksoft">
-                {hasAnalysis ? "✓ analiza zapisana dla tej sprawy" : "analiza jeszcze nieprzeprowadzona"}
+              <span className={`text-[11px] ${hasAnalysis ? "text-emerald-700" : "text-inksoft"}`}>
+                {hasAnalysis ? "✓ analiza gotowa dla tej sprawy" : "jeszcze nieprzeprowadzona"}
               </span>
             </div>
-            <p className="mt-2 text-[11px] text-inksoft">
-              Wymaga rostera (Sprawa → Krok 2) oraz akt w Storage. Przebieg trwa kilka minut (wyszukiwania + synteza modelu).
+            <p className="mt-2 text-[10px] leading-snug text-inksoft">
+              Wymaga rostera (Sprawa → Krok 2) i akt w Storage. Trwa kilka minut, etapami — postęp widać poniżej.
             </p>
           </div>
 
           {/* Krok 2 — pobierz PDF */}
           <div className="rounded-lg border border-line bg-paper p-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[10px] text-paper">2</span>
+              Pobierz Analizę OSINT (PDF)
+            </div>
             <button
               onClick={generateOsintPdf}
               disabled={busy !== null}
               className="border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
-              {busy === "pdf" ? "Generuję PDF…" : "Generuj Analizę OSINT (PDF)"}
+              {busy === "pdf" ? "Generuję PDF…" : "Pobierz PDF"}
             </button>
-            <p className="mt-2 text-[11px] text-inksoft">
-              Renderuje analizę przeprowadzoną w Kroku 1 + dołączone powiązania z panelu A/B:{" "}
-              {links.filter((l) => l.podmioty.trim() && l.zrodlo.trim()).length}. „Zapisz OSINT” przed pobraniem, by uwzględnić najnowsze.
+            <p className="mt-2 text-[10px] leading-snug text-inksoft">
+              Renderuje analizę z kroku 1 + dokleja zapisane powiązania z A/B ({links.filter((l) => l.podmioty.trim() && l.zrodlo.trim()).length}).
+              Bez przeprowadzonej analizy: dla sprawy Milisystem pobierze wzorzec, dla innych najpierw poprosi o krok 1.
             </p>
           </div>
+
+          {(busy === "analyze" || busy === "pdf" || msg) && (
+            <p className="mt-3 rounded-lg border border-line bg-paper px-3 py-2 text-xs text-inksoft">{msg || "Pracuję…"}</p>
+          )}
         </div>
       )}
 
-      {/* ── Rejestr powiązań (wspólny) ── */}
+      {/* ── Rejestr ustaleń OSINT (ręczny — tylko A/B; nie dotyczy automatycznego C) ── */}
+      {(section === "A" || section === "B") && (
       <div className="mt-4 border-t border-line pt-3">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium">Rejestr powiązań ({links.length}) — każde z cytowanym źródłem</p>
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-xs font-medium">Rejestr ustaleń OSINT ({links.length}) — Twoje powiązania z A/B, każde ze źródłem</p>
           <button onClick={addManual} className="text-xs text-inksoft underline-offset-2 hover:underline">+ dodaj ręcznie</button>
         </div>
+        <p className="mb-2 text-[10px] leading-snug text-inksoft">
+          Uzupełniasz z wyników A/B przyciskiem „Dodaj do rejestru”, albo ręcznie. Powiązania bez źródła (URL) nie zostaną zapisane.
+        </p>
         <div className="space-y-2">
           {links.map((l, i) => (
             <div key={i} className="border border-line bg-paper p-2">
@@ -602,13 +629,15 @@ export default function OsintPanel({
             </div>
           </div>
         )}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button onClick={save} disabled={busy !== null} className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40">
-            {busy === "save" ? "Zapisuję…" : "Zapisz OSINT"}
+            {busy === "save" ? "Zapisuję…" : "Zapisz ustalenia OSINT"}
           </button>
-          {msg && <span className="text-xs text-inksoft">{msg}</span>}
+          <span className="text-[10px] text-inksoft">→ zasilają analizę w kroku C i opinię (rozdz. IV)</span>
+          {msg && <span className="w-full text-xs text-inksoft">{msg}</span>}
         </div>
       </div>
+      )}
     </section>
   );
 }
