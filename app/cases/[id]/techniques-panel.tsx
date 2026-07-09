@@ -30,7 +30,48 @@ export default function TechniquesPanel({
   const [sel, setSel] = useState<Set<string>>(new Set(initial));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // Dedykowany detektor Spoofing & Layering (arkusz zleceń) — osobny stan.
+  const [spoofBusy, setSpoofBusy] = useState<null | "detect" | "pdf">(null);
+  const [spoofMsg, setSpoofMsg] = useState("");
   const signalOf = (id: string) => proposals.find((p) => p.id === id);
+
+  // Krok 1: wykrycie na arkuszu zleceń (funkcja serverless /api/spoofing sama znajduje plik UTP).
+  async function detectSpoofing() {
+    setSpoofBusy("detect");
+    setSpoofMsg("Analiza arkusza zleceń (wykrywanie layering/spoofing)… to potrwa chwilę.");
+    try {
+      const r = await fetch(`/api/spoofing`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caseId }) });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || j.reason || `HTTP ${r.status}`);
+      setSpoofMsg(`Wykryto ${j.sessions} sesji ze znamionami layering/spoofing (anulowane kupno ${Number(j.cancelled_buy).toLocaleString("pl-PL")} szt, ${j.layers} warstw). Możesz pobrać raport PDF.`);
+      router.refresh();
+    } catch (e) {
+      setSpoofMsg(`Analiza: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSpoofBusy(null);
+    }
+  }
+
+  // Krok 2: pobranie raportu PDF (renderowany z wykrytej analizy).
+  async function downloadSpoofing() {
+    setSpoofBusy("pdf");
+    setSpoofMsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/spoofing`);
+      if (!r.ok) { const j = await r.json().catch(() => null); throw new Error(j?.reason || `HTTP ${r.status}`); }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "Spoofing_Layering.pdf";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setSpoofMsg("Pobrano raport PDF.");
+    } catch (e) {
+      setSpoofMsg(`PDF: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSpoofBusy(null);
+    }
+  }
 
   function toggle(id: string) {
     setSel((s) => {
@@ -98,7 +139,8 @@ export default function TechniquesPanel({
           const t = k === "aktywnosc" ? null : TECHNIQUES[k as TechniqueId];
           const p = signalOf(k);
           return (
-            <label key={k} className="flex cursor-pointer items-start gap-3 border border-line bg-paper p-3">
+            <div key={k}>
+              <label className="flex cursor-pointer items-start gap-3 border border-line bg-paper p-3">
               <input type="checkbox" checked={sel.has(k)} onChange={() => toggle(k)} className="mt-1 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -113,6 +155,36 @@ export default function TechniquesPanel({
                 {p && <div className="mt-0.5 text-xs text-inksoft">Sygnał: {p.signal}</div>}
               </div>
             </label>
+
+            {k === "layering" && (
+              <div className="ml-8 mt-1 rounded-lg border border-ink/20 bg-paper p-3">
+                <p className="mb-2 text-[11px] leading-relaxed text-inksoft">
+                  <strong>Dedykowany detektor na arkuszu zleceń.</strong> Wykrywa duże, w większości <strong>anulowane</strong>{" "}
+                  zlecenia kupna Grupy na <strong>wielu poziomach cen</strong> (warstwy) przy jednoczesnej sprzedaży po
+                  stronie przeciwnej — sygnatura layering/spoofing (MAR zał. I lit. a), per sesja. <strong>Krok 1</strong>{" "}
+                  wykrywa i zapisuje analizę; <strong>Krok 2</strong> pobiera raport PDF (metodyka, ranking sesji,
+                  kolorowane sekwencje zleceń jak w opracowaniu specjalisty).
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={detectSpoofing}
+                    disabled={spoofBusy !== null}
+                    className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
+                  >
+                    {spoofBusy === "detect" ? "Analizuję…" : "1 · Wykryj (arkusz zleceń)"}
+                  </button>
+                  <button
+                    onClick={downloadSpoofing}
+                    disabled={spoofBusy !== null}
+                    className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                  >
+                    {spoofBusy === "pdf" ? "Generuję PDF…" : "2 · Pobierz raport (PDF)"}
+                  </button>
+                </div>
+                {spoofMsg && <p className="mt-2 text-[11px] text-inksoft">{spoofMsg}</p>}
+              </div>
+            )}
+            </div>
           );
         })}
       </div>
