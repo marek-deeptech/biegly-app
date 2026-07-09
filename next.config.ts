@@ -13,6 +13,9 @@ const CHART_ASSETS = [
 // assets/fonts nie są śledzone statycznie — trzeba je dołączyć do paczki funkcji.
 const OSINT_ASSETS = ["./assets/fonts/*.ttf"];
 
+// Opinia (PDF): tekst w IBM Plex (pdfmake) + wykresy przez resvg/DejaVu — oba zestawy.
+const OPINION_PDF_ASSETS = [...OSINT_ASSETS, ...CHART_ASSETS];
+
 const nextConfig: NextConfig = {
   // Natywny binding resvg nie jest bundlowalny (Turbopack: "non-ecmascript
   // placeable asset") — pakiet zostaje external i ładuje się w runtime
@@ -27,6 +30,9 @@ const nextConfig: NextConfig = {
     "/cases/[id]/osint/pdf": OSINT_ASSETS,
     "/cases/[id]/osint/pdf/route": OSINT_ASSETS,
     "app/cases/[id]/osint/pdf/route": OSINT_ASSETS,
+    "/cases/[id]/opinion/pdf": OPINION_PDF_ASSETS,
+    "/cases/[id]/opinion/pdf/route": OPINION_PDF_ASSETS,
+    "app/cases/[id]/opinion/pdf/route": OPINION_PDF_ASSETS,
   },
 };
 

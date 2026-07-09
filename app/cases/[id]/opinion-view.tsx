@@ -830,7 +830,8 @@ export default function OpinionView({
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em]">Generuj opinię</h2>
         <p className="mb-4 text-xs text-inksoft">
           Krok końcowy flow: <strong>Rozdziały (szkic) → Montaż → Recenzent → Generuj opinię</strong>. Po zatwierdzeniu
-          rozdziałów i przejściu przez Recenzenta pobierz gotowy projekt opinii (.docx, rozdziały I–VI z numerowanymi tabelami).
+          rozdziałów i przejściu przez Recenzenta pobierz gotowy projekt opinii — <strong>.docx</strong> (edytowalny)
+          lub <strong>PDF</strong> w dopracowanej formie (IBM Plex Sans, spis treści, banery rozdziałów I–VI, tabele, wykresy).
         </p>
         {(() => {
           const errN = review.filter((r) => r.severity === "ERROR").length;
@@ -876,11 +877,17 @@ export default function OpinionView({
                       Generuj opinię (.docx)
                     </a>
                     <a
-                      href={`/cases/${caseId}/opinion/docx`}
-                      className="text-xs text-inksoft underline-offset-2 hover:underline"
+                      href={`/cases/${caseId}/opinion/pdf?final=1`}
+                      className="inline-block border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90"
                     >
-                      wersja robocza (z adnotacjami „Źródło”)
+                      Pobierz opinię (PDF)
                     </a>
+                    <span className="text-xs text-inksoft">
+                      wersja robocza (z adnotacjami „Źródło”):{" "}
+                      <a href={`/cases/${caseId}/opinion/docx`} className="underline-offset-2 hover:underline">.docx</a>
+                      {" · "}
+                      <a href={`/cases/${caseId}/opinion/pdf`} className="underline-offset-2 hover:underline">PDF</a>
+                    </span>
                   </div>
                 </>
               )}
