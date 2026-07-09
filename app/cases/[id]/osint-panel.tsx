@@ -258,20 +258,37 @@ export default function OsintPanel({
     router.refresh();
   }
 
-  // C · Przeprowadź analizę OSINT — uruchamia agenta (akta + GLEIF + Brave → synteza
-  // modelu), zapisuje wynik jako `osint_analysis`. To pełen proces per sprawa.
+  // C · Przeprowadź analizę OSINT — etapowy przebieg agenta (odporny na limity czasu):
+  // gather → search → synth → review×(2–3) → finalize. Woła endpoint w pętli, każde
+  // wywołanie to jeden krótki krok; pokazuje postęp aż done=true.
   async function runAnalysis() {
     setBusy("analyze");
-    setMsg("Analiza w toku (akta, GLEIF, wyszukiwania, synteza) — to może potrwać kilka minut…");
+    setMsg("Rozpoczynam analizę OSINT…");
+    let restart = true, done = false, step = 0;
+    let stats: { relations: number; clusters: number; rounds: number } | null = null;
     try {
-      const r = await fetch(`/cases/${caseId}/osint/analyze`, { method: "POST" });
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
-      const s = j.stats;
-      setMsg(`Analiza gotowa: ${s.relations} powiązań w ${s.clusters} klastrach · źródła: ${s.pdfs} dok. akt, ${s.gleif} GLEIF, ${s.web} wyszukiwań. Możesz pobrać PDF.`);
+      while (!done && step < 12) {
+        step++;
+        const r = await fetch(`/cases/${caseId}/osint/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(restart ? { restart: true } : {}),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
+        restart = false;
+        done = !!j.done;
+        if (j.stats) stats = j.stats;
+        setMsg(`Krok ${step} — ${j.note}`);
+      }
+      setMsg(
+        stats
+          ? `Analiza gotowa: ${stats.relations} powiązań w ${stats.clusters} klastrach, ${stats.rounds} rund recenzenta. Możesz pobrać PDF.`
+          : "Analiza zakończona. Możesz pobrać PDF.",
+      );
       router.refresh();
     } catch (e) {
-      setMsg(`Analiza: ${e instanceof Error ? e.message : String(e)}`);
+      setMsg(`Analiza (krok ${step}): ${e instanceof Error ? e.message : String(e)}. Kliknij ponownie, aby wznowić od zapisanego etapu.`);
     } finally {
       setBusy(null);
     }
