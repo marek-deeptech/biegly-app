@@ -10,10 +10,12 @@ import { BLUE, CELLBG, SUB, gridLayout, dataTable, h1Nodes, frame, renderPdf, ty
 import { chartSvg, type ChartSpec } from "./charts";
 
 export type SpoofOrder = { entity: string; side: string; entry: string; cancel: string; limit: number; vol: number; realised: number; cancelled: number; cls: string };
+export type SpoofSeries = { times: string[]; buy: number[]; sell: number[]; saldo: number[]; price: (number | null)[] };
 export type SpoofDay = {
   day: string; declared_buy: number; cancelled_buy: number; cancel_ratio: number; buy_orders: number;
   layer_orders: number; price_levels: number; price_min: number | null; price_max: number | null;
   sell_exec_vol: number; sell_exec_orders: number; entities: string[]; manip: boolean; orders: SpoofOrder[];
+  series?: SpoofSeries;
 };
 export type SpoofAnalysis = {
   days: SpoofDay[]; manip_days: string[]; entities: string[];
@@ -28,9 +30,9 @@ const pl = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).
 const pct = (r: number) => `${(r * 100).toFixed(1).replace(".", ",")}%`;
 const zl = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("pl-PL", { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
 
-// Wykres słupkowy (anulowany wolumen kupna per sesja) → PNG (resvg+DejaVu, jak w opinii).
+// Rasteryzacja SVG → PNG data URL (resvg + DejaVu, jak w opinii).
 let fontPath: string | null | undefined;
-function chartDataUrl(spec: ChartSpec): string | null {
+function svgToPng(svg: string, width = 1400): string | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Resvg } = require("@resvg/resvg-js") as typeof import("@resvg/resvg-js");
@@ -38,13 +40,71 @@ function chartDataUrl(spec: ChartSpec): string | null {
       const p = join(process.cwd(), "node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf");
       try { readFileSync(p); fontPath = p; } catch { fontPath = null; }
     }
-    const r = new Resvg(chartSvg(spec), {
-      fitTo: { mode: "width", value: 1400 },
+    const r = new Resvg(svg, {
+      fitTo: { mode: "width", value: width },
       font: fontPath ? { fontFiles: [fontPath], defaultFontFamily: "DejaVu Sans", loadSystemFonts: false } : { loadSystemFonts: true },
       background: "white",
     });
     return "data:image/png;base64," + Buffer.from(r.render().asPng()).toString("base64");
   } catch { return null; }
+}
+const chartDataUrl = (spec: ChartSpec): string | null => svgToPng(chartSvg(spec));
+
+// Wykres śróddziennej aktywności arkusza dla jednej sesji (odpowiednik wykresu wzoru):
+// obszar żółty = saldo (kupno−sprzedaż), linia zielona = wolumen kupna Grupy,
+// linia różowa = wolumen sprzedaży, linia czerwona = cena transakcyjna (oś prawa).
+function sessionChartSvg(s: SpoofSeries, day: string): string {
+  const W = 720, H = 300, ML = 56, MR = 54, MT = 26, MB = 30;
+  const pw = W - ML - MR, ph = H - MT - MB;
+  const n = s.times.length;
+  const x = (i: number) => ML + (pw * i) / Math.max(1, n - 1);
+  const px = s.price.filter((p): p is number => p != null);
+  const plo = px.length ? Math.min(...px) : 0, phi = px.length ? Math.max(...px) : 1;
+  const vhi = Math.max(1, ...s.buy, ...s.saldo);
+  const vlo = Math.min(0, ...s.saldo);
+  const yV = (v: number) => MT + ph * (1 - (v - vlo) / (vhi - vlo || 1));
+  const yP = (p: number) => MT + ph * (1 - (p - plo) / (phi - plo || 1));
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const poly = (arr: number[]) => arr.map((v, i) => `${x(i).toFixed(1)},${yV(v).toFixed(1)}`).join(" ");
+  const el: string[] = [];
+  el.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="DejaVu Sans" font-size="10" fill="#333">`);
+  el.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="white"/>`);
+  el.push(`<text x="${ML}" y="16" font-size="12" font-weight="bold" fill="#1F3864">${esc(`Aktywność arkusza — sesja ${day} (rekonstrukcja z danych UTP)`)}</text>`);
+  // siatka + osie wolumenu (lewa)
+  for (let k = 0; k <= 4; k++) {
+    const v = vlo + ((vhi - vlo) * k) / 4, y = yV(v);
+    el.push(`<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W - MR}" y2="${y.toFixed(1)}" stroke="#E5E7EB" stroke-width="1"/>`);
+    el.push(`<text x="${ML - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="#888">${Math.round(v).toLocaleString("pl-PL")}</text>`);
+  }
+  // oś ceny (prawa)
+  for (let k = 0; k <= 4; k++) {
+    const p = plo + ((phi - plo) * k) / 4, y = yP(p);
+    el.push(`<text x="${W - MR + 6}" y="${(y + 3).toFixed(1)}" fill="#C0392B">${p.toFixed(2)}</text>`);
+  }
+  // oś czasu
+  for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 8))) {
+    el.push(`<text x="${x(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="#888">${esc(s.times[i])}</text>`);
+  }
+  const zeroY = yV(0);
+  el.push(`<line x1="${ML}" y1="${zeroY.toFixed(1)}" x2="${W - MR}" y2="${zeroY.toFixed(1)}" stroke="#B0B0B0" stroke-width="1"/>`);
+  // saldo — obszar żółty
+  el.push(`<polygon points="${x(0).toFixed(1)},${zeroY.toFixed(1)} ${poly(s.saldo)} ${x(n - 1).toFixed(1)},${zeroY.toFixed(1)}" fill="#F5D90A" fill-opacity="0.55" stroke="none"/>`);
+  // wolumen kupna (zielony) i sprzedaży (różowy)
+  el.push(`<polyline points="${poly(s.buy)}" fill="none" stroke="#2E7D32" stroke-width="1.4"/>`);
+  el.push(`<polyline points="${poly(s.sell)}" fill="none" stroke="#D06B8C" stroke-width="1.2"/>`);
+  // cena (czerwona, oś prawa)
+  const pricePts = s.price.map((p, i) => (p == null ? null : `${x(i).toFixed(1)},${yP(p).toFixed(1)}`)).filter(Boolean).join(" ");
+  if (pricePts) el.push(`<polyline points="${pricePts}" fill="none" stroke="#C0392B" stroke-width="1.6"/>`);
+  // legenda
+  const lg: [string, string][] = [["#F5D90A", "saldo (kupno−sprzedaż)"], ["#2E7D32", "wolumen kupna Grupy"], ["#D06B8C", "wolumen sprzedaży"], ["#C0392B", "cena (zł, oś prawa)"]];
+  let lx = ML;
+  for (const [c, t] of lg) {
+    el.push(`<rect x="${lx}" y="${H - 24}" width="10" height="8" fill="${c}"/>`);
+    el.push(`<text x="${lx + 14}" y="${H - 17}" fill="#555">${esc(t)}</text>`);
+    lx += 30 + t.length * 5.4;
+  }
+  el.push(`</svg>`);
+  return el.join("");
 }
 
 function legendChip(fill: string, text: string): Pm {
@@ -162,6 +222,10 @@ function docDefinition(a: SpoofAnalysis): Pm {
     for (const d of detail) {
       content.push({ text: `Sesja ${d.day}`, style: "h2", alignment: "left", margin: [0, 10, 0, 3], tocItem: true, tocStyle: { color: "#3A3A3A", fontSize: 9.5 }, tocMargin: [16, 1, 0, 0] });
       content.push({ text: dayNarrative(d), fontSize: 9, lineHeight: 1.35, margin: [0, 0, 0, 5] });
+      if (d.series && d.series.times.length) {
+        const chart = svgToPng(sessionChartSvg(d.series, d.day), 1440);
+        if (chart) content.push({ image: chart, width: 440, alignment: "center", margin: [0, 2, 0, 4] });
+      }
       content.push(orderTable(d.orders));
     }
   }
