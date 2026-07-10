@@ -9,7 +9,7 @@ import { BLUE, CELLBG, SUB, gridLayout, dataTable, h1Nodes, frame, renderPdf, ty
 
 import { chartSvg, type ChartSpec } from "./charts";
 
-export type SpoofOrder = { entity: string; side: string; entry: string; cancel: string; limit: number; vol: number; realised: number; cancelled: number; cls: string };
+export type SpoofOrder = { entity: string; side: string; entry: string; cancel: string; limit: number; vol: number; realised: number; cancelled: number; cls: string; mod?: boolean };
 export type SpoofSeries = { times: string[]; sumK: number[]; sumS: number[]; diff: number[]; price: (number | null)[] };
 export type SpoofDay = {
   day: string; declared_buy: number; cancelled_buy: number; cancel_ratio: number; buy_orders: number;
@@ -127,21 +127,22 @@ const clsLabel: Record<string, string> = {
 };
 const clsFill: Record<string, string> = { layer: REDBG, layer_partial: ORANGE, sell_exec: GREENBG };
 
-// Kolorowana tabela sekwencji zleceń dla jednej sesji.
+// Kolorowana tabela sekwencji zleceń (event-log) dla jednej sesji: czas złożenia,
+// czas anulowania/modyfikacji, strona, limit, wolumen, zrealizowany, rodzaj.
 function orderTable(orders: SpoofOrder[]): Pm {
-  const head = ["Podmiot", "Czas", "Str.", "Limit", "Wolumen", "Zrealiz.", "Anulow.", "Rodzaj"].map(
+  const head = ["Podmiot", "Złożenie", "Anul./mod.", "Str.", "Limit", "Wolumen", "Zrealiz.", "Rodzaj"].map(
     (h) => ({ text: h, bold: true, alignment: "center", fillColor: CELLBG, fontSize: 7.5, margin: [2, 2, 2, 2] }));
   const rows = orders.map((o) => {
     const fill = clsFill[o.cls] || "#FFFFFF";
     const cell = (t: string, align = "left") => ({ text: t, fontSize: 7.5, alignment: align, fillColor: fill, margin: [2, 1.5, 2, 1.5] });
+    const rodzaj = (clsLabel[o.cls] || o.cls) + (o.mod ? " · modyf." : "");
     return [
-      cell(o.entity), cell(o.entry || "—", "center"), cell(o.side, "center"),
-      cell(zl(o.limit), "right"), cell(pl(o.vol), "right"), cell(pl(o.realised), "right"),
-      cell(pl(o.cancelled), "right"), cell(clsLabel[o.cls] || o.cls),
+      cell(o.entity), cell(o.entry || "—", "center"), cell(o.cancel || "—", "center"), cell(o.side, "center"),
+      cell(zl(o.limit), "right"), cell(pl(o.vol), "right"), cell(pl(o.realised), "right"), cell(rodzaj),
     ];
   });
   return {
-    table: { headerRows: 1, widths: [96, 42, 18, 40, 52, 52, 52, "*"], body: [head, ...rows] },
+    table: { headerRows: 1, widths: [86, 44, 44, 16, 38, 50, 50, "*"], body: [head, ...rows] },
     layout: gridLayout(), margin: [0, 2, 0, 10],
   };
 }
@@ -184,6 +185,7 @@ function docDefinition(a: SpoofAnalysis): Pm {
     { text: [{ text: "Podstawa prawna. ", bold: true }, "Art. 12 ust. 1 lit. a) rozporządzenia MAR (2014/596) — zlecenia wprowadzające lub mogące wprowadzać w błąd co do podaży/popytu lub ceny; Załącznik I sekcja A lit. a) MAR; w prawie USA — CEA §4c(a)(5) (CFTC) oraz Exchange Act §9(a)(2)/§10(b)."], style: "body", margin: [0, 0, 0, 6] },
     { text: [{ text: "Źródło danych. ", bold: true }, "Arkusz zleceń UTP (jeden wiersz na zlecenie): strona (K/S), wolumen zadeklarowany, wolumen zrealizowany, limit (cena), czas wprowadzenia i modyfikacji/anulacji. „Anulowany” wolumen = wolumen zadeklarowany − zrealizowany (część niewprowadzona do obrotu)."], style: "body", margin: [0, 0, 0, 6] },
     { text: [{ text: "Kryterium wykrycia (per sesja). ", bold: true }, `duże zlecenia kupna Grupy, w większości niezrealizowane i anulowane (udział anulacji ≥ ${pct(a.params.min_cancel_share)}, anulowany wolumen ≥ ${pl(a.params.min_cancel_vol)} szt), rozłożone na wielu poziomach cen, przy jednoczesnej realizacji sprzedaży Grupy po stronie przeciwnej. Detekcja jest obiektywna i wskazuje wszystkie sesje spełniające kryterium; wybór najsilniejszych przykładów należy do biegłego.`], style: "body", margin: [0, 0, 0, 8] },
+    { text: [{ text: "Wykres per sesja. ", bold: true }, "Obszary przedstawiają zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż) i ich saldo (Różnica), a linia — kurs transakcyjny. Rzeczywistych linii najlepszej oferty kupna/sprzedaży (BestBid/BestAsk) nie odtwarzano: arkusz UTP zawiera jeden wiersz na zlecenie, bez momentów realizacji, co uniemożliwia wierną rekonstrukcję kwotowań (wymagałaby tickowego widoku arkusza giełdy)."], style: "body", margin: [0, 0, 0, 8] },
     { text: "Legenda kolorów w tabelach sekwencji:", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] },
     legendChip(REDBG, "warstwa kupna anulowana — zlecenie „layeringowe” niewprowadzone do obrotu (pozorny popyt)"),
     legendChip(ORANGE, "warstwa kupna częściowo zrealizowana / modyfikowana"),

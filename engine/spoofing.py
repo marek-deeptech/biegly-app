@@ -180,6 +180,7 @@ def detect_layering(
                 seq[d].append({
                     "entity": ent, "side": "K", "entry": entry, "cancel": cancel,
                     "limit": limit, "vol": vol, "realised": realised, "cancelled": cancelled,
+                    "mod": bool(r.get("OrderModificationDate")),
                     "cls": "layer" if realised == 0 else "layer_partial",
                 })
         elif side == "S":
@@ -192,6 +193,7 @@ def detect_layering(
                 seq[d].append({
                     "entity": ent, "side": "S", "entry": entry, "cancel": cancel,
                     "limit": limit, "vol": vol, "realised": realised, "cancelled": cancelled,
+                    "mod": bool(r.get("OrderModificationDate")),
                     "cls": "sell_exec",
                 })
 
