@@ -66,7 +66,7 @@ def _sec(hms: str) -> int | None:
         return None
 
 
-OPEN_S, CLOSE_S, N_POINTS = 9 * 3600, 17 * 3600 + 300, 96  # sesja GPW ~09:00–17:05, 96 próbek
+OPEN_S, CLOSE_S, N_POINTS = 8 * 3600 + 30 * 60, 17 * 3600 + 5 * 60, 104  # od aukcji otwarcia 08:30 do 17:05
 
 
 def _tx_time_col(r: dict) -> str:
@@ -77,18 +77,20 @@ def _tx_time_col(r: dict) -> str:
 CONT_OPEN, CONT_CLOSE = 9 * 3600, 16 * 3600 + 50 * 60  # faza ciągła GPW (poza aukcjami 08:30–09:00 i 16:50–17:05)
 
 
-def reconstruct_book(day_orders: list[dict], day: str) -> tuple[list, list]:
-    """Odtwarza rzeczywisty BestBid/BestAsk z arkusza zleceń (WSZYSTKIE zlecenia rynku)
-    silnikiem dopasowań (matching engine) — jak liczy giełda. Zdarzenia (wejście/anulacja)
-    przetwarzane chronologicznie; gdy nowe zlecenie krzyżuje przeciwną stronę → realizacja
-    zjada wolumen. Dzięki temu w fazie ciągłej kwotowania NIE krzyżują się (bid < ask).
+def reconstruct_book(day_orders: list[dict], day: str) -> dict:
+    """Odtwarza BestBid/BestAsk z arkusza zleceń (WSZYSTKIE zlecenia rynku), w dwóch wariantach:
 
-    Best bid/ask liczone tylko w fazie ciągłej (09:00–16:50); poza nią None (aukcje mają
-    kwotowania krzyżujące się z natury). Pomijamy zlecenia PKC/PCR (limit 0).
+    • WARIANT A („bid"/„ask") — silnik dopasowań (matching engine), faza ciągła 09:00–16:50.
+      Zdarzenia (wejście/anulacja) chronologicznie; gdy kupno ≥ najlepsza sprzedaż → realizacja
+      zjada wolumen, więc kwotowania NIE krzyżują się (jak liczy giełda). Poza fazą ciągłą None.
+    • WARIANT B („bid_full"/„ask_full") — kwotowania SUROWE (bez dopasowań), cała sesja z fazami
+      aukcji (08:30–17:05): best bid = max limit kupna, best ask = min limit sprzedaży wśród
+      zleceń obecnych w arkuszu. Ujawnia krzyżowanie w aukcjach (i skutek braku dopasowań).
+
+    Zlecenia PKC/PCR (limit 0) pomijane; limity poza pasmem cen (outliery) pomijane w wariancie B.
     """
-    byid: dict[int, dict] = {}
-    ev: list[tuple[int, int, int]] = []  # (sec, typ: 0=ADD/1=CANCEL, id)
-    for idx, r in enumerate(day_orders):
+    orders = []  # {side, lim, vol, es, ce}
+    for r in day_orders:
         lim = _f(r.get("Limit"))
         if lim <= 0:
             continue
@@ -98,18 +100,23 @@ def reconstruct_book(day_orders: list[dict], day: str) -> tuple[list, list]:
         cs = CLOSE_S if cs is None else cs
         if cs <= es:
             cs = es + 1
-        byid[idx] = {"side": r.get("K/S"), "lim": lim, "rem": _f(r.get("Wolumen"))}
-        ev.append((es, 0, idx))
-        ev.append((cs, 1, idx))
-    ev.sort()
+        orders.append({"side": r.get("K/S"), "lim": lim, "vol": _f(r.get("Wolumen")), "es": es, "ce": cs})
 
+    step = (CLOSE_S - OPEN_S) / (N_POINTS - 1)
+    grid = [OPEN_S + int(step * i) for i in range(N_POINTS)]
+
+    # ── WARIANT A: matching engine ──
+    byid = {i: {"side": o["side"], "lim": o["lim"], "rem": o["vol"]} for i, o in enumerate(orders)}
+    ev: list[tuple[int, int, int]] = []
+    for i, o in enumerate(orders):
+        ev.append((o["es"], 0, i))
+        ev.append((o["ce"], 1, i))
+    ev.sort()
     book: dict[str, set] = {"K": set(), "S": set()}
 
     def best(side: str):
         vals = [byid[i]["lim"] for i in book[side] if byid[i]["rem"] > 0]
-        if not vals:
-            return None
-        return max(vals) if side == "K" else min(vals)
+        return (max(vals) if side == "K" else min(vals)) if vals else None
 
     def match(o: dict):
         opp = "S" if o["side"] == "K" else "K"
@@ -118,26 +125,23 @@ def reconstruct_book(day_orders: list[dict], day: str) -> tuple[list, list]:
             if not act:
                 break
             b = max(act, key=lambda x: x["lim"]) if opp == "K" else min(act, key=lambda x: x["lim"])
-            cross = o["lim"] >= b["lim"] if o["side"] == "K" else o["lim"] <= b["lim"]
-            if not cross:
+            if (o["lim"] >= b["lim"]) if o["side"] == "K" else (o["lim"] <= b["lim"]):
+                q = min(o["rem"], b["rem"])
+                o["rem"] -= q
+                b["rem"] -= q
+                if b["rem"] <= 0:
+                    book[opp].discard(next(i for i in book[opp] if byid[i] is b))
+            else:
                 break
-            q = min(o["rem"], b["rem"])
-            o["rem"] -= q
-            b["rem"] -= q
-            if b["rem"] <= 0:
-                book[opp].discard(next(i for i in book[opp] if byid[i] is b))
 
-    step = (CLOSE_S - OPEN_S) / (N_POINTS - 1)
-    grid = [OPEN_S + int(step * i) for i in range(N_POINTS)]
-    bid: list = [None] * N_POINTS
-    ask: list = [None] * N_POINTS
+    bid_m: list = [None] * N_POINTS
+    ask_m: list = [None] * N_POINTS
     gi = 0
 
     def sample_upto(t: int):
         nonlocal gi
         while gi < N_POINTS and grid[gi] <= t:
-            if CONT_OPEN <= grid[gi] <= CONT_CLOSE:
-                bid[gi], ask[gi] = best("K"), best("S")
+            bid_m[gi], ask_m[gi] = best("K"), best("S")
             gi += 1
 
     for t, typ, oid in ev:
@@ -151,7 +155,24 @@ def reconstruct_book(day_orders: list[dict], day: str) -> tuple[list, list]:
             book["S"].discard(oid)
         sample_upto(t)
     sample_upto(CLOSE_S)
-    return bid, ask
+
+    # pasmo cen z kwotowań matching (do odfiltrowania outlierów w wariancie B)
+    qs = [q for q in bid_m + ask_m if q is not None]
+    lo, hi = (min(qs) * 0.85, max(qs) * 1.15) if qs else (0.0, 1e12)
+
+    # ── WARIANT B: surowe kwotowania (bez dopasowań), cała sesja ──
+    bid_r: list = [None] * N_POINTS
+    ask_r: list = [None] * N_POINTS
+    for i, t in enumerate(grid):
+        buys = [o["lim"] for o in orders if o["side"] == "K" and o["es"] <= t < o["ce"] and lo <= o["lim"] <= hi]
+        sells = [o["lim"] for o in orders if o["side"] == "S" and o["es"] <= t < o["ce"] and lo <= o["lim"] <= hi]
+        bid_r[i] = max(buys) if buys else None
+        ask_r[i] = min(sells) if sells else None
+
+    # WARIANT A pokazujemy tylko w fazie ciągłej (poza nią matching bez sensu — aukcje)
+    bid_c = [bid_m[i] if CONT_OPEN <= grid[i] <= CONT_CLOSE else None for i in range(N_POINTS)]
+    ask_c = [ask_m[i] if CONT_OPEN <= grid[i] <= CONT_CLOSE else None for i in range(N_POINTS)]
+    return {"bid": bid_c, "ask": ask_c, "bid_full": bid_r, "ask_full": ask_r}
 
 
 def session_series(recs: list[dict], tx_prices: list[tuple[int, float]]) -> dict:
@@ -353,8 +374,7 @@ def detect_layering(
             })
         for d in top_days:
             s = session_series(recs[d], px.get(d, []))
-            bid, ask = reconstruct_book(all_day[d], d)  # prawdziwe BestBid/BestAsk z arkusza
-            s["bid"], s["ask"] = bid, ask
+            s.update(reconstruct_book(all_day[d], d))  # bid/ask (matching, faza ciągła) + bid_full/ask_full (surowe, aukcje)
             days_map[d]["series"] = s
     return {
         "days": days,

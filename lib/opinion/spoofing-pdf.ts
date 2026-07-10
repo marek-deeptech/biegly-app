@@ -10,7 +10,11 @@ import { BLUE, CELLBG, SUB, gridLayout, dataTable, h1Nodes, frame, renderPdf, ty
 import { chartSvg, type ChartSpec } from "./charts";
 
 export type SpoofOrder = { entity: string; side: string; entry: string; cancel: string; limit: number; vol: number; realised: number; cancelled: number; cls: string; mod?: boolean };
-export type SpoofSeries = { times: string[]; sumK: number[]; sumS: number[]; diff: number[]; price: (number | null)[]; bid?: (number | null)[]; ask?: (number | null)[] };
+export type SpoofSeries = {
+  times: string[]; sumK: number[]; sumS: number[]; diff: number[]; price: (number | null)[];
+  bid?: (number | null)[]; ask?: (number | null)[];        // wariant A: matching, faza ciągła
+  bid_full?: (number | null)[]; ask_full?: (number | null)[]; // wariant B: surowe, cała sesja z aukcjami
+};
 export type SpoofDay = {
   day: string; declared_buy: number; cancelled_buy: number; cancel_ratio: number; buy_orders: number;
   layer_orders: number; price_levels: number; price_min: number | null; price_max: number | null;
@@ -53,7 +57,7 @@ const chartDataUrl = (spec: ChartSpec): string | null => svgToPng(chartSvg(spec)
 // Wykres śróddziennej aktywności arkusza dla jednej sesji — odpowiednik wykresu wzoru:
 // obszary SumaWolK (kupno, zielony) i SumaWolS (sprzedaż, różowy poniżej zera), Różnica
 // (żółty) oraz linie cen BestBid (zielona) i BestAsk (czerwona) na osi prawej.
-function sessionChartSvg(s: SpoofSeries, day: string): string {
+function sessionChartSvg(s: SpoofSeries, day: string, bidArr: (number | null)[] | undefined, askArr: (number | null)[] | undefined, title: string): string {
   const W = 760, H = 320, ML = 60, MR = 52, MT = 28, MB = 44;
   const pw = W - ML - MR, ph = H - MT - MB, n = s.times.length;
   const x = (i: number) => ML + (pw * i) / Math.max(1, n - 1);
@@ -62,8 +66,8 @@ function sessionChartSvg(s: SpoofSeries, day: string): string {
   const vhi = top, vlo = -bot;
   const yV = (v: number) => MT + ph * (1 - (v - vlo) / (vhi - vlo));
   const zeroY = yV(0);
-  const hasBook = !!(s.bid && s.ask && s.bid.some((v) => v != null) && s.ask.some((v) => v != null));
-  const prices = (hasBook ? [...(s.bid ?? []), ...(s.ask ?? [])] : s.price).filter((p): p is number => p != null);
+  const hasBook = !!(bidArr && askArr && bidArr.some((v) => v != null) && askArr.some((v) => v != null));
+  const prices = (hasBook ? [...(bidArr ?? []), ...(askArr ?? [])] : s.price).filter((p): p is number => p != null);
   const plo = prices.length ? Math.min(...prices) : 0, phi = prices.length ? Math.max(...prices) : 1;
   const pad = (phi - plo) * 0.12 || 0.1;
   const yP = (p: number) => MT + ph * (1 - (p - (plo - pad)) / (phi + pad - (plo - pad)));
@@ -77,7 +81,7 @@ function sessionChartSvg(s: SpoofSeries, day: string): string {
   const el: string[] = [];
   el.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="DejaVu Sans" font-size="10" fill="#333">`);
   el.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="white"/>`);
-  el.push(`<text x="${ML}" y="16" font-size="12" font-weight="bold" fill="#1F3864">${esc(`Aktywność arkusza — sesja ${day} (${hasBook ? "kwotowania z tickowego arkusza zleceń" : "rekonstrukcja ze zleceń UTP"})`)}</text>`);
+  el.push(`<text x="${ML}" y="16" font-size="11.5" font-weight="bold" fill="#1F3864">${esc(title)}</text>`);
   for (let k = 0; k <= 4; k++) {
     const v = vlo + ((vhi - vlo) * k) / 4, y = yV(v);
     el.push(`<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W - MR}" y2="${y.toFixed(1)}" stroke="#E5E7EB" stroke-width="1"/>`);
@@ -101,7 +105,7 @@ function sessionChartSvg(s: SpoofSeries, day: string): string {
     ["#C6EFCE", "wolumen kupna Grupy", false], ["#F8C7CE", "wolumen sprzedaży", false], ["#F5D90A", "Różnica (saldo)", false],
   ];
   if (hasBook) {
-    const bidPts = line(s.bid!, yP), askPts = line(s.ask!, yP);
+    const bidPts = line(bidArr!, yP), askPts = line(askArr!, yP);
     if (bidPts) el.push(`<polyline points="${bidPts}" fill="none" stroke="#2E7D32" stroke-width="1.7"/>`);
     if (askPts) el.push(`<polyline points="${askPts}" fill="none" stroke="#C0392B" stroke-width="1.7"/>`);
     lg.push(["#2E7D32", "BestBid", true], ["#C0392B", "BestAsk", true]);
@@ -243,8 +247,17 @@ function docDefinition(a: SpoofAnalysis): Pm {
       content.push({ text: `Sesja ${d.day}`, style: "h2", alignment: "left", margin: [0, 10, 0, 3], tocItem: true, tocStyle: { color: "#3A3A3A", fontSize: 9.5 }, tocMargin: [16, 1, 0, 0] });
       content.push({ text: dayNarrative(d), fontSize: 9, lineHeight: 1.35, margin: [0, 0, 0, 5] });
       if (d.series && d.series.times.length) {
-        const chart = svgToPng(sessionChartSvg(d.series, d.day), 1440);
-        if (chart) content.push({ image: chart, width: 440, alignment: "center", margin: [0, 2, 0, 4] });
+        const chartA = svgToPng(sessionChartSvg(d.series, d.day, d.series.bid, d.series.ask,
+          `Wykres A — sesja ${d.day}: faza ciągła 09:00–16:50 (BestBid/BestAsk — silnik dopasowań, bez krzyżowania)`), 1440);
+        if (chartA) content.push({ image: chartA, width: 462, alignment: "center", margin: [0, 2, 0, 2] });
+        if (d.series.bid_full && d.series.bid_full.some((v) => v != null)) {
+          const chartB = svgToPng(sessionChartSvg(d.series, d.day, d.series.bid_full, d.series.ask_full,
+            `Wykres B — sesja ${d.day}: pełna sesja z aukcjami 08:30–17:05 (kwotowania surowe, bez dopasowań — mogą się krzyżować)`), 1440);
+          if (chartB) content.push(
+            { text: "Porównanie A/B: A = silnik dopasowań (faza ciągła, kwotowania nie krzyżują się); B = kwotowania surowe (max limit kupna / min limit sprzedaży) w całej sesji z aukcjami — krzyżowanie w aukcjach obrazuje, dlaczego BestBid/BestAsk liczy się z dopasowaniami.", fontSize: 7.5, italics: true, color: SUB, margin: [0, 1, 0, 3] },
+            { image: chartB, width: 462, alignment: "center", margin: [0, 0, 0, 4] },
+          );
+        }
       }
       content.push(orderTable(d.orders));
     }
