@@ -120,7 +120,15 @@ class handler(BaseHTTPRequestHandler):
                             s["bid"], s["ask"] = ob["bid"], ob["ask"]
                     book_source = True
             except Exception:  # noqa: BLE001
-                book_source = False
+                pass
+
+            # Matching engine (engine.spoofing.reconstruct_book) już policzył BestBid/BestAsk
+            # z arkusza zleceń UTP — kwotowania są dostępne nawet bez zewnętrznego pliku tickowego.
+            if not book_source:
+                book_source = any(
+                    (d.get("series") or {}).get("bid") and any(v is not None for v in d["series"]["bid"])
+                    for d in res["days"]
+                )
 
             analysis = {**res, "meta": {"caseName": case_name, "signature": signature, "book_source": book_source}}
             payload = [{

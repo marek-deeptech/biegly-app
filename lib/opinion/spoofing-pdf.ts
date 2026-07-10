@@ -195,8 +195,8 @@ function docDefinition(a: SpoofAnalysis): Pm {
     { text: [{ text: "Kryterium wykrycia (per sesja). ", bold: true }, `duże zlecenia kupna Grupy, w większości niezrealizowane i anulowane (udział anulacji ≥ ${pct(a.params.min_cancel_share)}, anulowany wolumen ≥ ${pl(a.params.min_cancel_vol)} szt), rozłożone na wielu poziomach cen, przy jednoczesnej realizacji sprzedaży Grupy po stronie przeciwnej. Detekcja jest obiektywna i wskazuje wszystkie sesje spełniające kryterium; wybór najsilniejszych przykładów należy do biegłego.`], style: "body", margin: [0, 0, 0, 8] },
     { text: [{ text: "Wykres per sesja. ", bold: true }, "Obszary przedstawiają zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż) i ich saldo (Różnica). ",
       a.meta.book_source
-        ? "Linie najlepszej oferty kupna i sprzedaży (BestBid/BestAsk) pochodzą z tickowego widoku arkusza zleceń załączonego do akt."
-        : "Linia to kurs transakcyjny; rzeczywistych linii BestBid/BestAsk nie odtwarzano — arkusz UTP zawiera jeden wiersz na zlecenie, bez momentów realizacji, co uniemożliwia wierną rekonstrukcję kwotowań (wymaga tickowego widoku arkusza giełdy; moduł użyje go automatycznie, gdy pojawi się w aktach)."],
+        ? "Linie najlepszej oferty kupna i sprzedaży (BestBid/BestAsk) odtworzono z arkusza zleceń UTP silnikiem dopasowań (matching engine) na wszystkich zleceniach rynku — w fazie ciągłej (09:00–16:50); z definicji kwotowania nie krzyżują się. Fazy aukcyjne pominięto."
+        : "Linia to kurs transakcyjny (rekonstrukcja z arkusza UTP)."],
       style: "body", margin: [0, 0, 0, 8] },
     { text: "Legenda kolorów w tabelach sekwencji:", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] },
     legendChip(REDBG, "warstwa kupna anulowana — zlecenie „layeringowe” niewprowadzone do obrotu (pozorny popyt)"),
