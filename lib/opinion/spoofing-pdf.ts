@@ -10,7 +10,7 @@ import { BLUE, CELLBG, SUB, gridLayout, dataTable, h1Nodes, frame, renderPdf, ty
 import { chartSvg, type ChartSpec } from "./charts";
 
 export type SpoofOrder = { entity: string; side: string; entry: string; cancel: string; limit: number; vol: number; realised: number; cancelled: number; cls: string; mod?: boolean };
-export type SpoofSeries = { times: string[]; sumK: number[]; sumS: number[]; diff: number[]; price: (number | null)[] };
+export type SpoofSeries = { times: string[]; sumK: number[]; sumS: number[]; diff: number[]; price: (number | null)[]; bid?: (number | null)[]; ask?: (number | null)[] };
 export type SpoofDay = {
   day: string; declared_buy: number; cancelled_buy: number; cancel_ratio: number; buy_orders: number;
   layer_orders: number; price_levels: number; price_min: number | null; price_max: number | null;
@@ -21,7 +21,7 @@ export type SpoofAnalysis = {
   days: SpoofDay[]; manip_days: string[]; entities: string[];
   totals: { sessions_flagged: number; cancelled_buy_total: number; declared_buy_total: number; sell_exec_total: number; layer_orders_total: number };
   params: { min_cancel_vol: number; min_cancel_share: number };
-  meta: { caseName: string; signature: string };
+  meta: { caseName: string; signature: string; book_source?: boolean };
 };
 
 const DETAIL_DAYS = 12;
@@ -62,7 +62,8 @@ function sessionChartSvg(s: SpoofSeries, day: string): string {
   const vhi = top, vlo = -bot;
   const yV = (v: number) => MT + ph * (1 - (v - vlo) / (vhi - vlo));
   const zeroY = yV(0);
-  const prices = s.price.filter((p): p is number => p != null);
+  const hasBook = !!(s.bid && s.ask && s.bid.some((v) => v != null) && s.ask.some((v) => v != null));
+  const prices = (hasBook ? [...(s.bid ?? []), ...(s.ask ?? [])] : s.price).filter((p): p is number => p != null);
   const plo = prices.length ? Math.min(...prices) : 0, phi = prices.length ? Math.max(...prices) : 1;
   const pad = (phi - plo) * 0.12 || 0.1;
   const yP = (p: number) => MT + ph * (1 - (p - (plo - pad)) / (phi + pad - (plo - pad)));
@@ -76,7 +77,7 @@ function sessionChartSvg(s: SpoofSeries, day: string): string {
   const el: string[] = [];
   el.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="DejaVu Sans" font-size="10" fill="#333">`);
   el.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="white"/>`);
-  el.push(`<text x="${ML}" y="16" font-size="12" font-weight="bold" fill="#1F3864">${esc(`Aktywność arkusza — sesja ${day} (rekonstrukcja ze zleceń UTP)`)}</text>`);
+  el.push(`<text x="${ML}" y="16" font-size="12" font-weight="bold" fill="#1F3864">${esc(`Aktywność arkusza — sesja ${day} (${hasBook ? "kwotowania z tickowego arkusza zleceń" : "rekonstrukcja ze zleceń UTP"})`)}</text>`);
   for (let k = 0; k <= 4; k++) {
     const v = vlo + ((vhi - vlo) * k) / 4, y = yV(v);
     el.push(`<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W - MR}" y2="${y.toFixed(1)}" stroke="#E5E7EB" stroke-width="1"/>`);
@@ -94,14 +95,21 @@ function sessionChartSvg(s: SpoofSeries, day: string): string {
   el.push(`${area(s.sumS, -1)} fill="#F8C7CE" stroke="none"/>`);
   el.push(`${area(s.diff)} fill="#F5D90A" fill-opacity="0.72" stroke="none"/>`);
   el.push(`<line x1="${ML}" y1="${zeroY.toFixed(1)}" x2="${W - MR}" y2="${zeroY.toFixed(1)}" stroke="#9AA0AA" stroke-width="1"/>`);
-  // linia kursu transakcyjnego (czerwona) — oś prawa
-  const pricePts = line(s.price, yP);
-  if (pricePts) el.push(`<polyline points="${pricePts}" fill="none" stroke="#C0392B" stroke-width="1.7"/>`);
-  // legenda
+  // linie cen (oś prawa): z tickowego arkusza — BestBid (zielona) + BestAsk (czerwona);
+  // bez niego — kurs transakcyjny (czerwona).
   const lg: [string, string, boolean][] = [
     ["#C6EFCE", "wolumen kupna Grupy", false], ["#F8C7CE", "wolumen sprzedaży", false], ["#F5D90A", "Różnica (saldo)", false],
-    ["#C0392B", "kurs transakcyjny (zł)", true],
   ];
+  if (hasBook) {
+    const bidPts = line(s.bid!, yP), askPts = line(s.ask!, yP);
+    if (bidPts) el.push(`<polyline points="${bidPts}" fill="none" stroke="#2E7D32" stroke-width="1.7"/>`);
+    if (askPts) el.push(`<polyline points="${askPts}" fill="none" stroke="#C0392B" stroke-width="1.7"/>`);
+    lg.push(["#2E7D32", "BestBid", true], ["#C0392B", "BestAsk", true]);
+  } else {
+    const pricePts = line(s.price, yP);
+    if (pricePts) el.push(`<polyline points="${pricePts}" fill="none" stroke="#C0392B" stroke-width="1.7"/>`);
+    lg.push(["#C0392B", "kurs transakcyjny (zł)", true]);
+  }
   let lx = ML;
   for (const [c, t, isLine] of lg) {
     if (isLine) el.push(`<line x1="${lx}" y1="${H - 12}" x2="${lx + 14}" y2="${H - 12}" stroke="${c}" stroke-width="2.2"/>`);
@@ -185,7 +193,11 @@ function docDefinition(a: SpoofAnalysis): Pm {
     { text: [{ text: "Podstawa prawna. ", bold: true }, "Art. 12 ust. 1 lit. a) rozporządzenia MAR (2014/596) — zlecenia wprowadzające lub mogące wprowadzać w błąd co do podaży/popytu lub ceny; Załącznik I sekcja A lit. a) MAR; w prawie USA — CEA §4c(a)(5) (CFTC) oraz Exchange Act §9(a)(2)/§10(b)."], style: "body", margin: [0, 0, 0, 6] },
     { text: [{ text: "Źródło danych. ", bold: true }, "Arkusz zleceń UTP (jeden wiersz na zlecenie): strona (K/S), wolumen zadeklarowany, wolumen zrealizowany, limit (cena), czas wprowadzenia i modyfikacji/anulacji. „Anulowany” wolumen = wolumen zadeklarowany − zrealizowany (część niewprowadzona do obrotu)."], style: "body", margin: [0, 0, 0, 6] },
     { text: [{ text: "Kryterium wykrycia (per sesja). ", bold: true }, `duże zlecenia kupna Grupy, w większości niezrealizowane i anulowane (udział anulacji ≥ ${pct(a.params.min_cancel_share)}, anulowany wolumen ≥ ${pl(a.params.min_cancel_vol)} szt), rozłożone na wielu poziomach cen, przy jednoczesnej realizacji sprzedaży Grupy po stronie przeciwnej. Detekcja jest obiektywna i wskazuje wszystkie sesje spełniające kryterium; wybór najsilniejszych przykładów należy do biegłego.`], style: "body", margin: [0, 0, 0, 8] },
-    { text: [{ text: "Wykres per sesja. ", bold: true }, "Obszary przedstawiają zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż) i ich saldo (Różnica), a linia — kurs transakcyjny. Rzeczywistych linii najlepszej oferty kupna/sprzedaży (BestBid/BestAsk) nie odtwarzano: arkusz UTP zawiera jeden wiersz na zlecenie, bez momentów realizacji, co uniemożliwia wierną rekonstrukcję kwotowań (wymagałaby tickowego widoku arkusza giełdy)."], style: "body", margin: [0, 0, 0, 8] },
+    { text: [{ text: "Wykres per sesja. ", bold: true }, "Obszary przedstawiają zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż) i ich saldo (Różnica). ",
+      a.meta.book_source
+        ? "Linie najlepszej oferty kupna i sprzedaży (BestBid/BestAsk) pochodzą z tickowego widoku arkusza zleceń załączonego do akt."
+        : "Linia to kurs transakcyjny; rzeczywistych linii BestBid/BestAsk nie odtwarzano — arkusz UTP zawiera jeden wiersz na zlecenie, bez momentów realizacji, co uniemożliwia wierną rekonstrukcję kwotowań (wymaga tickowego widoku arkusza giełdy; moduł użyje go automatycznie, gdy pojawi się w aktach)."],
+      style: "body", margin: [0, 0, 0, 8] },
     { text: "Legenda kolorów w tabelach sekwencji:", bold: true, fontSize: 9.5, margin: [0, 0, 0, 4] },
     legendChip(REDBG, "warstwa kupna anulowana — zlecenie „layeringowe” niewprowadzone do obrotu (pozorny popyt)"),
     legendChip(ORANGE, "warstwa kupna częściowo zrealizowana / modyfikowana"),

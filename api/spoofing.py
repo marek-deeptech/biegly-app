@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.loader import load_rows  # noqa: E402
+from engine.orderbook import parse_orderbook  # noqa: E402
 from engine.settings import SHEET_ORDERS, SHEET_TRANSACTIONS  # noqa: E402
 from engine.spoofing import detect_layering  # noqa: E402
 
@@ -91,7 +92,37 @@ class handler(BaseHTTPRequestHandler):
                 if d["day"] not in keep:
                     d["orders"] = []
 
-            analysis = {**res, "meta": {"caseName": case_name, "signature": signature}}
+            # Opcjonalnie: tickowy „widok arkusza zleceń" w aktach → prawdziwe BestBid/BestAsk.
+            # Wykrywamy kandydatów po nazwie (bez pliku uprawnień „widok" i głównego UTP),
+            # parsujemy; jeśli dają kwotowania dla sesji — nadpisujemy serie. Inaczej fallback.
+            book_source = False
+            try:
+                _, dbob = _req("GET", f"{BASE}/rest/v1/documents?case_id=eq.{case_id}&select=rel_path,storage_path")
+                docs = json.loads(dbob or b"[]")
+
+                def _is_ob(rp):
+                    rp = rp.lower()
+                    if "widok" in rp or "transakcje_i_zlecenia" in rp or not rp.endswith(".xlsx"):
+                        return False
+                    return any(k in rp for k in ["arkusz zlece", "arkusza zlece", "order book", "orderbook", "dziennik zlece", "kwotowa", "depth", "tick", "_l2", "best bid", "bestbid"])
+
+                cands = [d for d in docs if d.get("storage_path") and _is_ob(str(d.get("rel_path", "")))][:3]
+                book = None
+                for c in cands:
+                    _, bb = _req("GET", f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(c['storage_path'])}")
+                    book = parse_orderbook(io.BytesIO(bb), want_days=keep)
+                    if book:
+                        break
+                if book:
+                    for d in res["days"]:
+                        s, ob = d.get("series"), book.get(d["day"])
+                        if s and ob:
+                            s["bid"], s["ask"] = ob["bid"], ob["ask"]
+                    book_source = True
+            except Exception:  # noqa: BLE001
+                book_source = False
+
+            analysis = {**res, "meta": {"caseName": case_name, "signature": signature, "book_source": book_source}}
             payload = [{
                 "case_id": case_id,
                 "kind": "spoofing_analysis",
