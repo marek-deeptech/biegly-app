@@ -921,6 +921,170 @@ function buildPumpDumpSubanaliza(caseName: string, metrics: Metric[], quotes?: Q
   };
 }
 
+// IV.x — Manipulacja na fixingu (marking the close). Metryki: fix_pre_cancel_cnt/vol
+// per sesja (zlecenia Grupy 16:50–17:00 niewprowadzone do obrotu) — zał. I lit. g MAR.
+function buildFixingSubanaliza(caseName: string, metrics: Metric[]): SubResult {
+  const { no, title } = ivMeta(caseName, "fixing");
+  const t = TECHNIQUES.fixing;
+  const days = [...new Set(metrics.filter((m) => m.key === "fix_pre_cancel_vol" && m.session_day).map((m) => m.session_day as string))].sort();
+  const at = (k: string, d: string) => metrics.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  const rows = days.map((d) => [d, plnum(at("fix_pre_cancel_cnt", d)), plnum(at("fix_pre_cancel_vol", d), "szt")]);
+  const totVol = days.reduce((s, d) => s + (at("fix_pre_cancel_vol", d) ?? 0), 0);
+  const peakD = days.reduce<string | null>(
+    (a, b) => ((at("fix_pre_cancel_vol", b) ?? 0) > (a ? at("fix_pre_cancel_vol", a) ?? 0 : -1) ? b : a),
+    null,
+  );
+  const sec: string[] = [
+    `${t.label} (${t.mar}; ${t.rd}): ${t.definicja}`,
+    days.length
+      ? `W fazie przed zamknięciem (16:50–17:00) zidentyfikowano zlecenia Grupy niewprowadzone do obrotu w ` +
+        `${plnum(days.length)} sesjach — łącznie ${plnum(totVol, "szt")} zadeklarowanego wolumenu` +
+        (peakD ? `, z maksimum ${plnum(at("fix_pre_cancel_vol", peakD), "szt")} w sesji ${peakD}` : ``) +
+        `. Zlecenia takie wpływają na teoretyczny kurs zamknięcia (TKO), nie wchodząc do obrotu — wskaźnik ${annexIRef("g")}.`
+      : `W analizowanym okresie nie zidentyfikowano zleceń Grupy w fazie przed zamknięciem niewprowadzonych do obrotu ` +
+        `(brak sygnału wskaźnika ${annexIRef("g")}).`,
+    `[Do uzupełnienia: zestawienie kursów odniesienia (fixing) w sesjach z aktywnością Grupy w fazie przed zamknięciem.]`,
+  ];
+  return {
+    kind: "fixing",
+    chapterNo: no,
+    title,
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: days.length
+        ? {
+            caption: "Tabela. Zlecenia Grupy w fazie przed zamknięciem (16:50–17:00) niewprowadzone do obrotu — per sesja",
+            head: ["Sesja", "Liczba zleceń", "Wolumen (szt)"],
+            rows,
+          }
+        : null,
+      findings: days.length
+        ? [`Zlecenia „zachęcające” przed fixingiem w ${plnum(days.length)} sesjach (łącznie ${plnum(totVol, "szt")}; maksimum ${peakD ?? "—"}).`]
+        : [],
+      legalRefs: [t.mar, annexIRef("g"), LEGAL_REFS.manipulacja],
+    },
+  };
+}
+
+// IV.x — Odwrócenie pozycji w krótkim okresie. Metryki: rev_val::{podmiot} per sesja
+// (kupno i sprzedaż tej samej sesji, wartość odwrócenia ≥ 50 tys. zł) — zał. I lit. d MAR.
+function buildReversalSubanaliza(caseName: string, metrics: Metric[]): SubResult {
+  const { no, title } = ivMeta(caseName, "reversal");
+  const t = TECHNIQUES.reversal;
+  const rows = metrics
+    .filter((m) => m.key.startsWith("rev_val::") && m.session_day && m.value != null)
+    .map((m) => ({ day: m.session_day as string, entity: m.key.slice("rev_val::".length), value: m.value as number }))
+    .sort((a, b) => a.day.localeCompare(b.day) || b.value - a.value);
+  const peakR = rows.reduce<(typeof rows)[number] | null>((a, b) => (b.value > (a?.value ?? -1) ? b : a), null);
+  const sec: string[] = [
+    `${t.label} (${t.mar}): ${t.definicja}`,
+    rows.length
+      ? `Zidentyfikowano ${plnum(rows.length)} przypadków odwrócenia pozycji w jednej sesji (próg 50 tys. zł), ` +
+        `z maksimum ${plnum(peakR?.value, "zł")} (${peakR?.entity}, sesja ${peakR?.day}). Wartość odwrócenia = ` +
+        `min(wartość kupna, wartość sprzedaży) podmiotu w tej samej sesji — wskaźnik ${annexIRef("d")}.`
+      : `W analizowanym okresie nie zidentyfikowano odwróceń pozycji ≥ 50 tys. zł w jednej sesji (brak sygnału wskaźnika ${annexIRef("d")}).`,
+  ];
+  return {
+    kind: "reversal",
+    chapterNo: no,
+    title,
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: rows.length
+        ? {
+            caption: "Tabela. Odwrócenie pozycji w tej samej sesji — podmioty Grupy (wartość odwrócenia ≥ 50 tys. zł)",
+            head: ["Sesja", "Podmiot", "Wartość odwrócenia (zł)"],
+            rows: rows.map((r) => [r.day, r.entity, plnum(r.value, "zł")]),
+          }
+        : null,
+      findings: rows.length
+        ? [`Odwrócenia pozycji śródsesyjne: ${plnum(rows.length)} przypadków; maksimum ${plnum(peakR?.value, "zł")} (${peakR?.entity}, ${peakR?.day}).`]
+        : [],
+      legalRefs: [t.mar, annexIRef("d"), LEGAL_REFS.manipulacja],
+    },
+  };
+}
+
+// IV.x — Koncentracja zleceń w krótkim odcinku sesji. Metryka: conc_peak_share per sesja
+// (udział Grupy w wolumenie sesji w szczytowym oknie 15-minutowym) — zał. I lit. e MAR.
+function buildConcentrationSubanaliza(caseName: string, metrics: Metric[]): SubResult {
+  const { no, title } = ivMeta(caseName, "concentration");
+  const t = TECHNIQUES.concentration;
+  const rows = metrics
+    .filter((m) => m.key === "conc_peak_share" && m.session_day && m.value != null)
+    .map((m) => ({ day: m.session_day as string, share: m.value as number }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+  const strong = rows.filter((r) => r.share >= 30);
+  const peakC = rows.reduce<(typeof rows)[number] | null>((a, b) => (b.share > (a?.share ?? -1) ? b : a), null);
+  const sec: string[] = [
+    `${t.label} (${t.mar}): ${t.definicja}`,
+    rows.length
+      ? `W ${plnum(rows.length)} sesjach wyznaczono szczytowe okno 15-minutowe aktywności Grupy; w ` +
+        `${plnum(strong.length)} sesjach udział Grupy w wolumenie całej sesji skoncentrowany w tym oknie wyniósł ` +
+        `co najmniej 30%, z maksimum ${plnum(peakC?.share, "%")} (sesja ${peakC?.day}) — wskaźnik ${annexIRef("e")}. ` +
+        `Koncentrację zestawiać z przebiegiem kursu (zmiana i jej odwrócenie po oknie).`
+      : `Brak policzonych okien koncentracji (wymagane dane transakcyjne z czasem transakcji).`,
+  ];
+  return {
+    kind: "concentration",
+    chapterNo: no,
+    title,
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: rows.length
+        ? {
+            caption: "Tabela. Koncentracja aktywności Grupy — udział szczytowego okna 15 min w wolumenie sesji",
+            head: ["Sesja", "Udział Grupy w wolumenie sesji (okno 15 min)"],
+            rows: rows.map((r) => [r.day, plnum(r.share, "%")]),
+          }
+        : null,
+      findings: strong.length
+        ? [`Koncentracja śródsesyjna ≥30% wolumenu sesji w ${plnum(strong.length)} sesjach; maksimum ${plnum(peakC?.share, "%")} (${peakC?.day}).`]
+        : [],
+      legalRefs: [t.mar, annexIRef("e"), LEGAL_REFS.manipulacja],
+    },
+  };
+}
+
+// IV.x — Manipulacja informacją. Sesje o skrajnych zmianach kursu (day_change_pct) jako
+// kandydaci do cross-linku z komunikatami ESPI (wyciąg `espi_events` — moduł Recenzenta).
+function buildInfomanipSubanaliza(caseName: string, metrics: Metric[]): SubResult {
+  const { no, title } = ivMeta(caseName, "infomanip");
+  const t = TECHNIQUES.infomanip;
+  const rows = metrics
+    .filter((m) => m.key === "day_change_pct" && m.session_day && m.value != null)
+    .map((m) => ({ day: m.session_day as string, chg: m.value as number }))
+    .sort((a, b) => Math.abs(b.chg) - Math.abs(a.chg))
+    .slice(0, 10)
+    .sort((a, b) => a.day.localeCompare(b.day));
+  const sec: string[] = [
+    `${t.label} (${t.mar}): ${t.definicja}`,
+    `Ocena manipulacji informacją wymaga zestawienia treści i dat komunikatów spółki (rozdz. ESPI) z reakcją ` +
+      `kursu oraz aktywnością Grupy w zbieżnych sesjach. Tabela wskazuje sesje o największych zmianach kursu — ` +
+      `kandydatów do powiązania z komunikatami; datowany wyciąg zdarzeń ESPI (z treścią i reakcją sesji) ` +
+      `zapewnia moduł „Zdarzenia ESPI” (zakładka Recenzent).`,
+    `[Do uzupełnienia: przypisanie konkretnych komunikatów ESPI/EBI do sesji o skrajnych zmianach kursu oraz ` +
+      `ocena ich cenotwórczości (art. 7 MAR) i rzetelności.]`,
+  ];
+  return {
+    kind: "infomanip",
+    chapterNo: no,
+    title,
+    bodyMd: sec.join("\n\n"),
+    data: {
+      table: rows.length
+        ? {
+            caption: "Tabela. Sesje o największych zmianach kursu — kandydaci do cross-linku z komunikatami ESPI/EBI",
+            head: ["Sesja", "Zmiana kursu"],
+            rows: rows.map((r) => [r.day, `${r.chg > 0 ? "+" : ""}${plnum(r.chg, "%")}`]),
+          }
+        : null,
+      findings: [],
+      legalRefs: [t.mar, LEGAL_REFS.informacjaPoufna, LEGAL_REFS.obowiazekRaportowy],
+    },
+  };
+}
+
 // IV.x — Aktywność podmiotów z Grupy (skala obecności + dynamika kursu + saldo).
 function buildAktywnoscSubanaliza(caseName: string, metrics: Metric[], documents: Doc[] = []): SubResult {
   const { no, title } = ivMeta(caseName, "aktywnosc");
@@ -1304,6 +1468,14 @@ export function buildIVChapter(
     }
     case "pumpdump":
       return buildPumpDumpSubanaliza(caseName, metrics, quotes);
+    case "fixing":
+      return buildFixingSubanaliza(caseName, metrics);
+    case "reversal":
+      return buildReversalSubanaliza(caseName, metrics);
+    case "concentration":
+      return buildConcentrationSubanaliza(caseName, metrics);
+    case "infomanip":
+      return buildInfomanipSubanaliza(caseName, metrics);
   }
 }
 

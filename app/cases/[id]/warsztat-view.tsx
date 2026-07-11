@@ -16,7 +16,13 @@ type Doc = { rel_path: string; doc_type?: string | null; storage_path?: string |
 type SubRow = {
   kind: string;
   body_md: string;
-  data: { table?: unknown; findings?: string[]; legalRefs?: string[] } | null;
+  data: {
+    table?: unknown;
+    findings?: string[];
+    legalRefs?: string[];
+    // wyciąg zdarzeń ESPI (espi_events) — sygnał manipulacji informacją w Krok 3
+    events?: { session?: string; chg?: number | null }[];
+  } | null;
 };
 
 export default function WarsztatView({
@@ -56,7 +62,7 @@ export default function WarsztatView({
         ))}
       </div>
 
-      {sub === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} />}
+      {sub === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} stored={subanalyses} />}
       {sub === "powiazania" && <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />}
       {sub === "osint" && <OsintPanel caseId={caseId} metrics={metrics} stored={subanalyses} />}
     </div>

@@ -14,18 +14,21 @@ import { proposeTechniques } from "@/lib/opinion/techniques-detect";
 // „aktywnosc" to moduł przeglądowy (nie technika MAR) — stąd specjalna etykieta.
 
 type Metric = { key: string; value: number | null; unit: string | null; session_day: string | null };
+type SubRow = { kind: string; data: { events?: { session?: string; chg?: number | null }[] } | null };
 
 export default function TechniquesPanel({
   caseId,
   metrics,
   selected,
+  stored = [],
 }: {
   caseId: string;
   metrics: Metric[];
   selected: IVKind[];
+  stored?: SubRow[];
 }) {
   const router = useRouter();
-  const proposals = useMemo(() => proposeTechniques(metrics), [metrics]);
+  const proposals = useMemo(() => proposeTechniques(metrics, stored), [metrics, stored]);
   const initial = selected.length ? selected : proposals.filter((p) => p.auto).map((p) => p.id as IVKind);
   const [sel, setSel] = useState<Set<string>>(new Set(initial));
   const [busy, setBusy] = useState(false);

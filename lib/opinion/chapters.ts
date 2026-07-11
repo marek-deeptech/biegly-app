@@ -23,7 +23,11 @@ export type IVKind =
   | "wash"
   | "imo"
   | "layering"
-  | "pumpdump";
+  | "pumpdump"
+  | "fixing"
+  | "reversal"
+  | "concentration"
+  | "infomanip";
 
 export type IVChapter = { kind: IVKind; no: string; title: string; perSession?: boolean };
 
@@ -77,7 +81,7 @@ export function chapterNoFor(caseName: string, kind: IVKind): string {
 }
 
 export function chapterTitleFor(caseName: string, kind: IVKind): string {
-  return planChapter(caseName, kind)?.title ?? kind;
+  return planChapter(caseName, kind)?.title ?? IV_TITLE[kind] ?? kind;
 }
 
 // Techniki manipulacji obecne w planie sprawy (do rozdz. III i Wniosków).
@@ -88,7 +92,19 @@ export function planTechniques(caseName: string): IVKind[] {
 }
 
 // Techniczne rodzaje rozdziałów (uzasadnienia technik manipulacji).
-export const TECH_KINDS: IVKind[] = ["wash", "imo", "layering", "pumpdump"];
+// Kolejność = kolejność na liście w A2: katalog bazowy KM, potem detektory
+// wskaźnikowe zał. I MAR (fixing lit. g, odwrócenie lit. d, koncentracja lit. e)
+// i manipulacja informacją (cross-link ESPI ↔ reakcja kursu).
+export const TECH_KINDS: IVKind[] = [
+  "wash",
+  "imo",
+  "layering",
+  "pumpdump",
+  "fixing",
+  "reversal",
+  "concentration",
+  "infomanip",
+];
 
 // Katalog modułów IV wybieralnych per sprawa (A2). „aktywnosc" to moduł
 // przeglądowy, nie technika MAR: KM użył go w HUBTECH (12 sesji — pełny
@@ -105,6 +121,10 @@ const IV_TITLE: Record<IVKind, string> = {
   imo: "Improper matched orders",
   layering: "Layering and spoofing",
   pumpdump: "Pump and dump",
+  fixing: "Manipulacja na fixingu (marking the close)",
+  reversal: "Odwrócenie pozycji w krótkim okresie",
+  concentration: "Koncentracja zleceń w krótkim odcinku sesji",
+  infomanip: "Manipulacja informacją",
 };
 
 // Plan IV budowany z modułów wybranych w A2 (z dowodów), nie z presetu.

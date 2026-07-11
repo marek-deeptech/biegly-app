@@ -4,7 +4,15 @@
 // teoretyczne) ORAZ zakotwiczenia prawne w rozdziałach IV i w Wnioskach (II).
 // Raz zdefiniowane — re-używalne między sprawami (teoria jest taka sama).
 
-export type TechniqueId = "wash" | "imo" | "layering" | "pumpdump" | "infomanip";
+export type TechniqueId =
+  | "wash"
+  | "imo"
+  | "layering"
+  | "pumpdump"
+  | "infomanip"
+  | "fixing"
+  | "reversal"
+  | "concentration";
 
 export type Technique = {
   id: TechniqueId;
@@ -73,6 +81,40 @@ export const TECHNIQUES: Record<TechniqueId, Technique> = {
       "wprowadzają lub mogą wprowadzać w błąd co do instrumentu finansowego, w tym " +
       "komunikatów spółki tworzących fałszywy, pozytywny obraz emitenta w celu wywołania " +
       "zainteresowania jej instrumentami.",
+  },
+  // ── Detektory wskaźnikowe zał. I lit. A MAR (dodane PO katalogu bazowym KM) ──
+  fixing: {
+    id: "fixing",
+    label: "Manipulacja na fixingu (marking the close)",
+    mar: "art. 12 ust. 1 lit. a MAR; zał. I lit. A pkt g)",
+    rd: "praktyka „marking the close” (RD 2016/522, zał. II, sekcja 1)",
+    definicja:
+      "Manipulacja na fixingu (marking the close) — składanie zleceń lub zawieranie transakcji " +
+      "w czasie ustalania kursów odniesienia (fixing otwarcia/zamknięcia) lub bezpośrednio przed nim, " +
+      "wpływające na kurs teoretyczny i publikowany kurs odniesienia. Obejmuje zlecenia „zachęcające”, " +
+      "składane w fazie przed zamknięciem i niewchodzące do obrotu, które zmieniają obraz arkusza " +
+      "w momencie wyznaczania ceny.",
+  },
+  reversal: {
+    id: "reversal",
+    label: "Odwrócenie pozycji w krótkim okresie",
+    mar: "art. 12 ust. 1 lit. a MAR; zał. I lit. A pkt d)",
+    rd: "wskaźnik zał. I lit. A pkt d) MAR",
+    definicja:
+      "Odwrócenie pozycji w krótkim okresie — zlecenia lub transakcje (w tym zlecenia anulowane), " +
+      "które obejmują odwrócenie pozycji w krótkim okresie i stanowią istotną część dziennego wolumenu " +
+      "obrotu danym instrumentem, w powiązaniu z istotną zmianą jego ceny. Kupno i sprzedaż w tej samej " +
+      "sesji przez ten sam podmiot pozoruje obrót i może służyć realizacji zysku na sztucznie zmienionej cenie.",
+  },
+  concentration: {
+    id: "concentration",
+    label: "Koncentracja zleceń w krótkim odcinku sesji",
+    mar: "art. 12 ust. 1 lit. a MAR; zał. I lit. A pkt e)",
+    rd: "wskaźnik zał. I lit. A pkt e) MAR",
+    definicja:
+      "Koncentracja zleceń lub transakcji w krótkim odcinku sesji — skupienie aktywności w krótkim " +
+      "przedziale czasu sesji, prowadzące do zmiany ceny, która następnie zostaje odwrócona; wskazuje " +
+      "na wywieranie chwilowej presji cenowej niewynikającej z naturalnego przebiegu obrotu.",
   },
 };
 
