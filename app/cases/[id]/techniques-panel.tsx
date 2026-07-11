@@ -137,8 +137,9 @@ export default function TechniquesPanel({
         tę bez pokrycia w dowodach. Zatwierdzony zestaw buduje rozdziały uzasadnień. Brak sygnału? Policz wskaźniki
         (zakładka Analiza liczbowa) lub dodaj technikę ręcznie.
       </p>
-      <div className="space-y-2">
-        {CATALOG_KINDS.map((k) => {
+      {/* Wiersz pozycji katalogu — wspólny dla technik MAR i modułu przeglądowego. */}
+      {(() => {
+        const renderRow = (k: (typeof CATALOG_KINDS)[number]) => {
           const t = k === "aktywnosc" ? null : TECHNIQUES[k as TechniqueId];
           const p = signalOf(k);
           return (
@@ -189,8 +190,23 @@ export default function TechniquesPanel({
             )}
             </div>
           );
-        })}
-      </div>
+        };
+        return (
+          <>
+            {/* ── Techniki manipulacji (katalog MAR) ── */}
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-inksoft">
+              Techniki manipulacji — katalog MAR
+            </p>
+            <div className="space-y-2">{CATALOG_KINDS.filter((k) => k !== "aktywnosc").map(renderRow)}</div>
+
+            {/* ── Moduł przeglądowy (nie technika MAR) — wpływa na strukturę rozdz. IV ── */}
+            <p className="mb-1 mt-4 border-t border-line pt-3 text-[11px] font-semibold uppercase tracking-wider text-inksoft">
+              Moduł przeglądowy rozdziału IV (nie technika MAR)
+            </p>
+            <div className="space-y-2">{renderRow("aktywnosc")}</div>
+          </>
+        );
+      })()}
       <div className="mt-3 flex items-center gap-2">
         <button
           onClick={save}
