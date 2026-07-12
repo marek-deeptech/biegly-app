@@ -32,9 +32,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   let content: OsintContent | null = stored ? appendPanelLinks(stored, links) : null;
 
   // 2) Fallback: brak analizy → kuratorowany MLM tylko dla sprawy Milisystem.
+  // Dopasowanie WYŁĄCZNIE po nazwie emitenta — sygnatura NIE identyfikuje sprawy
+  // (HUBTECH i MLM dzielą tę samą: RP I Ds 4.2019).
   if (!content) {
-    const nm = `${caseRow.name ?? ""} ${caseRow.signature ?? ""}`.toLowerCase();
-    const isMlm = /milisystem|intelligent gaming|2intellect|4\.2019/.test(nm);
+    const nm = `${caseRow.name ?? ""}`.toLowerCase();
+    const isMlm = /milisystem|intelligent gaming|2intellect|\bmlm\b/.test(nm);
     if (isMlm) content = milisystemOsint(links);
   }
 
