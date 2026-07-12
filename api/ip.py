@@ -34,6 +34,11 @@ class handler(BaseHTTPRequestHandler):
             case_id = body["caseId"]
             storage_path = body["storagePath"]
 
+            # Izolacja spraw: plik musi należeć do TEJ sprawy (storage_path = "<case_id>/…").
+            if not str(storage_path).startswith(f"{case_id}/"):
+                self._json(403, {"ok": False, "error": "Plik nie należy do tej sprawy."})
+                return
+
             obj_url = f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(storage_path)}"
             _, data = _req("GET", obj_url)
 
