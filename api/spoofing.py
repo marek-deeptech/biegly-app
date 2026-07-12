@@ -82,6 +82,16 @@ class handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001
                 case_name, signature = "", ""
 
+            # Roster Grupy OBOWIĄZKOWY — bez niego layering byłby wykrywany po podmiotach innej sprawy.
+            if not fragments:
+                self._json(409, {
+                    "ok": False,
+                    "error": "Sprawa nie ma zdefiniowanego składu Grupy (group_roster.fragments). "
+                             "Uzupełnij roster Grupy w zakładce Sprawa przed detekcją layering/spoofing — "
+                             "bez niego technika byłaby wykrywana po podmiotach innej sprawy.",
+                })
+                return
+
             res = detect_layering(zo, tx, fragments)
 
             # Przytnij szczegółowe sekwencje do najsilniejszych dni (reszta = tylko podsumowanie).

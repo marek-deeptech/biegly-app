@@ -65,6 +65,7 @@ class handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "error": "Pusty arkusz IAD_C_TREM."})
                 return
 
+            # Roster Grupy OBOWIĄZKOWY — jak w /api/analyze (bez niego fallback do HubTechu).
             fragments = None
             try:
                 _, rb = _req("GET", f"{BASE}/rest/v1/cases?id=eq.{case_id}&select=group_roster")
@@ -75,6 +76,15 @@ class handler(BaseHTTPRequestHandler):
                     fragments = [str(x).strip().lower() for x in frs if str(x).strip()]
             except Exception:  # noqa: BLE001
                 fragments = None
+
+            if not fragments:
+                self._json(409, {
+                    "ok": False,
+                    "error": "Sprawa nie ma zdefiniowanego składu Grupy (group_roster.fragments). "
+                             "Uzupełnij roster Grupy w zakładce Sprawa przed liczeniem wskaźników — "
+                             "bez niego atrybucja Grupy byłaby liczona po podmiotach innej sprawy.",
+                })
+                return
 
             rows = compute_trem(tx, fragments)
 

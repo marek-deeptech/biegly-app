@@ -64,7 +64,8 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             # Krok 2: roster „Grupy" per sprawa (z zawiadomienia) → group_fragments.
-            # Brak kolumny/rostera = fallback do None (domyślne fragmenty z settings).
+            # Roster jest OBOWIĄZKOWY: bez niego atrybucja Grupy poszłaby po domyślnych
+            # fragmentach HubTechu (settings) — ciche złe przypisanie w innej sprawie.
             fragments = None
             try:
                 _, rb = _req("GET", f"{BASE}/rest/v1/cases?id=eq.{case_id}&select=group_roster")
@@ -75,6 +76,15 @@ class handler(BaseHTTPRequestHandler):
                     fragments = [str(x).strip().lower() for x in frs if str(x).strip()]
             except Exception:  # noqa: BLE001
                 fragments = None
+
+            if not fragments:
+                self._json(409, {
+                    "ok": False,
+                    "error": "Sprawa nie ma zdefiniowanego składu Grupy (group_roster.fragments). "
+                             "Uzupełnij roster Grupy w zakładce Sprawa przed liczeniem wskaźników — "
+                             "bez niego atrybucja Grupy byłaby liczona po podmiotach innej sprawy.",
+                })
+                return
 
             rows = compute_all(tx, zo, fragments)
 
