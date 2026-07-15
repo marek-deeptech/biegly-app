@@ -16,10 +16,24 @@ from .settings import GROUP_FRAGMENTS
 
 
 def norm_acct(value) -> str:
-    """Normalizuje numer konta/biura: string bez wiodących zer."""
+    """Normalizuje numer konta/biura do wspólnej postaci niezależnie od typu komórki.
+
+    Excel bywa zapisuje ten sam numer raz jako tekst ("0915"), raz jako liczbę
+    (915.0). Bez sprowadzenia obu do jednej formy złączenie zleceń (arkusz tekstowy)
+    z mapą właścicieli z transakcji (arkusz liczbowy) gubiłoby WSZYSTKIE zlecenia —
+    klucze "915" vs "915.0" nigdy się nie zejdą. Całkowite liczby → bez ".0";
+    dodatkowo obcinamy wiodące zera ("0915" i 915 → "915").
+    """
     if value is None:
         return ""
-    return str(value).strip().lstrip("0")
+    s = str(value).strip()
+    try:
+        f = float(s)
+        if f == int(f):
+            s = str(int(f))
+    except (ValueError, OverflowError):
+        pass
+    return s.lstrip("0")
 
 
 def canonical_group(owner: str | None, fragments: list[str] | None = None) -> str | None:
