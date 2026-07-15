@@ -15,17 +15,26 @@ import { proposeTechniques } from "@/lib/opinion/techniques-detect";
 
 type Metric = { key: string; value: number | null; unit: string | null; session_day: string | null };
 type SubRow = { kind: string; data: { events?: { session?: string; chg?: number | null }[] } | null };
+// Lista „głównych" plików UTP (te same co dropdown Analizy) — wspólne źródło prawdy
+// wyboru pliku: detektor spoofingu liczy z tego samego pliku co reszta wskaźników.
+type UtpDoc = { id: string; rel_path: string; storage_path: string | null };
 
 export default function TechniquesPanel({
   caseId,
   metrics,
   selected,
   stored = [],
+  utpDocs = [],
+  activeUtp = "",
+  onSelectUtp,
 }: {
   caseId: string;
   metrics: Metric[];
   selected: IVKind[];
   stored?: SubRow[];
+  utpDocs?: UtpDoc[];
+  activeUtp?: string;
+  onSelectUtp?: (storagePath: string) => void;
 }) {
   const router = useRouter();
   const proposals = useMemo(() => proposeTechniques(metrics, stored), [metrics, stored]);
@@ -38,12 +47,17 @@ export default function TechniquesPanel({
   const [spoofMsg, setSpoofMsg] = useState("");
   const signalOf = (id: string) => proposals.find((p) => p.id === id);
 
-  // Krok 1: wykrycie na arkuszu zleceń (funkcja serverless /api/spoofing sama znajduje plik UTP).
+  // Krok 1: wykrycie na arkuszu zleceń. Plik = ten sam co wybrany w Analizie (activeUtp);
+  // gdy brak wskazania, serverless /api/spoofing dobiera główny plik UTP z akt.
   async function detectSpoofing() {
     setSpoofBusy("detect");
     setSpoofMsg("Analiza arkusza zleceń (wykrywanie layering/spoofing)… to potrwa chwilę.");
     try {
-      const r = await fetch(`/api/spoofing`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caseId }) });
+      const r = await fetch(`/api/spoofing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, ...(activeUtp ? { storagePath: activeUtp } : {}) }),
+      });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || j.reason || `HTTP ${r.status}`);
       setSpoofMsg(`Wykryto ${j.sessions} sesji ze znamionami layering/spoofing (anulowane kupno ${Number(j.cancelled_buy).toLocaleString("pl-PL")} szt, ${j.layers} warstw). Możesz pobrać raport PDF.`);
@@ -169,6 +183,22 @@ export default function TechniquesPanel({
                   wykrywa i zapisuje analizę; <strong>Krok 2</strong> pobiera raport PDF (metodyka, ranking sesji,
                   kolorowane sekwencje zleceń jak w opracowaniu specjalisty).
                 </p>
+                {utpDocs.length > 0 && (
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-inksoft">Plik źródłowy (wspólny z zakładką Analiza liczbowa):</span>
+                    <select
+                      value={activeUtp}
+                      onChange={(e) => onSelectUtp?.(e.target.value)}
+                      className="max-w-[260px] rounded-lg border border-ink/30 px-2 py-1 text-[11px]"
+                    >
+                      {utpDocs.map((d) => (
+                        <option key={d.id} value={d.storage_path ?? ""}>
+                          {d.rel_path.split("/").pop() || d.rel_path}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={detectSpoofing}

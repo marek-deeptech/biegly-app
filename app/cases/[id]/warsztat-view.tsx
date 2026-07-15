@@ -25,16 +25,24 @@ type SubRow = {
   } | null;
 };
 
+type UtpDoc = { id: string; rel_path: string; storage_path: string | null };
+
 export default function WarsztatView({
   caseId,
   metrics,
   documents,
   subanalyses,
+  utpDocs = [],
+  activeUtp = "",
+  onSelectUtp,
 }: {
   caseId: string;
   metrics: Metric[];
   documents: Doc[];
   subanalyses: SubRow[];
+  utpDocs?: UtpDoc[];
+  activeUtp?: string;
+  onSelectUtp?: (storagePath: string) => void;
 }) {
   const [sub, setSub] = useState<"techniki" | "powiazania" | "osint">("techniki");
   const selectedTech = useMemo(() => {
@@ -62,7 +70,17 @@ export default function WarsztatView({
         ))}
       </div>
 
-      {sub === "techniki" && <TechniquesPanel caseId={caseId} metrics={metrics} selected={selectedTech} stored={subanalyses} />}
+      {sub === "techniki" && (
+        <TechniquesPanel
+          caseId={caseId}
+          metrics={metrics}
+          selected={selectedTech}
+          stored={subanalyses}
+          utpDocs={utpDocs}
+          activeUtp={activeUtp}
+          onSelectUtp={onSelectUtp}
+        />
+      )}
       {sub === "powiazania" && <PowiazaniaPanel caseId={caseId} documents={documents} stored={subanalyses} />}
       {sub === "osint" && <OsintPanel caseId={caseId} metrics={metrics} stored={subanalyses} />}
     </div>

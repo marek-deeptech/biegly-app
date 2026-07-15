@@ -1068,7 +1068,15 @@ export default function CaseDetail({
       )}
 
       {tab === "warsztat" && (
-        <WarsztatView caseId={caseRow.id} metrics={metrics} documents={documents} subanalyses={subanalyses} />
+        <WarsztatView
+          caseId={caseRow.id}
+          metrics={metrics}
+          documents={documents}
+          subanalyses={subanalyses}
+          utpDocs={utpDocs}
+          activeUtp={activeUtp}
+          onSelectUtp={setSelectedUtp}
+        />
       )}
 
       {tab === "opinion" && (
