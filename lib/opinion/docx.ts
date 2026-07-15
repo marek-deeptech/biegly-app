@@ -194,6 +194,10 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
     if (ch.attachments?.length) {
       ch.attachments.forEach((a, i) => children.push(new Paragraph({ spacing: { after: 60, line: LINE }, children: [new TextRun({ text: `Zał. ${i + 1}. ${a}`, size: 20 })] })));
     }
+    if (ch.evidence?.length) {
+      children.push(new Paragraph({ spacing: { before: 160, after: 60, line: LINE }, children: [new TextRun({ text: "Wykaz materiału dowodowego (akta poddane badaniu):", bold: true, size: 20 })] }));
+      ch.evidence.forEach((a, i) => children.push(new Paragraph({ spacing: { after: 40, line: LINE }, children: [new TextRun({ text: `${i + 1}. ${a}`, size: 18 })] })));
+    }
   }
 
   // ── Klauzula i podpis ──

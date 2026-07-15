@@ -42,7 +42,8 @@ export type Chapter = {
   tables?: OpTable[]; // wiele tabel numerowanych w jednym rozdziale (np. OHLC + sprzedaż + kupno)
   placeholders?: Placeholder[]; // wykresy/tabele do wstawienia przez biegłego
   findings?: Para[];
-  attachments?: string[];
+  attachments?: string[]; // wygenerowane artefakty-załączniki (Zał. 1..N)
+  evidence?: string[]; // wykaz materiału dowodowego (akta poddane badaniu) — osobno od załączników
 };
 export type Opinion = {
   caseName: string;
@@ -1839,6 +1840,31 @@ function chapterTables(c: Chapter): OpTable[] {
   return c.table ? [c.table] : [];
 }
 
+// Wykaz wygenerowanych artefaktów-załączników do opinii (Zał. 1..N) — z zapisanych
+// subanaliz: zbieżność IP, raport Spoofing & Layering, graf/analiza OSINT. Każdy
+// wpisywany tylko gdy istnieje; OSINT jako „do dołączenia", gdy analizy jeszcze nie ma.
+function buildAttachmentList(stored: StoredSub[]): string[] {
+  const out: string[] = [];
+  const ip = stored.find((s) => s.kind === "powiazania_dane");
+  const ipPairs = ip?.data?.table?.rows?.length ?? 0;
+  if (ipPairs)
+    out.push(`Wykaz powiązań — zbieżność adresów IP (${ipPairs} par użytkowników dzielących logowania z tych samych adresów).`);
+  const sp = stored.find((s) => s.kind === "spoofing_analysis");
+  const spSess = (sp?.data as unknown as { analysis?: { totals?: { sessions_flagged?: number } } } | null)?.analysis?.totals
+    ?.sessions_flagged;
+  if (sp && spSess != null)
+    out.push(`Raport „Spoofing & Layering" — analiza arkusza zleceń (${spSess} sesji ze znamionami techniki), z kolorowanymi sekwencjami zleceń i wykresami.`);
+  const os = stored.find((s) => s.kind === "osint_analysis");
+  const g = (os?.data as unknown as { content?: { graphData?: { edges?: unknown[]; clusters?: unknown[] } } } | null)?.content
+    ?.graphData;
+  out.push(
+    os
+      ? `Graf powiązań kapitałowo-osobowych i analiza OSINT (${g?.edges?.length ?? 0} powiązań w ${g?.clusters?.length ?? 0} klastrach).`
+      : "Graf powiązań kapitałowo-osobowych i analiza OSINT — do dołączenia po przeprowadzeniu analizy OSINT.",
+  );
+  return out;
+}
+
 export function buildOpinion(
   caseRow: { name: string; signature: string | null },
   metrics: Metric[],
@@ -1928,12 +1954,13 @@ export function buildOpinion(
     },
     {
       no: "VI",
-      title: "Spis tabel i wykresów oraz wykaz załączników",
+      title: "Spis tabel i wykresów, wykaz załączników oraz materiału dowodowego",
       status: tablesIV.length || inputDocs.length ? "ready" : "todo",
       paras: tablesIV.length
         ? tablesIV.map((c, i) => ({ conf: "grounded" as Conf, text: `Tabela ${i + 1}. ${c.table.caption.replace(/^Tabela\.\s*/, "")} (rozdz. ${c.no}).` }))
         : [{ conf: "todo", text: "Spis tabel zostanie uzupełniony po wykonaniu analiz." }],
-      attachments: inputDocs.slice(0, 300).map((d) => basename(d.rel_path)),
+      attachments: buildAttachmentList(stored),
+      evidence: inputDocs.slice(0, 300).map((d) => basename(d.rel_path)),
     },
   ];
 

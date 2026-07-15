@@ -97,6 +97,10 @@ function chapterNodes(ch: Chapter, final: boolean, sig: string | null): Pm[] {
   }
   if (ch.attachments?.length)
     ch.attachments.forEach((a, i) => out.push({ text: `Zał. ${i + 1}. ${a}`, fontSize: 9.5, margin: [0, 0, 0, 3] }));
+  if (ch.evidence?.length) {
+    out.push({ text: "Wykaz materiału dowodowego (akta poddane badaniu):", bold: true, fontSize: 9.5, margin: [0, 8, 0, 4] });
+    ch.evidence.forEach((a, i) => out.push({ text: `${i + 1}. ${a}`, fontSize: 9, margin: [0, 0, 0, 2] }));
+  }
 
   return out;
 }

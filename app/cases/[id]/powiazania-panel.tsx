@@ -26,6 +26,7 @@ export default function PowiazaniaPanel({
   );
   const [sel, setSel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dlBusy, setDlBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const active = sel || ipFiles[0]?.storage_path || "";
   const result = stored.find((s) => s.kind === "powiazania_dane");
@@ -49,6 +50,31 @@ export default function PowiazaniaPanel({
       setMsg(`Błąd: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Pobranie załącznika „Wykaz powiązań IP" (PDF) — renderowany z zapisanej analizy.
+  async function downloadIp() {
+    setDlBusy(true);
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/ip`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        throw new Error(j?.reason || `HTTP ${r.status}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Wykaz_powiazan_IP.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setMsg(`PDF: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDlBusy(false);
     }
   }
 
@@ -93,6 +119,13 @@ export default function PowiazaniaPanel({
       {result && (
         <>
           <p className="mb-2 text-xs text-inksoft">{result.body_md}</p>
+          <button
+            onClick={downloadIp}
+            disabled={dlBusy}
+            className="mb-3 border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            {dlBusy ? "Generuję PDF…" : "Pobierz załącznik — Wykaz powiązań IP (PDF)"}
+          </button>
           {table && (
             <div className="overflow-auto">
               <table className="w-full text-sm">
