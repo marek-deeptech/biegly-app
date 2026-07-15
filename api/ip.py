@@ -69,7 +69,9 @@ class handler(BaseHTTPRequestHandler):
                 "chapter_no": "IV",
                 "title": "Powiązania — zbieżność IP (Krok 4)",
                 "body_md": body_md,
-                "data": {"table": table, "findings": [
+                # chart.events: (data, IP, użytkownik) ze WSPÓLNYCH adresów — materiał
+                # wykresu „data × IP" (jak wykres nr 6 analizy specjalisty); cap 6000.
+                "data": {"table": table, "chart": {"events": res["events"][:6000]}, "findings": [
                     f"{len(res['pairs'])} par użytkowników dzieli adresy IP; najsilniejsza para: "
                     f"{top[0]['user_a']} ↔ {top[0]['user_b']} ({top[0]['n_shared']} wspólnych IP)." if top else
                     "Brak par dzielących adresy IP."

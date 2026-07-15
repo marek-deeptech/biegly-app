@@ -31,12 +31,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     );
   }
   const findings = ((sub?.data as { findings?: string[] } | null)?.findings) ?? [];
+  const events =
+    ((sub?.data as { chart?: { events?: { date: string; ip: string; user: string }[] } } | null)?.chart?.events) ?? [];
   const buf = await renderIpPdf({
     caseName: caseRow.name,
     signature: caseRow.signature,
     summary: sub?.body_md ?? "",
     table,
     findings,
+    events,
   });
   const safe = (caseRow.name || "sprawa").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 60);
   return new Response(new Uint8Array(buf), {

@@ -66,27 +66,49 @@ def load_logins(file) -> list[dict]:
         wb.close()
 
 
+def _iso_date(raw: str) -> str | None:
+    """Normalizuje datę logowania do ISO YYYY-MM-DD (tolerancyjnie: ISO, DD.MM.YYYY,
+    DD-MM-YYYY, DD/MM/YYYY, 'YYYY-MM-DD hh:mm:ss'). Nieczytelna → None."""
+    s = (raw or "").strip().split(" ")[0].split("T")[0]
+    if not s:
+        return None
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    if m:
+        return s
+    m = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$", s)
+    if m:
+        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    return None
+
+
 def ip_correlation(rows: list[dict], max_users_per_ip: int = 8) -> dict:
-    """Pary użytkowników dzielących adresy IP.
+    """Pary użytkowników dzielących adresy IP + zdarzenia logowań ze wspólnych IP.
 
     Bierzemy tylko adresy współdzielone przez 2..`max_users_per_ip` użytkowników —
     IP użyty przez wielu (proxy/publiczny) nie jest znamienny. Zwraca pary z liczbą
-    wspólnych adresów oraz statystyki zbiorcze.
+    wspólnych adresów, statystyki zbiorcze oraz `events` — unikalne (data, IP,
+    użytkownik) WYŁĄCZNIE dla wspólnych adresów (materiał wykresu „data × IP"
+    w formie jak wykres nr 6 analizy specjalisty: nałożenie symboli = wspólne IP).
     """
     ip_users: dict[str, set] = defaultdict(set)
+    ip_user_dates: dict[tuple, set] = defaultdict(set)
     for r in rows:
         f = _fields(r)
         u = f.get("username") or f.get("user") or f.get("login")
         ip = f.get("ipaddress") or f.get("ip") or f.get("ipaddr") or f.get("adres ip")
-        if u and ip:
-            ip_users[ip].add(u)
+        if not (u and ip):
+            continue
+        ip_users[ip].add(u)
+        d = _iso_date(f.get("date") or f.get("data") or "")
+        if d:
+            ip_user_dates[(ip, u)].add(d)
 
     pairs: dict[tuple, set] = defaultdict(set)
-    shared = 0
+    shared_ips: list[str] = []
     for ip, users in ip_users.items():
         if not (2 <= len(users) <= max_users_per_ip):
             continue
-        shared += 1
+        shared_ips.append(ip)
         us = sorted(users)
         for i in range(len(us)):
             for j in range(i + 1, len(us)):
@@ -97,9 +119,19 @@ def ip_correlation(rows: list[dict], max_users_per_ip: int = 8) -> dict:
         for (a, b), ips in pairs.items()
     ]
     out.sort(key=lambda x: (-x["n_shared"], x["user_a"], x["user_b"]))
+
+    shared_set = set(shared_ips)
+    events = [
+        {"date": d, "ip": ip, "user": u}
+        for (ip, u), dates in ip_user_dates.items()
+        if ip in shared_set
+        for d in dates
+    ]
+    events.sort(key=lambda e: (e["date"], e["ip"], e["user"]))
     return {
         "pairs": out,
-        "shared_ip_count": shared,
+        "events": events,
+        "shared_ip_count": len(shared_ips),
         "ip_count": len(ip_users),
         "user_count": len({u for us in ip_users.values() for u in us}),
     }
