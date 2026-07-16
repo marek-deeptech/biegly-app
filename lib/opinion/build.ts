@@ -1854,14 +1854,14 @@ function buildAttachmentList(stored: StoredSub[]): string[] {
     ?.sessions_flagged;
   if (sp && spSess != null)
     out.push(`Raport „Spoofing & Layering" — analiza arkusza zleceń (${spSess} sesji ze znamionami techniki), z kolorowanymi sekwencjami zleceń i wykresami.`);
+  // Graf powiązań — zawsze dostępny (generowany z rostera Grupy, KRS i obrotu UTP).
+  out.push("Graf powiązań kapitałowo-osobowych (podmioty Grupy, beneficjenci/organy, obrót wewnątrzgrupowy) — źródła: KRS, roster Grupy, dane UTP.");
+  // Analiza OSINT (graf + ustalenia z sieci) — osobny załącznik, gdy przeprowadzona.
   const os = stored.find((s) => s.kind === "osint_analysis");
-  const g = (os?.data as unknown as { content?: { graphData?: { edges?: unknown[]; clusters?: unknown[] } } } | null)?.content
-    ?.graphData;
-  out.push(
-    os
-      ? `Graf powiązań kapitałowo-osobowych i analiza OSINT (${g?.edges?.length ?? 0} powiązań w ${g?.clusters?.length ?? 0} klastrach).`
-      : "Graf powiązań kapitałowo-osobowych i analiza OSINT — do dołączenia po przeprowadzeniu analizy OSINT.",
-  );
+  if (os) {
+    const g = (os.data as unknown as { content?: { graphData?: { edges?: unknown[]; clusters?: unknown[] } } } | null)?.content?.graphData;
+    out.push(`Analiza OSINT — graf powiązań i ustalenia (${g?.edges?.length ?? 0} powiązań w ${g?.clusters?.length ?? 0} klastrach).`);
+  }
   return out;
 }
 

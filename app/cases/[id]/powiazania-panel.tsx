@@ -27,6 +27,7 @@ export default function PowiazaniaPanel({
   const [sel, setSel] = useState("");
   const [busy, setBusy] = useState(false);
   const [dlBusy, setDlBusy] = useState(false);
+  const [graphBusy, setGraphBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const active = sel || ipFiles[0]?.storage_path || "";
   const result = stored.find((s) => s.kind === "powiazania_dane");
@@ -78,6 +79,31 @@ export default function PowiazaniaPanel({
     }
   }
 
+  // Pobranie załącznika „Graf powiązań kapitałowo-osobowych" (PDF poziomy) — z rostera/KRS/UTP.
+  async function downloadGraph() {
+    setGraphBusy(true);
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/graf`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        throw new Error(j?.reason || `HTTP ${r.status}`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Graf_powiazan.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setMsg(`Graf: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setGraphBusy(false);
+    }
+  }
+
   return (
     <section className="border border-ink/60 bg-card p-4">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em]">Powiązania — dane (Krok 4)</h2>
@@ -87,6 +113,19 @@ export default function PowiazaniaPanel({
         To dowód zbieżności infrastruktury — weryfikuje tezę o <strong>działaniu wspólnie i w porozumieniu</strong> z
         zawiadomienia KNF; ocenę relewancji przeprowadza biegły.
       </p>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-line pb-3">
+        <span className="text-xs text-inksoft">
+          <strong>Graf powiązań kapitałowo-osobowych</strong> — podmioty Grupy, beneficjenci/organy (KRS) i obrót wewnątrzgrupowy (UTP):
+        </span>
+        <button
+          onClick={downloadGraph}
+          disabled={graphBusy}
+          className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
+        >
+          {graphBusy ? "Generuję PDF…" : "Pobierz graf powiązań (PDF)"}
+        </button>
+      </div>
 
       {ipFiles.length === 0 ? (
         <p className="text-xs text-inksoft">
