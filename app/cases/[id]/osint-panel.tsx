@@ -88,6 +88,7 @@ export default function OsintPanel({
   const existing = stored.find((s) => s.kind === "powiazania_osint");
   const hasAnalysis = stored.some((s) => s.kind === "osint_analysis");
   const init = (existing?.data as { osint?: OsintData } | null)?.osint ?? {};
+  const initSearched = (stored.find((s) => s.kind === "osint_searched")?.data as { names?: string[] } | null)?.names ?? [];
   const [section, setSection] = useState<"A" | "B" | "C">("A");
   const [roster, setRoster] = useState<Entity[]>([]);
   const [links, setLinks] = useState<Link[]>(init.links ?? []);
@@ -97,8 +98,8 @@ export default function OsintPanel({
   const [ctx, setCtx] = useState<{ label: string; frag: string; add: "profile" | "link" } | null>(null);
   const [results, setResults] = useState<WebResult[]>([]);
   // Sekcja A: które podmioty już ręcznie przeszukano (zmienia przycisk na „ponownie")
-  // + stan zbiorczego „Przeszukaj wszystkie".
-  const [searched, setSearched] = useState<Set<string>>(new Set());
+  // + stan zbiorczego „Przeszukaj wszystkie". Trwałe — subanaliza `osint_searched`.
+  const [searched, setSearched] = useState<Set<string>>(new Set(initSearched));
   const [bulkBusy, setBulkBusy] = useState(false);
   // Silnik wyszukiwania powiązań (sekcja B): wolne pole + zapytania z modelu.
   const [q, setQ] = useState("");
@@ -172,9 +173,35 @@ export default function OsintPanel({
     }
   }
 
+  // Trwały zapis „przeszukanych" — osobna subanaliza `osint_searched` (nie rusza
+  // ręcznie zapisywanego `powiazania_osint`). Best-effort: błąd nie blokuje UX.
+  async function persistSearched(names: string[]) {
+    try {
+      const supabase = createClient();
+      await supabase.from("subanalyses").upsert(
+        {
+          case_id: caseId,
+          kind: "osint_searched",
+          chapter_no: "IV",
+          title: "OSINT — przeszukane podmioty (sekcja A)",
+          body_md: `Ręcznie przeszukano ${names.length} podmiotów/osób (OSINT, sekcja A).`,
+          data: { names },
+          status: "szkic",
+        },
+        { onConflict: "case_id,kind" },
+      );
+    } catch {
+      /* trwałość best-effort — nie przerywamy pracy */
+    }
+  }
+
   const searchEntity = async (e: Entity) => {
     await run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
-    setSearched((s) => new Set(s).add(e.name));
+    setSearched((prev) => {
+      const next = new Set(prev).add(e.name);
+      void persistSearched([...next]);
+      return next;
+    });
   };
   // Zbiorcze przeszukanie: najpierw jeszcze nieprzeszukane; jeśli wszystkie zrobione — całość ponownie.
   async function searchAll() {
@@ -184,8 +211,12 @@ export default function OsintPanel({
     try {
       for (const e of list) {
         await run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
-        setSearched((s) => new Set(s).add(e.name));
+        setSearched((prev) => new Set(prev).add(e.name));
       }
+      setSearched((prev) => {
+        void persistSearched([...prev]); // jeden zapis na koniec
+        return prev;
+      });
     } finally {
       setBulkBusy(false);
     }
