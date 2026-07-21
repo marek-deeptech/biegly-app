@@ -3,13 +3,17 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 export default function AppHeader({ email }: { email: string }) {
   const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
 
   async function signOut() {
+    setSigningOut(true);
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
@@ -25,12 +29,9 @@ export default function AppHeader({ email }: { email: string }) {
         </Link>
         <div className="flex items-center gap-4">
           <span className="hidden text-sm text-inksoft sm:inline">{email}</span>
-          <button
-            onClick={signOut}
-            className="border border-clay px-3 py-1.5 text-xs uppercase tracking-wider text-clay transition-colors hover:bg-clay hover:text-paper focus-visible:outline-none"
-          >
+          <Button variant="danger" size="sm" onClick={signOut} loading={signingOut} loadingLabel="Wylogowuję…">
             Wyloguj
-          </button>
+          </Button>
         </div>
       </div>
     </div>

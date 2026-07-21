@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 // A4 OSINT — dwie sekcje:
@@ -415,13 +416,17 @@ export default function OsintPanel({
                   <span className="font-medium">{e.name}</span>
                   <span className="ml-2 text-inksoft">{e.kind === "osoba" ? "osoba" : "podmiot"}</span>
                 </div>
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 py-1"
                   onClick={() => searchEntity(e)}
-                  disabled={busy !== null}
-                  className="shrink-0 border border-ink px-3 py-1 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                  disabled={busy !== null && busy !== "A:" + e.name}
+                  loading={busy === "A:" + e.name}
+                  loadingLabel="Szukam…"
                 >
-                  {busy === "A:" + e.name ? "Szukam…" : "Przeszukaj"}
-                </button>
+                  Przeszukaj
+                </Button>
               </div>
             ))}
           </div>
@@ -451,20 +456,26 @@ export default function OsintPanel({
               <label className="flex items-center gap-1 text-[11px] text-inksoft">
                 <input type="checkbox" checked={social} onChange={(e) => setSocial(e.target.checked)} /> social
               </label>
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => searchFree()}
-                disabled={busy !== null || !q.trim()}
-                className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                disabled={(busy !== null && busy !== "Bq") || !q.trim()}
+                loading={busy === "Bq"}
+                loadingLabel="Szukam…"
               >
-                {busy === "Bq" ? "Szukam…" : "Szukaj"}
-              </button>
-              <button
+                Szukaj
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
                 onClick={fetchSuggestions}
-                disabled={busy !== null}
-                className="border border-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-emerald-700 transition-colors hover:bg-emerald-600 hover:text-white disabled:opacity-40"
+                disabled={busy !== null && busy !== "sugg"}
+                loading={busy === "sugg"}
+                loadingLabel="Typuję…"
               >
-                {busy === "sugg" ? "Typuję…" : "Podpowiedz zapytania (model)"}
-              </button>
+                Podpowiedz zapytania (model)
+              </Button>
             </div>
             {sugg && sugg.queries.length > 0 && (
               <div className="mt-2 border-t border-line pt-2">
@@ -543,13 +554,16 @@ export default function OsintPanel({
               Przeprowadź analizę OSINT (agent)
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button
+              <Button
+                variant="primary"
+                size="md"
                 onClick={runAnalysis}
-                disabled={busy !== null}
-                className="border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
+                disabled={busy !== null && busy !== "analyze"}
+                loading={busy === "analyze"}
+                loadingLabel="Analizuję…"
               >
-                {busy === "analyze" ? "Analizuję…" : hasAnalysis ? "Przeprowadź ponownie" : "Przeprowadź analizę"}
-              </button>
+                {hasAnalysis ? "Przeprowadź ponownie" : "Przeprowadź analizę"}
+              </Button>
               <span className={`text-[11px] ${hasAnalysis ? "text-emerald-700" : "text-inksoft"}`}>
                 {hasAnalysis ? "✓ analiza gotowa dla tej sprawy" : "jeszcze nieprzeprowadzona"}
               </span>
@@ -565,13 +579,16 @@ export default function OsintPanel({
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[10px] text-paper">2</span>
               Pobierz Analizę OSINT (PDF)
             </div>
-            <button
+            <Button
+              variant="successSolid"
+              size="md"
               onClick={generateOsintPdf}
-              disabled={busy !== null}
-              className="border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+              disabled={busy !== null && busy !== "pdf"}
+              loading={busy === "pdf"}
+              loadingLabel="Generuję PDF…"
             >
-              {busy === "pdf" ? "Generuję PDF…" : "Pobierz PDF"}
-            </button>
+              Pobierz PDF
+            </Button>
             <p className="mt-2 text-[10px] leading-snug text-inksoft">
               Renderuje analizę z kroku 1 + dokleja zapisane powiązania z A/B ({links.filter((l) => l.podmioty.trim() && l.zrodlo.trim()).length}).
               Bez przeprowadzonej analizy: dla sprawy Milisystem pobierze wzorzec, dla innych najpierw poprosi o krok 1.
@@ -630,9 +647,9 @@ export default function OsintPanel({
           </div>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button onClick={save} disabled={busy !== null} className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40">
-            {busy === "save" ? "Zapisuję…" : "Zapisz ustalenia OSINT"}
-          </button>
+          <Button variant="successSolid" size="sm" onClick={save} disabled={busy !== null && busy !== "save"} loading={busy === "save"} loadingLabel="Zapisuję…">
+            Zapisz ustalenia OSINT
+          </Button>
           <span className="text-[10px] text-inksoft">→ zasilają analizę w kroku C i opinię (rozdz. IV)</span>
           {msg && <span className="w-full text-xs text-inksoft">{msg}</span>}
         </div>
@@ -662,13 +679,17 @@ function PairRow({
         <span className="min-w-0 font-medium">{a} ↔ {b}</span>
         <div className="flex shrink-0 items-center gap-2">
           {signal && <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-inksoft">{signal}</span>}
-          <button
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-1 text-[11px]"
             onClick={() => onSearch(a, b, "", "powiązania")}
-            disabled={busy !== null}
-            className="border border-ink px-2 py-1 text-[11px] uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+            disabled={busy !== null && busy !== `B:${a}|${b}|powiązania`}
+            loading={busy === `B:${a}|${b}|powiązania`}
+            loadingLabel="Szukam…"
           >
-            {busy === `B:${a}|${b}|powiązania` ? "Szukam…" : "Szukaj powiązań"}
-          </button>
+            Szukaj powiązań
+          </Button>
         </div>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-inksoft">

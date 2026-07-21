@@ -16,3 +16,13 @@ body {
   color: #1c2030;
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Nieokreślony pasek postępu (komponent ProgressBar) — przesuwający się segment. */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}

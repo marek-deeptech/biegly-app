@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useRef, useState } from "react";
 
+import { Button, ProgressBar } from "@/components/ui";
 import { classify } from "@/lib/intake/classify";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
@@ -647,14 +648,15 @@ export default function CaseDetail({
           Wskaż cały katalog albo dograj pojedyncze pliki. Ponowne wgranie tego samego pliku
           aktualizuje wpis — bez duplikatów.
         </p>
-        <div className="flex gap-2">
-          <button className={BTN_PRIMARY} disabled={busy} onClick={() => folderRef.current?.click()}>
+        <div className="flex items-center gap-2">
+          <Button variant="primary" size="md" disabled={busy} onClick={() => folderRef.current?.click()}>
             Wybierz katalog
-          </button>
-          <button className={BTN_SECONDARY} disabled={busy} onClick={() => filesRef.current?.click()}>
+          </Button>
+          <Button variant="outline" size="md" disabled={busy} onClick={() => filesRef.current?.click()}>
             Dodaj pliki
-          </button>
+          </Button>
         </div>
+        {busy && <div className="mt-3"><ProgressBar label="Wgrywam pliki do magazynu…" /></div>}
         <input
           ref={folderRef}
           type="file"
@@ -926,9 +928,9 @@ export default function CaseDetail({
                 ))}
               </select>
             )}
-            <button onClick={runAnalysis} disabled={!activeUtp || analyzing} className={BTN_PRIMARY}>
-              {analyzing ? "Liczę…" : metrics.length > 0 ? "Przelicz wskaźniki" : "Policz wskaźniki"}
-            </button>
+            <Button variant="primary" size="md" onClick={runAnalysis} disabled={!activeUtp} loading={analyzing} loadingLabel="Liczę…">
+              {metrics.length > 0 ? "Przelicz wskaźniki" : "Policz wskaźniki"}
+            </Button>
             {tremDocs.length > 0 && (
               <>
                 <select
@@ -942,9 +944,9 @@ export default function CaseDetail({
                     </option>
                   ))}
                 </select>
-                <button onClick={runTrem} disabled={!activeTrem || analyzing} className={BTN_SECONDARY}>
-                  {analyzing ? "Liczę…" : "Policz z TREM"}
-                </button>
+                <Button variant="outline" size="md" onClick={runTrem} disabled={!activeTrem} loading={analyzing} loadingLabel="Liczę…">
+                  Policz z TREM
+                </Button>
               </>
             )}
           </div>

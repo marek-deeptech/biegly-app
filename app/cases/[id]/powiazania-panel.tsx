@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui";
+
 // A3 — Powiązania z danych (Krok 4): korelacja adresów IP z pliku logowań.
 // Silnik liczy pary użytkowników dzielących adresy IP (dowód zbieżności).
 
@@ -118,13 +120,9 @@ export default function PowiazaniaPanel({
         <span className="text-xs text-inksoft">
           <strong>Graf powiązań kapitałowo-osobowych</strong> — podmioty Grupy, beneficjenci/organy (KRS) i obrót wewnątrzgrupowy (UTP):
         </span>
-        <button
-          onClick={downloadGraph}
-          disabled={graphBusy}
-          className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
-        >
-          {graphBusy ? "Generuję PDF…" : "Pobierz graf powiązań (PDF)"}
-        </button>
+        <Button variant="primary" size="sm" onClick={downloadGraph} loading={graphBusy} loadingLabel="Generuję PDF…">
+          Pobierz graf powiązań (PDF)
+        </Button>
       </div>
 
       {ipFiles.length === 0 ? (
@@ -144,13 +142,9 @@ export default function PowiazaniaPanel({
               </option>
             ))}
           </select>
-          <button
-            onClick={run}
-            disabled={!active || busy}
-            className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {busy ? "Liczę…" : "Analizuj powiązania IP"}
-          </button>
+          <Button variant="primary" size="sm" onClick={run} disabled={!active} loading={busy} loadingLabel="Liczę…">
+            Analizuj powiązania IP
+          </Button>
           {msg && <span className="text-xs text-inksoft">{msg}</span>}
         </div>
       )}
@@ -158,13 +152,9 @@ export default function PowiazaniaPanel({
       {result && (
         <>
           <p className="mb-2 text-xs text-inksoft">{result.body_md}</p>
-          <button
-            onClick={downloadIp}
-            disabled={dlBusy}
-            className="mb-3 border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {dlBusy ? "Generuję PDF…" : "Pobierz załącznik — Wykaz powiązań IP (PDF)"}
-          </button>
+          <Button variant="successSolid" size="sm" onClick={downloadIp} loading={dlBusy} loadingLabel="Generuję PDF…" className="mb-3">
+            Pobierz załącznik — Wykaz powiązań IP (PDF)
+          </Button>
           {table && (
             <div className="overflow-auto">
               <table className="w-full text-sm">

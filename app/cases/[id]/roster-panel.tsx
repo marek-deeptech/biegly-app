@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 // Krok 2 — roster „Grupy": podmioty OBJĘTE ZARZUTAMI z zawiadomienia.
@@ -185,13 +186,9 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
           })}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              onClick={save}
-              disabled={busy || !dirty}
-              className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              {busy ? "Zapisuję…" : "Zapisz i zatwierdź roster"}
-            </button>
+            <Button variant="successSolid" size="sm" onClick={save} disabled={!dirty} loading={busy} loadingLabel="Zapisuję…">
+              Zapisz i zatwierdź roster
+            </Button>
             {msg && <span className="text-xs text-inksoft">{msg}</span>}
           </div>
         </>

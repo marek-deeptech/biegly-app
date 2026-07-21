@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { Button, Spinner } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 // Albin — asystent sprawy (model + narzędzie czytania akt po stronie serwera).
@@ -122,7 +123,8 @@ export default function Albin({ caseId }: { caseId: string }) {
           </div>
         ))}
         {busy && (
-          <div className="inline-block border border-ink/20 bg-card px-3 py-2 text-xs text-inksoft">
+          <div className="inline-flex items-center gap-2 border border-ink/20 bg-card px-3 py-2 text-xs text-inksoft">
+            <Spinner className="h-3 w-3" />
             Albin pracuje… (może czytać dokumenty)
           </div>
         )}
@@ -156,13 +158,9 @@ export default function Albin({ caseId }: { caseId: string }) {
           disabled={busy}
           className="min-w-0 flex-1 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500 disabled:opacity-60"
         />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="bg-ink px-3 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
-        >
-          {busy ? "…" : "Wyślij"}
-        </button>
+        <Button type="submit" variant="primary" size="sm" className="py-2" disabled={!input.trim()} loading={busy} loadingLabel="Wysyłam…">
+          Wyślij
+        </Button>
       </form>
     </div>
   );

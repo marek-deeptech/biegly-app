@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { CATALOG_KINDS, TECH_KINDS, type IVKind } from "@/lib/opinion/chapters";
 import { TECHNIQUES, type TechniqueId } from "@/lib/opinion/legal";
@@ -200,20 +201,26 @@ export default function TechniquesPanel({
                   </div>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
+                  <Button
+                    variant="primary"
+                    size="sm"
                     onClick={detectSpoofing}
-                    disabled={spoofBusy !== null}
-                    className="border border-ink bg-ink px-3 py-1.5 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-40"
+                    disabled={spoofBusy === "pdf"}
+                    loading={spoofBusy === "detect"}
+                    loadingLabel="Analizuję…"
                   >
-                    {spoofBusy === "detect" ? "Analizuję…" : "1 · Wykryj (arkusz zleceń)"}
-                  </button>
-                  <button
+                    1 · Wykryj (arkusz zleceń)
+                  </Button>
+                  <Button
+                    variant="successSolid"
+                    size="sm"
                     onClick={downloadSpoofing}
-                    disabled={spoofBusy !== null}
-                    className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                    disabled={spoofBusy === "detect"}
+                    loading={spoofBusy === "pdf"}
+                    loadingLabel="Generuję PDF…"
                   >
-                    {spoofBusy === "pdf" ? "Generuję PDF…" : "2 · Pobierz raport (PDF)"}
-                  </button>
+                    2 · Pobierz raport (PDF)
+                  </Button>
                 </div>
                 {spoofMsg && <p className="mt-2 text-[11px] text-inksoft">{spoofMsg}</p>}
               </div>
@@ -238,13 +245,9 @@ export default function TechniquesPanel({
         );
       })()}
       <div className="mt-3 flex items-center gap-2">
-        <button
-          onClick={save}
-          disabled={busy}
-          className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-        >
-          {busy ? "Zapisuję…" : "Zapisz dobór technik"}
-        </button>
+        <Button variant="successSolid" size="sm" onClick={save} loading={busy} loadingLabel="Zapisuję…">
+          Zapisz dobór technik
+        </Button>
         {msg && <span className="text-xs text-inksoft">{msg}</span>}
       </div>
     </section>

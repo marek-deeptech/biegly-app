@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRef } from "react";
 import { useFormStatus } from "react-dom";
 
+import { Button } from "@/components/ui";
+
 type Case = {
   id: string;
   name: string;
@@ -89,12 +91,8 @@ export default function Dashboard({
 function AddCaseButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
-    >
-      {pending ? "Dodaję…" : "+ Sprawa"}
-    </button>
+    <Button type="submit" variant="primary" size="md" loading={pending} loadingLabel="Dodaję…">
+      + Sprawa
+    </Button>
   );
 }

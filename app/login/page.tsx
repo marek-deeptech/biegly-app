@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 export default function Login() {
@@ -45,13 +46,9 @@ export default function Login() {
             placeholder="adres e-mail"
             className="w-full border border-ink/30 bg-card px-3 py-2 text-sm outline-none focus:border-ink"
           />
-          <button
-            type="submit"
-            disabled={status === "sending"}
-            className="w-full bg-ink px-3 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {status === "sending" ? "Wysyłam…" : "Wyślij link logujący"}
-          </button>
+          <Button type="submit" variant="primary" size="sm" className="w-full py-2" loading={status === "sending"} loadingLabel="Wysyłam…">
+            Wyślij link logujący
+          </Button>
           {status === "error" && <p className="text-sm text-red-600">{message}</p>}
         </form>
       )}

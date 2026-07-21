@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import {
   buildIVChapter,
@@ -470,41 +471,51 @@ export default function OpinionView({
           <div className="flex flex-wrap gap-2">
             {plan.map((p) =>
               generated.has(p.kind) ? null : (
-                <button
+                <Button
                   key={p.kind}
+                  variant="outline"
+                  size="sm"
                   onClick={() => genIV(p.kind, false)}
                   disabled={
-                    busy !== null ||
+                    (busy !== null && busy !== "gen-" + p.kind) ||
                     (["aktywnosc", "wash", "layering"].includes(p.kind) && metrics.length === 0)
                   }
-                  className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                  loading={busy === "gen-" + p.kind}
+                  loadingLabel="Generuję…"
                   title={KIND_LABEL[p.kind] ?? p.title}
                 >
-                  {busy === "gen-" + p.kind ? "Generuję…" : `Generuj: ${p.no}`}
-                </button>
+                  {`Generuj: ${p.no}`}
+                </Button>
               ),
             )}
             {!hasWnioski && canWnioski && (
-              <button
+              <Button
+                variant="successSolid"
+                size="sm"
                 onClick={() => genWnioski(false)}
-                disabled={busy !== null}
-                className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                disabled={busy !== null && busy !== "gen-wnioski"}
+                loading={busy === "gen-wnioski"}
+                loadingLabel="Generuję…"
                 title="Synteza z zatwierdzonych subanaliz"
               >
-                {busy === "gen-wnioski" ? "Generuję…" : "Generuj: Wnioski"}
-              </button>
+                Generuj: Wnioski
+              </Button>
             )}
             {(["I", "III", "V"] as const).map((ch) =>
               hasKind(`proza_${ch.toLowerCase()}`) ? null : (
-                <button
+                <Button
                   key={ch}
+                  variant="outline"
+                  size="sm"
+                  className="border-ink/60 text-inksoft"
                   onClick={() => redact(ch)}
-                  disabled={busy !== null}
-                  className="border border-ink/60 px-3 py-1.5 text-xs uppercase tracking-wider text-inksoft transition-colors hover:border-ink hover:text-ink disabled:opacity-40"
+                  disabled={busy !== null && busy !== "redact-" + ch}
+                  loading={busy === "redact-" + ch}
+                  loadingLabel="Redaguję…"
                   title="Redakcja rozdziału przez model (Claude API)"
                 >
-                  {busy === "redact-" + ch ? "Redaguję…" : `Proza ${ch} (model)`}
-                </button>
+                  {`Proza ${ch} (model)`}
+                </Button>
               ),
             )}
           </div>
@@ -558,20 +569,19 @@ export default function OpinionView({
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {!approved ? (
                     <>
-                      <button
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => saveBody(s)}
-                        disabled={busy !== null || draftFor(s) === s.body_md}
-                        className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
+                        disabled={(busy !== null && busy !== s.id) || draftFor(s) === s.body_md}
+                        loading={busy === s.id}
+                        loadingLabel="Zapisuję…"
                       >
-                        {busy === s.id ? "Zapisuję…" : "Zapisz"}
-                      </button>
-                      <button
-                        onClick={() => setStatus(s, "zatwierdzona")}
-                        disabled={busy !== null}
-                        className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                      >
+                        Zapisz
+                      </Button>
+                      <Button variant="successSolid" size="sm" onClick={() => setStatus(s, "zatwierdzona")} disabled={busy !== null}>
                         Zatwierdź
-                      </button>
+                      </Button>
                       {["ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump", "wnioski"].includes(s.kind) && (
                         <button
                           onClick={() => {
@@ -725,13 +735,9 @@ export default function OpinionView({
         {/* Przeanalizuj ponownie — przeszukanie dokumentów akt pod kątem braków */}
         <div className="mt-4 border-t border-line pt-3">
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={reanalyze}
-              disabled={reBusy}
-              className="border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-            >
-              {reBusy ? "Przeszukuję akta…" : "Przeanalizuj ponownie (przeszukaj dokumentację)"}
-            </button>
+            <Button variant="successSolid" size="sm" onClick={reanalyze} loading={reBusy} loadingLabel="Przeszukuję akta…">
+              Przeanalizuj ponownie (przeszukaj dokumentację)
+            </Button>
             {reMsg && <span className="text-xs text-inksoft">{reMsg}</span>}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-inksoft">
@@ -768,27 +774,15 @@ export default function OpinionView({
         <div className="mt-4 border-t border-line pt-3">
           <p className="mb-2 text-xs font-medium">Wyciągnij dane ze źródeł (odczyt PDF z akt)</p>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => extractSource("espi")}
-              disabled={exBusy !== null}
-              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
-            >
-              {exBusy === "espi" ? "Czytam PDF…" : "Zdarzenia ESPI → IV.3"}
-            </button>
-            <button
-              onClick={() => extractSource("krs")}
-              disabled={exBusy !== null}
-              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
-            >
-              {exBusy === "krs" ? "Czytam PDF…" : "Zarządy z KRS → IV.7"}
-            </button>
-            <button
-              onClick={() => extractSource("fin")}
-              disabled={exBusy !== null}
-              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
-            >
-              {exBusy === "fin" ? "Czytam PDF…" : "Dane finansowe → IV.1"}
-            </button>
+            <Button variant="outline" size="sm" onClick={() => extractSource("espi")} disabled={exBusy !== null && exBusy !== "espi"} loading={exBusy === "espi"} loadingLabel="Czytam PDF…">
+              Zdarzenia ESPI → IV.3
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => extractSource("krs")} disabled={exBusy !== null && exBusy !== "krs"} loading={exBusy === "krs"} loadingLabel="Czytam PDF…">
+              Zarządy z KRS → IV.7
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => extractSource("fin")} disabled={exBusy !== null && exBusy !== "fin"} loading={exBusy === "fin"} loadingLabel="Czytam PDF…">
+              Dane finansowe → IV.1
+            </Button>
             {exMsg && <span className="text-xs text-inksoft">{exMsg}</span>}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-inksoft">
