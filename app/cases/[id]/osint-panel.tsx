@@ -96,6 +96,10 @@ export default function OsintPanel({
   const [msg, setMsg] = useState("");
   const [ctx, setCtx] = useState<{ label: string; frag: string; add: "profile" | "link" } | null>(null);
   const [results, setResults] = useState<WebResult[]>([]);
+  // Sekcja A: które podmioty już ręcznie przeszukano (zmienia przycisk na „ponownie")
+  // + stan zbiorczego „Przeszukaj wszystkie".
+  const [searched, setSearched] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   // Silnik wyszukiwania powiązań (sekcja B): wolne pole + zapytania z modelu.
   const [q, setQ] = useState("");
   const [social, setSocial] = useState(false);
@@ -168,8 +172,24 @@ export default function OsintPanel({
     }
   }
 
-  const searchEntity = (e: Entity) =>
-    run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
+  const searchEntity = async (e: Entity) => {
+    await run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
+    setSearched((s) => new Set(s).add(e.name));
+  };
+  // Zbiorcze przeszukanie: najpierw jeszcze nieprzeszukane; jeśli wszystkie zrobione — całość ponownie.
+  async function searchAll() {
+    const pending = roster.filter((e) => !searched.has(e.name));
+    const list = pending.length ? pending : roster;
+    setBulkBusy(true);
+    try {
+      for (const e of list) {
+        await run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
+        setSearched((s) => new Set(s).add(e.name));
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  }
   const searchPair = (a: string, b: string, suffix: string, label: string) =>
     run(`B:${a}|${b}|${label}`, `"${a}" "${b}"${suffix ? " " + suffix : ""}`, `${a} ↔ ${b} · ${label}`, "", "link");
   const searchFree = (query?: string) => {
@@ -409,26 +429,46 @@ export default function OsintPanel({
             Kompleksowe wyszukiwanie informacji o każdym podmiocie/osobie. Wyniki grupowane po źródle (rejestry, media
             społecznościowe, strony własne, prasa, wywiady, wzmianki). Dodawaj trafne do profilu — URL trafia jako źródło.
           </p>
+          {roster.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] text-inksoft">
+                Przeszukano {searched.size} z {roster.length}
+              </span>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={searchAll}
+                loading={bulkBusy}
+                loadingLabel="Przeszukuję wszystkie…"
+                disabled={busy !== null && !bulkBusy}
+              >
+                Przeszukaj wszystkie
+              </Button>
+            </div>
+          )}
           <div className="mb-3 space-y-1">
-            {roster.map((e, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 border border-line bg-paper p-2 text-xs">
-                <div className="min-w-0">
-                  <span className="font-medium">{e.name}</span>
-                  <span className="ml-2 text-inksoft">{e.kind === "osoba" ? "osoba" : "podmiot"}</span>
+            {roster.map((e, i) => {
+              const done = searched.has(e.name);
+              return (
+                <div key={i} className="flex items-center justify-between gap-2 border border-line bg-paper p-2 text-xs">
+                  <div className="min-w-0">
+                    <span className="font-medium">{e.name}</span>
+                    <span className="ml-2 text-inksoft">{e.kind === "osoba" ? "osoba" : "podmiot"}</span>
+                  </div>
+                  <Button
+                    variant={done ? "primary" : "outline"}
+                    size="sm"
+                    className="shrink-0 py-1"
+                    onClick={() => searchEntity(e)}
+                    disabled={(busy !== null || bulkBusy) && busy !== "A:" + e.name}
+                    loading={busy === "A:" + e.name}
+                    loadingLabel="Szukam…"
+                  >
+                    {done ? "Przeszukaj ponownie" : "Przeszukaj"}
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 py-1"
-                  onClick={() => searchEntity(e)}
-                  disabled={busy !== null && busy !== "A:" + e.name}
-                  loading={busy === "A:" + e.name}
-                  loadingLabel="Szukam…"
-                >
-                  Przeszukaj
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {resultsBlock}
         </div>
