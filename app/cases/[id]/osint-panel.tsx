@@ -101,6 +101,8 @@ export default function OsintPanel({
   // + stan zbiorczego „Przeszukaj wszystkie". Trwałe — subanaliza `osint_searched`.
   const [searched, setSearched] = useState<Set<string>>(new Set(initSearched));
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Wyniki zbiorcze „Przeszukaj wszystkie" — po jednym zestawie na podmiot (nie tylko ostatni).
+  const [bulkResults, setBulkResults] = useState<{ label: string; frag: string; results: WebResult[] }[]>([]);
   // Silnik wyszukiwania powiązań (sekcja B): wolne pole + zapytania z modelu.
   const [q, setQ] = useState("");
   const [social, setSocial] = useState(false);
@@ -161,6 +163,7 @@ export default function OsintPanel({
     setBusy(key);
     setMsg("");
     setResults([]);
+    setBulkResults([]); // pojedyncze wyszukiwanie → schowaj widok zbiorczy
     setCtx({ label, frag, add });
     try {
       const res = await webSearch(query, soc);
@@ -204,13 +207,28 @@ export default function OsintPanel({
     });
   };
   // Zbiorcze przeszukanie: najpierw jeszcze nieprzeszukane; jeśli wszystkie zrobione — całość ponownie.
+  // Akumuluje wyniki KAŻDEGO podmiotu do bulkResults (nie tylko ostatniego), progresywnie.
   async function searchAll() {
     const pending = roster.filter((e) => !searched.has(e.name));
     const list = pending.length ? pending : roster;
     setBulkBusy(true);
+    setCtx(null);
+    setResults([]);
+    setMsg("");
+    setBulkResults([]);
+    const acc: { label: string; frag: string; results: WebResult[] }[] = [];
     try {
       for (const e of list) {
-        await run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
+        setBusy("A:" + e.name);
+        let res: WebResult[] = [];
+        try {
+          res = await webSearch(cleanName(e.name), false);
+        } catch {
+          res = [];
+        }
+        acc.push({ label: e.name, frag: e.fragment, results: res });
+        setBulkResults([...acc]);
+        setBusy(null);
         setSearched((prev) => new Set(prev).add(e.name));
       }
       setSearched((prev) => {
@@ -374,41 +392,57 @@ export default function OsintPanel({
     }
   }
 
-  const grouped = useMemo(() => {
+  // Render JEDNEJ grupy wyników (grupowanie po źródle) — reużywany w widoku pojedynczym
+  // i zbiorczym. add="profile" (sekcja A) → do profilu; add="link" (sekcja B) → do rejestru.
+  function resultsGroupBlock(label: string, frag: string, res: WebResult[], add: "profile" | "link", k?: string) {
     const g: Record<string, WebResult[]> = {};
-    if (ctx) for (const r of results) (g[categorize(r, ctx.frag)] ??= []).push(r);
-    return g;
-  }, [results, ctx]);
-
-  // Wspólny render wyników (grupowanie po źródle) — sekcja A dodaje do profilu,
-  // sekcja B dodaje do rejestru powiązań.
-  const resultsBlock = ctx && (
-    <div className="rounded-lg border border-line bg-paper p-3">
-      <p className="mb-2 text-xs font-medium">Wyniki dla: {ctx.label}</p>
-      {msg && <p className="mb-2 text-xs text-inksoft">{msg}</p>}
-      <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
-        <span className="text-inksoft">Rejestry:</span>
-        <a href={`https://opencorporates.com/companies?q=${encodeURIComponent(cleanName(ctx.label))}`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">OpenCorporates</a>
-        <a href={`https://rejestr.io/szukaj?text=${encodeURIComponent(cleanName(ctx.label))}`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">rejestr.io (KRS)</a>
-        <a href={`https://wyszukiwarka-krs.ms.gov.pl/`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">wyszukiwarka KRS</a>
-      </div>
-      {CAT_ORDER.filter((c) => grouped[c]?.length).map((c) => (
-        <div key={c} className="mb-2">
-          <p className="text-[11px] font-medium text-inksoft">{CAT_LABEL[c]}</p>
-          {grouped[c].map((r, j) => (
-            <ResultRow
-              key={j}
-              r={r}
-              addLabel={ctx.add === "link" ? "Dodaj do rejestru" : "Dodaj do profilu"}
-              onAdd={() =>
-                ctx.add === "link"
-                  ? addLinkFromWeb(r, c === "social" ? "media społecznościowe" : "inne", ctx.label.split(" · ")[0])
-                  : addProfile(ctx.label, c, r)
-              }
-            />
-          ))}
+    for (const r of res) (g[categorize(r, frag)] ??= []).push(r);
+    return (
+      <div key={k} className="rounded-lg border border-line bg-paper p-3">
+        <p className="mb-2 text-xs font-medium">Wyniki dla: {label}</p>
+        <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
+          <span className="text-inksoft">Rejestry:</span>
+          <a href={`https://opencorporates.com/companies?q=${encodeURIComponent(cleanName(label))}`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">OpenCorporates</a>
+          <a href={`https://rejestr.io/szukaj?text=${encodeURIComponent(cleanName(label))}`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">rejestr.io (KRS)</a>
+          <a href={`https://wyszukiwarka-krs.ms.gov.pl/`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">wyszukiwarka KRS</a>
         </div>
-      ))}
+        {res.length === 0 && <p className="text-[11px] text-inksoft">Brak wyników z wyszukiwarki — sprawdź rejestry powyżej.</p>}
+        {CAT_ORDER.filter((c) => g[c]?.length).map((c) => (
+          <div key={c} className="mb-2">
+            <p className="text-[11px] font-medium text-inksoft">{CAT_LABEL[c]}</p>
+            {g[c].map((r, j) => (
+              <ResultRow
+                key={j}
+                r={r}
+                addLabel={add === "link" ? "Dodaj do rejestru" : "Dodaj do profilu"}
+                onAdd={() =>
+                  add === "link"
+                    ? addLinkFromWeb(r, c === "social" ? "media społecznościowe" : "inne", label.split(" · ")[0])
+                    : addProfile(label, c, r)
+                }
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Widok pojedynczego wyszukiwania (A/B).
+  const resultsBlock = ctx && (
+    <div>
+      {msg && <p className="mb-2 text-xs text-inksoft">{msg}</p>}
+      {resultsGroupBlock(ctx.label, ctx.frag, results, ctx.add)}
+    </div>
+  );
+
+  // Widok zbiorczy „Przeszukaj wszystkie" — KAŻDY podmiot ze swoimi wynikami (nie tylko ostatni).
+  const bulkResultsBlock = bulkResults.length > 0 && (
+    <div className="space-y-2">
+      <p className="text-xs font-medium">
+        Wyniki zbiorcze — {bulkResults.length} {bulkBusy ? "podmiotów (przeszukuję…)" : "podmiotów"}
+      </p>
+      {bulkResults.map((br) => resultsGroupBlock(br.label, br.frag, br.results, "profile", br.label))}
     </div>
   );
 
@@ -428,7 +462,7 @@ export default function OsintPanel({
         ] as const).map((x, i) => (
           <button
             key={x.k}
-            onClick={() => { setSection(x.k); setResults([]); setCtx(null); }}
+            onClick={() => { setSection(x.k); setResults([]); setCtx(null); setBulkResults([]); }}
             className={`rounded-lg border p-2.5 text-left transition-colors ${
               section === x.k ? "border-ink bg-ink/[0.06]" : "border-line hover:border-ink/40"
             }`}
@@ -501,7 +535,7 @@ export default function OsintPanel({
               );
             })}
           </div>
-          {resultsBlock}
+          {bulkResults.length > 0 ? bulkResultsBlock : resultsBlock}
         </div>
       )}
 
