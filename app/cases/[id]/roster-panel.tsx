@@ -24,6 +24,7 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
   const [msg, setMsg] = useState("");
   const [needMigration, setNeedMigration] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +39,10 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
         const r = (data?.group_roster ?? null) as Roster | null;
         setEntities(r?.entities ?? []);
         setConfirmedAt(r?.confirmed_at ?? null);
+        // Wczytany roster bez daty zatwierdzenia to PROPOZYCJA (wstępnie wpisana albo z
+        // „Zaproponuj z akt") czekająca na zapis — od razu dirty, by biegły zatwierdził
+        // ją jednym kliknięciem „Zapisz i zatwierdź".
+        if ((r?.entities?.length ?? 0) > 0 && !r?.confirmed_at) setDirty(true);
       }
       setLoading(false);
     })();
@@ -59,21 +64,68 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
     setDirty(true);
   }
 
+  async function suggestFromFiles() {
+    setSuggesting(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/cases/${caseId}/roster/suggest`, { method: "POST" });
+      const j = (await res.json()) as {
+        ok: boolean;
+        reason?: string;
+        message?: string;
+        sources?: string[];
+        entities?: Entity[];
+      };
+      if (!j.ok) {
+        setMsg(j.reason ?? "Nie udało się odczytać akt.");
+        return;
+      }
+      const incoming = j.entities ?? [];
+      // Scal z bieżącą listą — nie nadpisujemy istniejących pozycji, dodajemy nowe (po nazwie).
+      setEntities((cur) => {
+        const seen = new Set(cur.map((e) => e.name.trim().toLowerCase()));
+        const merged = [...cur];
+        for (const e of incoming) {
+          const key = (e.name ?? "").trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push({
+            name: e.name.trim(),
+            fragment: (e.fragment ?? "").trim().toLowerCase(),
+            kind: e.kind === "osoba" ? "osoba" : "podmiot",
+          });
+        }
+        return merged;
+      });
+      setDirty(true);
+      setMsg((j.message ?? `Wczytano ${incoming.length} pozycji z akt.`) + " Zweryfikuj i zapisz.");
+    } catch (e) {
+      setMsg("Błąd: " + (e as Error).message);
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   async function save() {
     setBusy(true);
     setMsg("");
     const clean = entities
-      .map((e) => ({
-        name: e.name.trim(),
-        fragment: (e.fragment.trim() || fragOf(e.name)).toLowerCase(),
-        kind: e.kind ?? "podmiot",
-      }))
-      .filter((e) => e.fragment);
+      .map((e) => {
+        const kind = e.kind ?? "podmiot";
+        // Podmiot (wehikuł) zawsze dostaje fragment — z pola albo z nazwy. Osoba fizyczna
+        // dostaje fragment TYLKO, gdy biegły go wpisał (= sama jest właścicielem rachunku,
+        // wzorzec „rachunek własny" w MLM/ZASTAL); osoba-reprezentant spółki zostaje bez
+        // fragmentu — jej rachunek pokrywa już wehikuł, więc nie dublujemy atrybucji.
+        const fragment =
+          kind === "podmiot" ? (e.fragment.trim() || fragOf(e.name)).toLowerCase() : e.fragment.trim().toLowerCase();
+        return { name: e.name.trim(), fragment, kind };
+      })
+      .filter((e) => e.name); // trzymamy każdą NAZWANĄ pozycję — także osobę bez fragmentu
     const roster: Roster = {
       entities: clean,
-      // Silnik dopasowuje beneficjenta rzeczywistego (spółkę), więc fragmenty do
-      // group_fragments bierzemy TYLKO z podmiotów — nazwiska osób nie zmieniają metryk.
-      fragments: [...new Set(clean.filter((e) => (e.kind ?? "podmiot") === "podmiot").map((e) => e.fragment))],
+      // Do silnika (group_fragments) trafia KAŻDY niepusty fragment — wehikuły oraz osoby
+      // fizyczne z własnym rachunkiem. Osoby bez fragmentu nie zmieniają metryk.
+      fragments: [...new Set(clean.filter((e) => e.fragment).map((e) => e.fragment))],
       source: "zawiadomienie",
       confirmed_at: new Date().toISOString(),
     };
@@ -114,9 +166,22 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
         zbieżność czasowa zleceń), więc może <strong>potwierdzić</strong> krąg z zawiadomienia,
         <strong> rozszerzyć</strong> go o podmiot wykryty w danych, albo <strong>zawęzić</strong>, gdy dla kogoś brak
         śladu w dowodach. „Fragment” to ciąg dopasowywany w nazwach właścicieli rachunków w danych UTP
-        (np. <code>joyfix</code>). Sama koordynacja („Grupa”) jest <strong>przedmiotem weryfikacji</strong> w
-        zakładkach 3–5, nie założeniem. Roster zasila silnik przy „Przelicz wskaźniki”.
+        (np. <code>joyfix</code>); dla osoby fizycznej wpisz go <strong>tylko, gdy ma własny rachunek</strong> —
+        pełnomocnika/reprezentanta spółki zostaw bez fragmentu. Sama koordynacja („Grupa”) jest
+        <strong> przedmiotem weryfikacji</strong> w zakładkach 3–5, nie założeniem. Roster zasila silnik przy
+        „Przelicz wskaźniki”.
       </p>
+
+      {!needMigration && !loading && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={suggestFromFiles} loading={suggesting} loadingLabel="Czytam akta…">
+            Zaproponuj z akt
+          </Button>
+          <span className="text-[11px] text-inksoft">
+            odczyta postanowienie / akt oskarżenia / zawiadomienie KNF i wypełni listę propozycją do zatwierdzenia
+          </span>
+        </div>
+      )}
 
       {needMigration ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -157,7 +222,9 @@ export default function RosterPanel({ caseId }: { caseId: string }) {
                           value={e.name}
                           onChange={(ev) => update(i, { name: ev.target.value })}
                           onBlur={() => {
-                            if (e.name && !e.fragment) update(i, { fragment: fragOf(e.name) });
+                            // Auto-fragment tylko dla podmiotu; osobie fragment nadaje biegły
+                            // ręcznie (dopiero, gdy ma własny rachunek).
+                            if (k === "podmiot" && e.name && !e.fragment) update(i, { fragment: fragOf(e.name) });
                           }}
                           placeholder={
                             k === "podmiot" ? "Nazwa podmiotu (np. Joyfix Ltd)" : "Imię i nazwisko (np. Jan Kowalski)"
