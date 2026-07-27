@@ -178,7 +178,14 @@ export default function OpinionView({
     const quotes = kind === "ekofin" || kind === "pumpdump" ? await fetchQuotes() : null;
     await saveGenerated(buildIVChapter(kind, caseRow.name, metrics, documents, quotes), ow);
   }
-  const genWnioski = (ow = false) => saveGenerated(buildWnioskiSubanaliza(caseRow.name, metrics, stored), ow);
+  const genWnioski = (ow = false) => {
+    // Pytania organu PER SPRAWA (subanaliza pytania_organu) — szkielet Wniosków ma odpowiadać
+    // na pytania z postanowienia TEJ sprawy, nie na domyślne HubTech/MLM.
+    const cq = (stored.find((s) => s.kind === "pytania_organu")?.data as { questions?: string[] } | undefined)?.questions
+      ?.map((q) => String(q).trim())
+      .filter((q) => q.length > 0);
+    return saveGenerated(buildWnioskiSubanaliza(caseRow.name, metrics, stored, cq && cq.length ? cq : undefined), ow);
+  };
 
   // Redakcja rozdziału miękkiego przez model (Claude API). Model redaguje prozę —
   // liczby i fakty wstrzykiwane są z silnika po stronie serwera.

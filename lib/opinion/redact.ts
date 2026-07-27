@@ -129,20 +129,27 @@ export function buildWnioskiRedactPrompt(inp: WnioskiRedactInput): { system: str
   if (inp.events.length)
     parts.push("Datowane zdarzenia korporacyjne (z akt):\n" + inp.events.map((e) => "- " + e).join("\n"));
   parts.push(
-    "Napisz rozdział w strukturze: (1) akapit metodyczny — wnioski wynikają wyłącznie z ustaleń rozdziału IV, " +
-      "bez przejmowania tez zawiadomienia; (2) odpowiedź na pytanie 1 — 2–3 akapity: dynamika kursu, udział Grupy " +
-      "w obrocie, transakcje wzajemne, saldo (akumulacja/wyprzedaż) i ocena uzasadnienia ekonomicznego; " +
-      "(3) odpowiedź na pytanie 2 — każda technika odrębnym akapitem z liczbami i odesłaniem do rozdziału IV.x; " +
-      "(4) odpowiedź na pytanie 3 — okoliczności współdziałania (wspólne IP, zbieżność czasowa zleceń, powiązania " +
-      "osobowe, anulacje) z liczbami; (5) odpowiedź na pytanie 4 — pozostałe okoliczności (zbieżność zdarzeń " +
-      "korporacyjnych z sesjami, koncentracja podaży i popytu); (6) sekcja „Atrybucja podmiotowa” — jeżeli szkielet " +
-      "zawiera numerowany rejestr aktywności rachunków Grupy (podmiot — sesje — kwoty), przenieś go W CAŁOŚCI " +
-      "i BEZ ZMIAN (każda pozycja w osobnej linii, z zachowaniem dat, kwot i numeracji); dopisz najwyżej 1–2 " +
-      "zdania wprowadzające; (7) akapit końcowy rozgraniczający ustalenia " +
-      "faktyczne od ocen zastrzeżonych dla sądu. " +
-      "Objętość: 10–16 akapitów (rejestr atrybucji liczy się jako jeden). Liczby wyłącznie z podanych danych; " +
-      "braki oznacz [do uzupełnienia]. " +
-      "Nie przesądzaj o winie ani zamiarze. Zwróć samą treść rozdziału, bez nagłówka.",
+    "Napisz rozdział w następującej strukturze:\n" +
+      "(1) Akapit metodyczny — wnioski wynikają WYŁĄCZNIE z ustaleń rozdziału IV i danych deterministycznego " +
+      "silnika (materiał dowodowy sprawy). NIE przejmuj tez zawiadomienia ANI opinii innego biegłego, którą " +
+      "sprawa weryfikuje — NIE cytuj jej, nie streszczaj i nie powołuj się na jej ustalenia; formułuj własne " +
+      "ustalenia z danych.\n" +
+      "(2) Następnie KOLEJNO, dla KAŻDEGO pytania organu wypisanego wyżej (dokładnie w tej samej kolejności i " +
+      "liczbie — nie pomijaj żadnego, nie dodawaj własnych): podaj śródtytuł „Pytanie N:” ze zwięzłą treścią " +
+      "pytania, a pod nim 1–3 akapity ODPOWIEDZI opartej wyłącznie na ustaleniach z akt właściwych dla tego " +
+      "pytania (m.in. dynamika kursu i udział Grupy w obrocie; mechanizm i techniki z liczbami i odesłaniem do " +
+      "rozdz. IV.x; wpływ na cenę; fałszywe/wprowadzające w błąd sygnały co do podaży, popytu lub ceny; scenariusz " +
+      "kontrfaktyczny „gdyby nie handlowali”; zlecenia przeciwstawne i zbieżne czasowo; korzyści majątkowe; " +
+      "współdziałanie — wspólne adresy IP, zbieżność czasowa zleceń, powiązania osobowe, anulacje). Jeśli dla " +
+      "danego pytania materiał dowodowy nie daje podstaw do pełnej odpowiedzi — napisz to wprost i oznacz " +
+      "[do uzupełnienia]; nie zmyślaj i nie uzupełniaj z opinii weryfikowanej.\n" +
+      "(3) Sekcja „Atrybucja podmiotowa” — jeżeli szkielet zawiera numerowany rejestr aktywności rachunków " +
+      "(podmiot — sesje — kwoty), przenieś go W CAŁOŚCI i BEZ ZMIAN (każda pozycja w osobnej linii, z zachowaniem " +
+      "dat, kwot i numeracji); dopisz najwyżej 1–2 zdania wprowadzające.\n" +
+      "(4) Akapit końcowy rozgraniczający ustalenia faktyczne od ocen (kwalifikacja prawnokarna, zamiar, wina) " +
+      "zastrzeżonych dla organu i sądu.\n" +
+      "Liczby wyłącznie z podanych danych; braki oznacz [do uzupełnienia]. Nie przesądzaj o winie ani zamiarze. " +
+      "Zwróć samą treść rozdziału, bez nagłówka.",
   );
   return { system: SYSTEM, user: parts.join("\n\n") };
 }

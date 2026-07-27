@@ -71,8 +71,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const sub = (subs ?? []).find((s) => s.kind === "wnioski");
     if (!sub)
       return Response.json({ ok: false, reason: "Najpierw wygeneruj Wnioski (Generuj: Wnioski), potem rozwiń prozą." });
+    // Pytania organu PER SPRAWA (subanaliza pytania_organu) — muszą to być pytania z postanowienia
+    // TEJ sprawy. Brak → fallback do domyślnych (HubTech/MLM), by nie zablokować starych spraw.
+    const caseQuestions =
+      ((subs ?? []).find((s) => s.kind === "pytania_organu")?.data as { questions?: string[] } | null)?.questions
+        ?.map((q) => String(q).trim())
+        .filter((q) => q.length > 0) ?? [];
+    const questions = caseQuestions.length ? caseQuestions : [...PROSECUTOR_QUESTIONS];
     // Świeży szkielet z silnika (nie z body_md) — odporny na wcześniejsze rozwinięcia prozy.
-    const skeleton = buildWnioskiSubanaliza(caseRow.name, m, (subs ?? []) as unknown as StoredSub[]).bodyMd;
+    const skeleton = buildWnioskiSubanaliza(
+      caseRow.name,
+      m,
+      (subs ?? []) as unknown as StoredSub[],
+      caseQuestions.length ? caseQuestions : undefined,
+    ).bodyMd;
     const approved = (subs ?? [])
       .filter((s) => s.status === "zatwierdzona" && String(s.chapter_no).startsWith("IV"))
       .map((s) => ({ title: `${s.title} (rozdz. ${s.chapter_no})`, findings: (s.data?.findings ?? []) as string[] }));
@@ -100,7 +112,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       signature: caseRow.signature,
       period,
       caseIntro: intro,
-      questions: [...PROSECUTOR_QUESTIONS],
+      questions,
       skeleton,
       techniques: approved,
       relations,

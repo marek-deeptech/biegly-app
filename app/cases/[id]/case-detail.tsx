@@ -10,6 +10,7 @@ import { AUTHORS, DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
+import PytaniaPanel from "./pytania-panel";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
 import Albin from "./albin";
@@ -985,6 +986,7 @@ export default function CaseDetail({
       </section>
       )}
 
+      {tab === "overview" && <PytaniaPanel caseId={caseRow.id} />}
       {tab === "overview" && <RosterPanel caseId={caseRow.id} />}
 
       {tab === "analysis" && (

@@ -1588,8 +1588,17 @@ export function buildWnioskiSubanaliza(
   caseName: string,
   metrics: Metric[],
   stored: StoredSub[],
+  questions?: string[],
 ): SubResult {
   void caseName;
+  // Pytania organu PER SPRAWA. Gdy sprawa ma własne pytania (np. ZASTAL) — szkielet jest
+  // NEUTRALNY tematycznie (fakty pod hasłami rzeczowymi), a nie sztywno „Q1–Q4" HubTechu;
+  // model w redakcji sam mapuje fakty na pytania tej sprawy. Bez własnych pytań — zachowanie
+  // wsteczne (HubTech/MLM: PROSECUTOR_QUESTIONS).
+  const caseQ = questions && questions.length ? questions : PROSECUTOR_QUESTIONS;
+  const customQ = !!(questions && questions.length);
+  const secHead = (i: number, theme: string) => (customQ ? theme : caseQ[i]);
+  const ansLead = (i: number, theme: string) => (customQ ? theme : `Odpowiedź na Q${i + 1}`);
   const washPeak = mpeak(metrics, "wash_");
   const cancelPeak = mpeak(metrics, "cancel_");
   const groupShare = mfind(metrics, "group_turnover_share");
@@ -1639,9 +1648,11 @@ export function buildWnioskiSubanaliza(
         ? `, opartych na ${plnum(nTx.value)} transakcjach o łącznej wartości ${plnum(valTx?.value, "zł")} (dane UTP/GPW)`
         : ``) +
       `. Celem opinii jest weryfikacja, czy zebrany materiał potwierdza zarzuty postawione w zawiadomieniu ` +
-      `— bez przejmowania tez z zawiadomienia ani z opinii innego biegłego. Odpowiedzi odnoszą się wprost ` +
-      `do pytań postanowienia (Q1–Q4).`,
+      `— bez przejmowania tez z zawiadomienia ani z opinii innego biegłego, którą sprawa weryfikuje. ` +
+      `Odpowiedzi odnoszą się wprost do pytań postanowienia o powołaniu biegłego w tej sprawie.`,
   );
+  if (customQ)
+    parts.push("Pytania organu w tej sprawie:\n" + caseQ.map((q, i) => `${i + 1}. ${q}`).join("\n"));
 
   if (!approved.length) {
     parts.push(
@@ -1650,7 +1661,7 @@ export function buildWnioskiSubanaliza(
     );
   } else {
     // ── Q1 — sztuczne kształtowanie ceny / wprowadzenie w błąd / racjonalność ekonomiczna ──
-    parts.push(PROSECUTOR_QUESTIONS[0]);
+    parts.push(secHead(0, "Ustalenia — kształtowanie ceny i struktura obrotu:"));
     const q1: string[] = [];
     if (hi?.value != null && ups[0]?.value != null)
       q1.push(
@@ -1674,7 +1685,7 @@ export function buildWnioskiSubanaliza(
           ` — obraz odpowiadający upłynnianiu znacznego pakietu akcji (rozdz. IV.3)`,
       );
     parts.push(
-      `Odpowiedź na Q1: ${q1.join("; ")}. Obrót o takiej strukturze mógł dawać nieprawdziwe sygnały co do ` +
+      `${ansLead(0, "Ustalenia dot. ceny i obrotu")}: ${q1.join("; ")}. Obrót o takiej strukturze mógł dawać nieprawdziwe sygnały co do ` +
         `podaży, popytu i płynności instrumentu oraz przyczyniać się do ukształtowania ceny na poziomie ` +
         `oderwanym od uzasadnienia ekonomicznego` +
         (findingsOf("ekofin") ? ` (ustalenia ekonomiczno-finansowe — rozdz. IV.1: ${findingsOf("ekofin")})` : ``) +
@@ -1682,7 +1693,7 @@ export function buildWnioskiSubanaliza(
     );
 
     // ── Q2 — techniki manipulacyjne ──
-    parts.push(PROSECUTOR_QUESTIONS[1]);
+    parts.push(secHead(1, "Ustalenia — techniki manipulacyjne w materiale dowodowym:"));
     if (approvedTech.length) {
       const lines = approvedTech.map((s) => {
         const t = TECHNIQUES[s.kind as TechniqueId];
@@ -1690,13 +1701,13 @@ export function buildWnioskiSubanaliza(
         return `• ${t.label} (${t.mar}; ${t.rd}) — ${f || "[brak ustaleń liczbowych w rozdziale]"}`;
       });
       parts.push(
-        `Odpowiedź na Q2 — w materiale dowodowym zidentyfikowano ustalenia odpowiadające następującym ` +
-          `technikom:\n${lines.join("\n")}`,
+        `${ansLead(1, "Techniki zidentyfikowane w materiale")} — zidentyfikowano ustalenia odpowiadające ` +
+          `następującym technikom:\n${lines.join("\n")}`,
       );
     }
 
     // ── Q3 — działanie wspólnie i w porozumieniu ──
-    parts.push(PROSECUTOR_QUESTIONS[2]);
+    parts.push(secHead(2, "Ustalenia — sygnały działania wspólnie i w porozumieniu:"));
     const q3: string[] = [];
     if (ipRows.length) {
       const r0 = ipRows[0];
@@ -1726,12 +1737,12 @@ export function buildWnioskiSubanaliza(
       );
     parts.push(
       q3.length
-        ? `Odpowiedź na Q3 — okoliczności wskazujące na współdziałanie: ${q3.join("; ")}.`
-        : `Odpowiedź na Q3: [do uzupełnienia po zatwierdzeniu rozdziału relacji].`,
+        ? `${ansLead(2, "Okoliczności współdziałania")} — okoliczności wskazujące na współdziałanie: ${q3.join("; ")}.`
+        : `${ansLead(2, "Okoliczności współdziałania")}: [do uzupełnienia po zatwierdzeniu rozdziału relacji].`,
     );
 
     // ── Q4 — pozostałe uwagi biegłego ──
-    parts.push(PROSECUTOR_QUESTIONS[3]);
+    parts.push(secHead(3, "Ustalenia — okoliczności dodatkowe:"));
     const q4: string[] = [];
     if (evSess.length)
       q4.push(
@@ -1753,7 +1764,7 @@ export function buildWnioskiSubanaliza(
       );
     if (buyer && buyer.entity !== seller?.entity)
       q4.push(`po stronie kupna dominował podmiot ${cap(buyer.entity)} (${plnum(buyer.val, "zł")})`);
-    parts.push(q4.length ? `Odpowiedź na Q4 — okoliczności dodatkowe: ${q4.join("; ")}.` : `Odpowiedź na Q4: [do uzupełnienia].`);
+    parts.push(q4.length ? `${ansLead(3, "Okoliczności dodatkowe")} — ${q4.join("; ")}.` : `${ansLead(3, "Okoliczności dodatkowe")}: [do uzupełnienia].`);
 
     // ── Atrybucja podmiotowa — kto, kiedy i w jakiej skali (rejestr z ede_*) ──
     const reg = attributionRegister(metrics);
@@ -1876,6 +1887,12 @@ export function buildOpinion(
   const selectedTech = (td?.data as { selected?: string[] } | null)?.selected as IVKind[] | undefined;
   const plan: IVChapter[] = resolvePlan(caseRow.name, selectedTech);
   const byKind = new Map(stored.map((s) => [s.kind, s] as const));
+  // Pytania organu PER SPRAWA — do rozdziału I; fallback do domyślnych (HubTech/MLM).
+  const caseQuestions =
+    (stored.find((s) => s.kind === "pytania_organu")?.data as { questions?: string[] } | undefined)?.questions
+      ?.map((q) => String(q).trim())
+      .filter((q) => q.length > 0) ?? [];
+  const opinionQ = caseQuestions.length ? caseQuestions : PROSECUTOR_QUESTIONS;
 
   // Rozdział IV — wg planu sprawy: zapisana subanaliza albo miejsce „do wygenerowania".
   const ivChapters: Chapter[] = plan.map((p) => {
@@ -1919,7 +1936,7 @@ export function buildOpinion(
             `rozumieniu art. 12 MAR, a jeżeli tak — w jaki sposób i przez kogo. Opinia odpowiada na ` +
             `pytania postanowienia o powołaniu biegłego.`,
         },
-        ...PROSECUTOR_QUESTIONS.map((q) => ({ conf: "review" as Conf, text: q })),
+        ...opinionQ.map((q, i) => ({ conf: "review" as Conf, text: `${i + 1}. ${q}` })),
         {
           conf: "todo",
           text: "Do uzupełnienia: oznaczenie spółki i instrumentu, okres objęty analizą oraz lista podmiotów (Grupa) z LEI i reprezentantami zgodnie z treścią postanowienia.",
@@ -1935,7 +1952,7 @@ export function buildOpinion(
           conf: "todo",
           text:
             "Sekcja generowana po zatwierdzeniu subanaliz — synteza odpowiedzi na pytania postanowienia " +
-            "(z mapą Q1–Q4), z rozdzieleniem ustaleń faktycznych od ocen zastrzeżonych dla sądu.",
+            "o powołaniu biegłego w tej sprawie, z rozdzieleniem ustaleń faktycznych od ocen zastrzeżonych dla sądu.",
         },
       ],
     },
