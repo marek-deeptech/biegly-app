@@ -40,14 +40,13 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   const subanalyses = subData ?? [];
 
   const present = new Set(documents.map((d) => d.doc_type));
-  const checklist = REQUIRED.map((code) => ({
-    label: DOC_TYPES[code].label,
-    present: present.has(code),
-  }));
-  const recommended = RECOMMENDED.map((code) => ({
-    label: DOC_TYPES[code].label,
-    present: present.has(code),
-  }));
+  // Alias: w sprawach sądowych „opinia do weryfikacji" to opinia biegłego prokuratury
+  // (OPINIA_BIEGLY_PROK) lub innego biegłego — spełnia wymóg pozycji OPINIA_UKNF.
+  const has = (code: string) =>
+    present.has(code) ||
+    (code === "OPINIA_UKNF" && (present.has("OPINIA_BIEGLY_PROK") || present.has("OPINIA_INNY_BIEGLY")));
+  const checklist = REQUIRED.map((code) => ({ label: DOC_TYPES[code].label, present: has(code) }));
+  const recommended = RECOMMENDED.map((code) => ({ label: DOC_TYPES[code].label, present: has(code) }));
 
   return (
     <>

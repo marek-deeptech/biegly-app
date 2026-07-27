@@ -746,6 +746,27 @@ export default function CaseDetail({
           </div>
         </div>
       </section>
+
+      {authorCounts.length > 0 && (
+        <section className="mb-8 border border-ink/60 bg-card p-4">
+          <h2 className="mb-1 text-xs font-semibold uppercase tracking-[0.12em]">Dokumenty wg wytwórcy</h2>
+          <p className="mb-3 text-[11px] text-inksoft">
+            Drugi wymiar klasyfikacji — kto sporządził/podpisał dokument. Kliknij, aby zawęzić listę w zakładce Pliki.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {authorCounts.map(([a, n]) => (
+              <button
+                key={a}
+                onClick={() => { setAuthorFilter(a); setTab("files"); }}
+                className="flex items-center gap-2 rounded-lg border border-line bg-paper px-3 py-1.5 text-xs transition-colors hover:border-ink"
+              >
+                <span className="font-medium">{AUTHORS[a]?.label ?? a}</span>
+                <span className="rounded-full bg-ink/10 px-1.5 py-0.5 text-[11px] text-inksoft">{n}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
         </>
       )}
 
