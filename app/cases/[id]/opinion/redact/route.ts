@@ -16,7 +16,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Redakcja rozdziałów prozą to długa generacja opus (III/layering/aktywność do 8–9 tys.
+// tokenów) — przy 60 s funkcja bywała ubijana przed odpowiedzią (klient dostawał 504/HTML,
+// stąd „Błąd sieci przy redakcji"). 300 s jak w osint/analyze (limit dopuszczany przez plan).
+export const maxDuration = 300;
 
 type MetricRow = { key: string; value: number | null; unit: string | null; session_day: string | null };
 

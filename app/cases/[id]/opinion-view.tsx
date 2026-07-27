@@ -201,6 +201,15 @@ export default function OpinionView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chapter }),
       });
+      if (!r.ok) {
+        setBusy(null);
+        setMsg(
+          r.status === 504 || r.status === 502
+            ? "Redakcja przekroczyła limit czasu serwera — spróbuj ponownie (to długi rozdział)."
+            : `Błąd serwera (${r.status}) przy redakcji.`,
+        );
+        return;
+      }
       const j = await r.json();
       if (!j.ok) {
         setMsg(j.reason || "Błąd redakcji.");
@@ -250,6 +259,15 @@ export default function OpinionView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chapter: kind }),
       });
+      if (!r.ok) {
+        setBusy(null);
+        setMsg(
+          r.status === 504 || r.status === 502
+            ? "Rozwinięcie przekroczyło limit czasu serwera — spróbuj ponownie (to długi rozdział)."
+            : `Błąd serwera (${r.status}) przy redakcji.`,
+        );
+        return;
+      }
       const j = await r.json();
       if (!j.ok) {
         setMsg(j.reason || "Błąd redakcji.");
