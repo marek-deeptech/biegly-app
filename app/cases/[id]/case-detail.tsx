@@ -922,7 +922,10 @@ export default function CaseDetail({
                   <div className={`truncate text-sm ${isSuspect(d) ? "text-red-700" : ""}`}>{basename(d.rel_path)}</div>
                   <div className="truncate text-xs text-inksoft">
                     {d.karta_start != null && (
-                      <span className="mr-1.5 rounded bg-ink/10 px-1.5 py-0.5 font-medium text-ink">
+                      <span
+                        className="mr-1.5 rounded bg-ink/10 px-1.5 py-0.5 font-medium text-ink"
+                        title="Numer karty akt sprawy (foliacja TOM I–IX)"
+                      >
                         k. {d.karta_start}{d.karta_end && d.karta_end !== d.karta_start ? `–${d.karta_end}` : ""}
                       </span>
                     )}
