@@ -9,6 +9,7 @@ zbieżność (dowód), nie przesądzenie o koordynacji — interpretuje biegły.
 """
 from __future__ import annotations
 
+import io
 import re
 from collections import defaultdict
 
@@ -64,6 +65,115 @@ def load_logins(file) -> list[dict]:
         return [dict(zip(header, r)) for r in it]
     finally:
         wb.close()
+
+
+def _read_grid(data: bytes) -> list[list]:
+    """Wiersze pierwszego arkusza jako listy komórek. Obsługuje xlsx/xlsm (openpyxl,
+    sygnatura ZIP „PK") oraz stary .xls (xlrd, OLE2). xlrd importujemy leniwie — bez
+    plików .xls w ogóle nie jest potrzebny."""
+    if data[:2] == b"PK":
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        try:
+            ws = wb[wb.sheetnames[0]]
+            return [list(r) for r in ws.iter_rows(values_only=True)]
+        finally:
+            wb.close()
+    import xlrd  # tylko dla starego .xls (OLE2)
+
+    book = xlrd.open_workbook(file_contents=data)
+    sh = book.sheet_by_index(0)
+    return [[sh.cell_value(r, c) for c in range(sh.ncols)] for r in range(sh.nrows)]
+
+
+_IP_COLS = ("ip", "ip_adr", "adres ip", "adres_ip", "ipaddress", "ip address")
+_DATE_COLS = ("start", "data rozpoczęcia", "data rozpoczecia", "od", "date", "data", "login")
+_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def entity_from_filename(fn: str) -> str:
+    """Etykieta podmiotu z NAZWY pliku logowań — w eksportach maklerskich (epromak, DM BOŚ,
+    Santander) tożsamość nie jest w danych, tylko w nazwie: „AMIDA CAPITAL_19002399_0914_
+    logowania.xls" → „AMIDA CAPITAL", „0902_K.Wieczorek_84217301-logowania IP.xlsx" → „K.Wieczorek"."""
+    s = fn.rsplit("/", 1)[-1]
+    s = re.sub(r"\.(xlsx?|xlsm|txt)$", "", s, flags=re.I)
+    s = re.sub(r"[-_]+", " ", s)  # separatory → spacje NAJPIERW, by \b działało przy numerach
+    s = re.sub(r"\s*logowania(\s*ip)?\s*$", "", s, flags=re.I)
+    s = re.sub(r"santander\w*", " ", s, flags=re.I)
+    s = re.sub(r"dm\s*bo\S*", " ", s, flags=re.I)  # DM BOŚ / „DM BO¦" (mojibake)
+    s = re.sub(r"\b\d{4,}\b", " ", s)  # numery rachunków (teraz otoczone spacjami)
+    s = re.sub(r"^\s*\d+\s+", "", s)  # wiodący kod konta „0902 "
+    s = s.replace("³", "ł").replace("£", "Ł")  # częsty mojibake CP1250 w nazwach (W³odzimierz→Włodzimierz)
+    s = re.sub(r"\s{2,}", " ", s).strip(" -_.")
+    return s or fn.rsplit("/", 1)[-1]
+
+
+def load_login_events(data: bytes, filename: str = "") -> list[dict]:
+    """Normalizuje logowania z pliku do rekordów {username, ipaddress, date} — jednolite
+    wejście do ip_correlation. Rozpoznaje: FIX (tag(Username)=…, tożsamość w pliku —
+    HubTech/MLM), kolumnowe eksporty maklerskie (epromak .xls: kol. ip_adr/start; DM BOŚ:
+    „Adres Ip"/„Data rozpoczęcia"; prosty ip|od|do) oraz .txt z separatorem „|"
+    (rachunek|ip|start|stop|kanał). W eksportach maklerskich username bierzemy z NAZWY PLIKU."""
+    ent = entity_from_filename(filename)
+
+    # TXT z separatorem „|": rachunek|ip|start|stop|kanał
+    if filename.lower().endswith(".txt"):
+        out: list[dict] = []
+        for line in data.decode("utf-8", "replace").splitlines():
+            parts = line.split("|")
+            if len(parts) < 3 or not _IPV4.match(parts[1].strip()):
+                continue
+            out.append({"username": ent, "ipaddress": parts[1].strip(), "date": _iso_date(parts[2])})
+        return out
+
+    grid = _read_grid(data)
+
+    # FIX (tożsamość w pliku): nagłówek = 1. wiersz z ≥3 komórkami, username/ip z tagów FIX.
+    if any(c is not None and _FIX.match(str(c).strip()) for row in grid[:40] for c in row):
+        header, out = None, []
+        for row in grid:
+            cells = [str(c).strip() if c is not None else "" for c in row]
+            if header is None:
+                if sum(1 for c in cells if c) >= 3:
+                    header = cells
+                continue
+            f = _fields(dict(zip(header, row)))
+            u = f.get("username") or f.get("user") or f.get("login")
+            ip = f.get("ipaddress") or f.get("ip") or f.get("ipaddr") or f.get("adres ip")
+            if u and ip:
+                out.append({"username": u, "ipaddress": ip, "date": _iso_date(f.get("date") or f.get("data") or "")})
+        return out
+
+    # Kolumnowy eksport maklerski: znajdź wiersz nagłówka z kolumną IP.
+    ip_idx = date_idx = None
+    for row in grid:
+        found_ip = found_date = None
+        for j, c in enumerate(row):
+            if c is None:
+                continue
+            nm = str(c).strip().lower()
+            if found_ip is None and nm in _IP_COLS:
+                found_ip = j
+            if found_date is None and nm in _DATE_COLS:
+                found_date = j
+        if found_ip is not None:
+            ip_idx, date_idx = found_ip, found_date
+            break
+    if ip_idx is None:
+        return []
+    hdr_seen, out = False, []
+    for row in grid:
+        if not hdr_seen:
+            if ip_idx < len(row) and row[ip_idx] is not None and str(row[ip_idx]).strip().lower() in _IP_COLS:
+                hdr_seen = True
+            continue
+        if ip_idx >= len(row) or row[ip_idx] is None:
+            continue
+        ip = str(row[ip_idx]).strip()
+        if not _IPV4.match(ip):
+            continue
+        d = str(row[date_idx]).strip() if (date_idx is not None and date_idx < len(row) and row[date_idx] is not None) else ""
+        out.append({"username": ent, "ipaddress": ip, "date": _iso_date(d)})
+    return out
 
 
 def _iso_date(raw: str) -> str | None:

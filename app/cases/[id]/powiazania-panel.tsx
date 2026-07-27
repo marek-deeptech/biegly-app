@@ -22,32 +22,42 @@ export default function PowiazaniaPanel({
   stored: SubRow[];
 }) {
   const router = useRouter();
-  const ipFiles = useMemo(
-    () => documents.filter((d) => d.doc_type === "DANE_IP" && d.storage_path && /\.(xlsx|xls)$/i.test(d.rel_path)),
-    [documents],
-  );
-  const [sel, setSel] = useState("");
+  // Wszystkie pliki logowań (xls/xlsx/txt) — backend łączy je kompleksowo. Dedup po nazwie
+  // (te same pliki leżą w kilku TOM-ach) tylko do podglądu/liczby.
+  const ipFiles = useMemo(() => {
+    const seen = new Set<string>();
+    return documents.filter((d) => {
+      if (d.doc_type !== "DANE_IP" || !d.storage_path) return false;
+      const base = (d.rel_path.split("/").pop() ?? "").toLowerCase();
+      if (!/logowania/.test(base) || !/\.(xlsx?|xlsm|txt)$/.test(base)) return false;
+      if (seen.has(base)) return false;
+      seen.add(base);
+      return true;
+    });
+  }, [documents]);
   const [busy, setBusy] = useState(false);
   const [dlBusy, setDlBusy] = useState(false);
   const [graphBusy, setGraphBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const active = sel || ipFiles[0]?.storage_path || "";
   const result = stored.find((s) => s.kind === "powiazania_dane");
   const table = (result?.data?.table ?? null) as OpTable | null;
 
   async function run() {
-    if (!active) return;
+    if (ipFiles.length === 0) return;
     setBusy(true);
     setMsg("");
     try {
       const r = await fetch("/api/ip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, storagePath: active }),
+        body: JSON.stringify({ caseId }), // backend łączy wszystkie pliki logowań sprawy
       });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setMsg(`Policzono: ${j.pairs} par (${j.users} użytkowników, ${j.ips} adresów IP).`);
+      setMsg(
+        `Policzono łącznie z ${j.files?.length ?? "?"} plików (${j.logins ?? "?"} logowań): ${j.pairs} par, ` +
+          `${j.users} podmiotów, ${j.ips} adresów IP${j.skipped?.length ? `; pominięto ${j.skipped.length}` : ""}.`,
+      );
       router.refresh();
     } catch (e) {
       setMsg(`Błąd: ${e instanceof Error ? e.message : String(e)}`);
@@ -127,24 +137,23 @@ export default function PowiazaniaPanel({
 
       {ipFiles.length === 0 ? (
         <p className="text-xs text-inksoft">
-          Brak w aktach pliku logowań (typ „Dane IP”, <code>Logins_users…xlsx</code> w magazynie).
+          Brak w aktach plików logowań (typ „Dane IP”, <code>…logowania.xls/xlsx/txt</code> w magazynie).
         </p>
       ) : (
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <select
-            value={active}
-            onChange={(e) => setSel(e.target.value)}
-            className="max-w-[260px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={run}
+            loading={busy}
+            loadingLabel="Liczę…"
+            title={`Złączy ${ipFiles.length} plików logowań: ${ipFiles
+              .map((d) => d.rel_path.split("/").pop())
+              .join(", ")}`}
           >
-            {ipFiles.map((d) => (
-              <option key={d.storage_path} value={d.storage_path ?? ""}>
-                {d.rel_path.split("/").pop()}
-              </option>
-            ))}
-          </select>
-          <Button variant="primary" size="sm" onClick={run} disabled={!active} loading={busy} loadingLabel="Liczę…">
-            Analizuj powiązania IP
+            Analizuj powiązania IP (łącznie)
           </Button>
+          <span className="text-[11px] text-inksoft">{ipFiles.length} plików logowań w aktach</span>
           {msg && <span className="text-xs text-inksoft">{msg}</span>}
         </div>
       )}
