@@ -19,6 +19,7 @@ export default function PytaniaPanel({ caseId }: { caseId: string }) {
   const [source, setSource] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -54,6 +55,40 @@ export default function PytaniaPanel({ caseId }: { caseId: string }) {
   function remove(i: number) {
     setQuestions((qs) => qs.filter((_, j) => j !== i));
     setDirty(true);
+  }
+
+  async function suggestFromFiles() {
+    setSuggesting(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/cases/${caseId}/questions/suggest`, { method: "POST" });
+      const j = (await res.json()) as { ok: boolean; reason?: string; message?: string; questions?: string[] };
+      if (!j.ok) {
+        setMsg(j.reason ?? "Nie udało się odczytać akt.");
+        return;
+      }
+      const incoming = (j.questions ?? []).map((q) => String(q).trim()).filter(Boolean);
+      // Pusta lista → ustaw; niepusta → dołącz nowe (dedup), żeby nie kasować ręcznych edycji.
+      setQuestions((cur) => {
+        const clean = cur.map((q) => q.trim()).filter(Boolean);
+        if (clean.length === 0) return incoming;
+        const key = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+        const seen = new Set(clean.map(key));
+        const merged = [...clean];
+        for (const q of incoming) {
+          if (seen.has(key(q))) continue;
+          seen.add(key(q));
+          merged.push(q);
+        }
+        return merged;
+      });
+      setDirty(true);
+      setMsg((j.message ?? `Wczytano ${incoming.length} pytań z akt.`) + " Zweryfikuj i zapisz.");
+    } catch (e) {
+      setMsg("Błąd: " + (e as Error).message);
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   async function save() {
@@ -98,6 +133,17 @@ export default function PytaniaPanel({ caseId }: { caseId: string }) {
         na podstawie <strong>materiału dowodowego sprawy</strong> (dane silnika, rozdziały IV), bez przepisywania z
         weryfikowanej opinii innego biegłego.
       </p>
+
+      {!loading && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={suggestFromFiles} loading={suggesting} loadingLabel="Czytam akta…">
+            Zaczytaj z akt pytania do biegłego
+          </Button>
+          <span className="text-[11px] text-inksoft">
+            odczyta postanowienie o powołaniu biegłego / pismo z pytaniami i wypełni listę do zatwierdzenia
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-xs text-inksoft">Wczytywanie…</p>
