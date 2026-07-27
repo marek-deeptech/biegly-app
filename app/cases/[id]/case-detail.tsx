@@ -78,7 +78,6 @@ export default function CaseDetail({
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
   const [selectedUtp, setSelectedUtp] = useState("");
-  const [selectedTrem, setSelectedTrem] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(caseRow.name);
   const [sigVal, setSigVal] = useState(caseRow.signature ?? "");
@@ -161,16 +160,19 @@ export default function CaseDetail({
     [documents],
   );
   const activeUtp = selectedUtp || utpDocs[0]?.storage_path || "";
-  const tremDocs = useMemo(() => {
-    const list = documents.filter((d) => /trem/i.test(d.rel_path) && d.storage_path && /\.xls[mx]$/i.test(d.rel_path));
-    // Sparowane pliki per instrument (UTP TREM CSY/RSY — arkusz 2_stronnie) na górę: to
-    // właściwe źródło „Policz z TREM". Surowe pliki MiFIR per osoba (…_Uproszczony) niżej.
-    const paired = (fn: string) => /utp[\s_-]*trem/i.test(fn);
-    return [...list].sort(
-      (a, b) => Number(paired(basename(b.rel_path))) - Number(paired(basename(a.rel_path))),
-    );
-  }, [documents]);
-  const activeTrem = selectedTrem || tremDocs[0]?.storage_path || "";
+  // „Policz z TREM (łącznie)" liczy z WSZYSTKICH sparowanych plików per instrument
+  // (UTP TREM CSY/RSY, IAD_C_TREM) — backend sam je złączy w jeden przebieg. Surowe pliki
+  // MiFIR per osoba (…_Uproszczony) i strumienie tu nie liczymy.
+  const tremDocs = useMemo(
+    () =>
+      documents.filter(
+        (d) =>
+          /\.xls[mx]$/i.test(d.rel_path) &&
+          d.storage_path &&
+          /utp[\s_-]*trem|iad[\s_-]*c/i.test(basename(d.rel_path)),
+      ),
+    [documents],
+  );
 
   const typeCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -506,18 +508,21 @@ export default function CaseDetail({
   }
 
   async function runTrem() {
-    if (!activeTrem) return;
+    if (tremDocs.length === 0) return;
     setAnalyzing(true);
     setAnalyzeMsg("");
     try {
       const res = await fetch("/api/trem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId: caseRow.id, storagePath: activeTrem }),
+        body: JSON.stringify({ caseId: caseRow.id }), // backend sam łączy wszystkie sparowane pliki
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      notify(`Policzono z TREM: ${data.metrics} wskaźników`);
+      notify(
+        `Policzono łącznie z TREM${data.files?.length ? ` (${data.files.join(", ")})` : ""}: ` +
+          `${data.metrics} wskaźników z ${data.transactions ?? "?"} transakcji`,
+      );
       router.refresh();
     } catch (e) {
       setAnalyzeMsg(`Błąd analizy TREM: ${e instanceof Error ? e.message : String(e)}`);
@@ -1001,22 +1006,16 @@ export default function CaseDetail({
               {metrics.length > 0 ? "Przelicz wskaźniki" : "Policz wskaźniki"}
             </Button>
             {tremDocs.length > 0 && (
-              <>
-                <select
-                  value={activeTrem}
-                  onChange={(e) => setSelectedTrem(e.target.value)}
-                  className="max-w-[200px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
-                >
-                  {tremDocs.map((d) => (
-                    <option key={d.id} value={d.storage_path ?? ""}>
-                      {basename(d.rel_path)}
-                    </option>
-                  ))}
-                </select>
-                <Button variant="outline" size="md" onClick={runTrem} disabled={!activeTrem} loading={analyzing} loadingLabel="Liczę…">
-                  Policz z TREM
-                </Button>
-              </>
+              <Button
+                variant="outline"
+                size="md"
+                onClick={runTrem}
+                loading={analyzing}
+                loadingLabel="Liczę…"
+                title={`Złączy sparowane pliki TREM: ${tremDocs.map((d) => basename(d.rel_path)).join(", ")}`}
+              >
+                Policz z TREM (łącznie)
+              </Button>
             )}
           </div>
         </div>

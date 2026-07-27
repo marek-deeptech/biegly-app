@@ -8,6 +8,7 @@ zasila te same rozdziały. Roster Grupy per sprawa (jak w /api/analyze).
 import json
 import math
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -46,31 +47,51 @@ class handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("content-length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
             case_id = body["caseId"]
-            storage_path = body["storagePath"]
 
-            # Izolacja spraw: plik musi należeć do TEJ sprawy (storage_path = "<case_id>/…").
-            if not str(storage_path).startswith(f"{case_id}/"):
-                self._json(403, {"ok": False, "error": "Plik nie należy do tej sprawy."})
-                return
+            # „Łącznie": zbieramy WSZYSTKIE sparowane pliki TREM sprawy (np. ZASTAL: CSY + RSY)
+            # i liczymy z nich jednym przebiegiem. Wybór po NAZWIE (UTP TREM / IAD_C), bo rozmiar
+            # bywa mylący (paired MLM = 15 MB, surowy MiFIR per osoba = 8 MB); dedup po nazwie, bo
+            # te same pliki bywają w wielu TOM-ach (inaczej podwójne/potrójne liczenie).
+            _, db = _req("GET", f"{BASE}/rest/v1/documents?case_id=eq.{case_id}"
+                                f"&doc_type=in.(DANE_TREM,DANE_UTP)&select=rel_path,storage_path&limit=2000")
+            docs = json.loads(db or b"[]")
+            paired_re = re.compile(r"utp[\s_-]*trem|iad[\s_-]*c", re.I)
+            seen_names, candidates = set(), []
+            for d in docs:
+                sp = d.get("storage_path")
+                base = str(d.get("rel_path") or "").rsplit("/", 1)[-1]
+                if not sp or not re.search(r"\.xls[mx]$", base, re.I):
+                    continue
+                if not str(sp).startswith(f"{case_id}/"):  # izolacja spraw
+                    continue
+                if not paired_re.search(base):  # tylko sparowane pliki per instrument
+                    continue
+                key = base.strip().lower()
+                if key in seen_names:  # dedup kopii z różnych TOM-ów
+                    continue
+                seen_names.add(key)
+                candidates.append((base, sp))
 
-            obj_url = f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(storage_path)}"
-            _, data = _req("GET", obj_url)
+            # Transakcje SPAROWANE B/S — helper akceptuje IAD_C_TREM (HubTech/MLM) i 2_stronnie
+            # (ZASTAL) oraz aliasuje kupującego _K→_B. Łączymy wiersze ze wszystkich instrumentów.
+            tx, files = [], []
+            for base, sp in candidates[:16]:
+                try:
+                    _, data = _req("GET", f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(sp)}")
+                    rows = load_trem_paired(data)
+                except Exception:  # noqa: BLE001 — pomijamy plik nieczytelny/niesparowany (KeyError itp.)
+                    continue
+                if rows:
+                    tx.extend(rows)
+                    files.append(base)
 
-            # Transakcje SPAROWANE B/S — akceptujemy arkusz IAD_C_TREM (HubTech/MLM) oraz
-            # 2_stronnie (ZASTAL, plik per instrument); helper aliasuje kupującego _K→_B.
-            try:
-                tx = load_trem_paired(data)
-            except KeyError:
+            if not tx:
                 self._json(400, {
                     "ok": False,
-                    "error": "Ten plik nie zawiera arkusza transakcji sparowanych "
-                             "('IAD_C_TREM' ani '2_stronnie'). Wybierz plik TREM per instrument "
-                             "(np. 'UTP TREM CSY.xlsx' / 'UTP TREM RSY.xlsx' — arkusz 2_stronnie), "
-                             "a nie surowy plik MiFIR per osoba (…_Uproszczony).",
+                    "error": "Brak w aktach sparowanych plików TREM (arkusz 'IAD_C_TREM' lub '2_stronnie'). "
+                             "Wgraj/oznacz plik per instrument, np. 'UTP TREM CSY.xlsx' / 'UTP TREM RSY.xlsx' "
+                             "(nie surowe pliki MiFIR per osoba — …_Uproszczony).",
                 })
-                return
-            if not tx:
-                self._json(400, {"ok": False, "error": "Arkusz transakcji sparowanych jest pusty."})
                 return
 
             # Roster Grupy OBOWIĄZKOWY — jak w /api/analyze (bez niego fallback do HubTechu).
@@ -104,7 +125,7 @@ class handler(BaseHTTPRequestHandler):
                      data=json.dumps(payload[i:i + 500]).encode("utf-8"),
                      headers={"Content-Type": "application/json", "Prefer": "return=minimal"})
 
-            self._json(200, {"ok": True, "metrics": len(payload)})
+            self._json(200, {"ok": True, "metrics": len(payload), "files": files, "transactions": len(tx)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"ok": False, "error": str(e)})
 
