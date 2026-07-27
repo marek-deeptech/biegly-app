@@ -32,7 +32,36 @@ export const DOC_TYPES: Record<string, DocType> = {
   SUBANALIZA: { label: "Subanaliza / analiza robocza", source: "biegły sądowy", provenance: "wyjście" },
   RECENZJA_UWAGI: { label: "Recenzja / uwagi do opinii", source: "biegły sądowy / zespół", provenance: "wyjście" },
   LITERATURA: { label: "Literatura / akty prawne (materiał referencyjny)", source: "referencje", provenance: "wejście" },
+  // ── Typy akt sądowych (sprawa ZASTAL — proces sądowy, weryfikacja opinii) ──
+  OPINIA_BIEGLY_PROK: { label: "Opinia biegłego prokuratury (przedmiot weryfikacji)", source: "biegły prokuratury", provenance: "wejście" },
+  PYTANIA_BIEGLY: { label: "Pytania / teza dowodowa do biegłego", source: "sąd / prokuratura", provenance: "wejście" },
+  AKT_OSKARZENIA: { label: "Akt oskarżenia", source: "prokuratura", provenance: "wejście" },
+  PISMO_PROCESOWE: { label: "Pismo procesowe / wniosek / stanowisko strony", source: "strona / obrona / oskarżyciel", provenance: "wejście" },
+  POSTANOWIENIE_SAD: { label: "Postanowienie / zarządzenie sądu", source: "sąd", provenance: "wejście" },
+  PROTOKOL: { label: "Protokół (rozprawa / przesłuchanie / oględziny)", source: "sąd / policja / prokuratura", provenance: "wejście" },
+  KORESPONDENCJA: { label: "Pismo / korespondencja urzędowa", source: "organ / instytucja", provenance: "wejście" },
   UNKNOWN: { label: "Niesklasyfikowany (do ręcznej oceny)", source: "?", provenance: "?" },
+};
+
+// ── Wytwórca dokumentu (drugi wymiar klasyfikacji — kto sporządził/podpisał) ──
+// Kod zapisywany w documents.wytworca; klasyfikacja z TREŚCI (nagłówki, pieczęcie,
+// podpisy — OCR + model), nie z nazwy pliku.
+export type Author = { label: string; order: number };
+export const AUTHORS: Record<string, Author> = {
+  KNF:               { label: "KNF / UKNF", order: 1 },
+  BIEGLY_KNF:        { label: "Biegły / analityk KNF", order: 2 },
+  GPW:               { label: "GPW (giełda)", order: 3 },
+  PROKURATURA:       { label: "Prokuratura", order: 4 },
+  POLICJA:           { label: "Policja / KSP", order: 5 },
+  BIEGLY_PROK:       { label: "Biegły prokuratury (Kozłowski)", order: 6 },
+  SAD:               { label: "Sąd (I instancja)", order: 7 },
+  SAD_II:            { label: "Sąd (II instancja / odwoławczy)", order: 8 },
+  BIEGLY_MICHROWSKI: { label: "Biegły Michrowski (weryfikujący)", order: 9 },
+  OBRONA:            { label: "Obrona / pełnomocnik", order: 10 },
+  DM_BROKER:         { label: "Dom maklerski / bank", order: 11 },
+  SPOLKA:            { label: "Spółka / emitent", order: 12 },
+  OSOBA:             { label: "Osoba (podejrzany / świadek)", order: 13 },
+  INNY:              { label: "Inna instytucja / osoba", order: 14 },
 };
 
 // Reguły: pierwsze trafienie wygrywa, od szczegółu do ogółu (jak w Pythonie).
