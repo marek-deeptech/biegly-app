@@ -6,6 +6,7 @@ jako dict {nazwa_kolumny: wartość}.
 """
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import openpyxl
@@ -64,6 +65,39 @@ def load_rows(path: Path, sheet_name: str) -> list[dict]:
         return out
     finally:
         wb.close()
+
+
+def load_trem_paired(source) -> list[dict]:
+    """Wczytuje SPAROWANE transakcje TREM (kupno i sprzedaż w jednym wierszu) — akceptuje
+    dwa warianty formatu UKNF spotykane w aktach:
+
+      • arkusz ``IAD_C_TREM`` — HubTech/MLM (strona kupna = ``ACCTOWNR_POPRAWIONY_B``),
+      • arkusz ``2_stronnie`` — ZASTAL, plik per instrument (``UTP TREM CSY/RSY.xlsx``);
+        strona kupna oznaczona sufiksem ``_K`` (Kupno). Plik ma też arkusz ``1_stronnie``
+        (jednostronny), którego NIE używamy.
+
+    Stronę kupna normalizujemy do ``ACCTOWNR_POPRAWIONY_B``, którego oczekuje
+    ``engine.compute_trem`` — dzięki temu silnik działa dla obu formatów bez zmian.
+    ``source`` to bajty albo obiekt plikopodobny. Podnosi ``KeyError``, gdy w pliku nie
+    ma żadnego arkusza transakcji sparowanych (np. surowy MiFIR per osoba: ``TREM_Uproszczony``).
+    """
+    raw = source.read() if hasattr(source, "read") else source
+    rows: list[dict] | None = None
+    for sheet in ("IAD_C_TREM", "2_stronnie"):
+        try:
+            candidate = load_rows(io.BytesIO(raw), sheet)  # świeży strumień na każdą próbę
+        except KeyError:
+            continue
+        if candidate:
+            rows = candidate
+            break
+    if rows is None:
+        raise KeyError("Brak arkusza transakcji sparowanych ('IAD_C_TREM' ani '2_stronnie').")
+    # Alias kupującego: 2_stronnie ma ACCTOWNR_POPRAWIONY_K (Kupno) zamiast _B.
+    for row in rows:
+        if row.get("ACCTOWNR_POPRAWIONY_B") is None and row.get("ACCTOWNR_POPRAWIONY_K") is not None:
+            row["ACCTOWNR_POPRAWIONY_B"] = row["ACCTOWNR_POPRAWIONY_K"]
+    return rows
 
 
 def session_date(value) -> str:

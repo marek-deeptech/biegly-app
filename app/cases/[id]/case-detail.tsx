@@ -161,10 +161,15 @@ export default function CaseDetail({
     [documents],
   );
   const activeUtp = selectedUtp || utpDocs[0]?.storage_path || "";
-  const tremDocs = useMemo(
-    () => documents.filter((d) => /trem/i.test(d.rel_path) && d.storage_path && /\.xls[mx]$/i.test(d.rel_path)),
-    [documents],
-  );
+  const tremDocs = useMemo(() => {
+    const list = documents.filter((d) => /trem/i.test(d.rel_path) && d.storage_path && /\.xls[mx]$/i.test(d.rel_path));
+    // Sparowane pliki per instrument (UTP TREM CSY/RSY — arkusz 2_stronnie) na górę: to
+    // właściwe źródło „Policz z TREM". Surowe pliki MiFIR per osoba (…_Uproszczony) niżej.
+    const paired = (fn: string) => /utp[\s_-]*trem/i.test(fn);
+    return [...list].sort(
+      (a, b) => Number(paired(basename(b.rel_path))) - Number(paired(basename(a.rel_path))),
+    );
+  }, [documents]);
   const activeTrem = selectedTrem || tremDocs[0]?.storage_path || "";
 
   const typeCounts = useMemo(() => {

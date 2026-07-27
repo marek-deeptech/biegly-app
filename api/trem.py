@@ -5,7 +5,6 @@ Czyta arkusz IAD_C_TREM (transakcje sparowane B/S z tymi samymi kolumnami co UTP
 i liczy engine.compute_trem. Zapisuje do `metrics` (te same klucze co UTP), więc
 zasila te same rozdziały. Roster Grupy per sprawa (jak w /api/analyze).
 """
-import io
 import json
 import math
 import os
@@ -16,7 +15,7 @@ from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.analysis import compute_trem  # noqa: E402
-from engine.loader import load_rows  # noqa: E402
+from engine.loader import load_trem_paired  # noqa: E402
 
 
 def clean_metrics(case_id, rows):
@@ -57,17 +56,21 @@ class handler(BaseHTTPRequestHandler):
             obj_url = f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(storage_path)}"
             _, data = _req("GET", obj_url)
 
+            # Transakcje SPAROWANE B/S — akceptujemy arkusz IAD_C_TREM (HubTech/MLM) oraz
+            # 2_stronnie (ZASTAL, plik per instrument); helper aliasuje kupującego _K→_B.
             try:
-                tx = load_rows(io.BytesIO(data), "IAD_C_TREM")
+                tx = load_trem_paired(data)
             except KeyError:
                 self._json(400, {
                     "ok": False,
-                    "error": "Ten plik nie zawiera arkusza 'IAD_C_TREM'. Wybierz plik TREM "
-                             "(UTP_TREM_ID ... .xlsm).",
+                    "error": "Ten plik nie zawiera arkusza transakcji sparowanych "
+                             "('IAD_C_TREM' ani '2_stronnie'). Wybierz plik TREM per instrument "
+                             "(np. 'UTP TREM CSY.xlsx' / 'UTP TREM RSY.xlsx' — arkusz 2_stronnie), "
+                             "a nie surowy plik MiFIR per osoba (…_Uproszczony).",
                 })
                 return
             if not tx:
-                self._json(400, {"ok": False, "error": "Pusty arkusz IAD_C_TREM."})
+                self._json(400, {"ok": False, "error": "Arkusz transakcji sparowanych jest pusty."})
                 return
 
             # Roster Grupy OBOWIĄZKOWY — jak w /api/analyze (bez niego fallback do HubTechu).
