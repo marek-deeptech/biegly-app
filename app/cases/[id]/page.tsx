@@ -19,7 +19,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
 
   const { data: docs } = await supabase
     .from("documents")
-    .select("id,rel_path,size_bytes,doc_type,source,provenance,storage_path,accepted")
+    .select("id,rel_path,size_bytes,doc_type,source,provenance,storage_path,accepted,wytworca,karta_start,karta_end")
     .eq("case_id", id)
     .order("rel_path");
   const documents = docs ?? [];

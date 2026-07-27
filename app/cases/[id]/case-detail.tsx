@@ -6,7 +6,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 
 import { Button, ProgressBar } from "@/components/ui";
 import { classify } from "@/lib/intake/classify";
-import { DOC_TYPES } from "@/lib/intake/taxonomy";
+import { AUTHORS, DOC_TYPES } from "@/lib/intake/taxonomy";
 import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
@@ -24,6 +24,9 @@ type Doc = {
   provenance: string | null;
   storage_path: string | null;
   accepted?: boolean | null;
+  wytworca?: string | null; // kod z AUTHORS (kto sporządził/podpisał)
+  karta_start?: number | null; // nr karty akt — początek
+  karta_end?: number | null; // nr karty akt — koniec
 };
 type Check = { label: string; present: boolean };
 type Metric = {
@@ -86,8 +89,9 @@ export default function CaseDetail({
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
   const [tab, setTab] = useState<"overview" | "files" | "analysis" | "warsztat" | "opinion">("overview");
   const [docTypeFilter, setDocTypeFilter] = useState("");
+  const [authorFilter, setAuthorFilter] = useState("");
   const [provFilter, setProvFilter] = useState("");
-  const [docSort, setDocSort] = useState<"name" | "size" | "type" | "status">("name");
+  const [docSort, setDocSort] = useState<"name" | "size" | "type" | "status" | "karta">("name");
 
   const folderRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
@@ -169,11 +173,25 @@ export default function CaseDetail({
     return Object.entries(c).sort((a, b) => b[1] - a[1]);
   }, [documents]);
 
+  // Rozkład wg wytwórcy (drugi wymiar klasyfikacji) — do filtra.
+  const authorCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const d of documents) if (d.wytworca) c[d.wytworca] = (c[d.wytworca] ?? 0) + 1;
+    return Object.entries(c).sort((a, b) => (AUTHORS[a[0]]?.order ?? 99) - (AUTHORS[b[0]]?.order ?? 99));
+  }, [documents]);
+
   const visibleDocs = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const qn = /^\d+$/.test(q) ? parseInt(q, 10) : null; // wyszukiwanie po numerze karty akt
     let list = documents;
-    if (q) list = list.filter((d) => d.rel_path.toLowerCase().includes(q));
+    if (q)
+      list = list.filter(
+        (d) =>
+          d.rel_path.toLowerCase().includes(q) ||
+          (qn != null && d.karta_start != null && qn >= d.karta_start && qn <= (d.karta_end ?? d.karta_start)),
+      );
     if (docTypeFilter) list = list.filter((d) => d.doc_type === docTypeFilter);
+    if (authorFilter) list = list.filter((d) => (d.wytworca ?? "") === authorFilter);
     if (provFilter === "magazyn") list = list.filter((d) => !d.storage_path);
     else if (provFilter) list = list.filter((d) => d.provenance === provFilter);
     const by: Record<typeof docSort, (a: Doc, b: Doc) => number> = {
@@ -182,9 +200,10 @@ export default function CaseDetail({
       type: (a, b) => a.doc_type.localeCompare(b.doc_type, "pl") || a.rel_path.localeCompare(b.rel_path, "pl"),
       status: (a, b) =>
         (a.provenance ?? "").localeCompare(b.provenance ?? "") || a.rel_path.localeCompare(b.rel_path, "pl"),
+      karta: (a, b) => (a.karta_start ?? 1e9) - (b.karta_start ?? 1e9) || a.rel_path.localeCompare(b.rel_path, "pl"),
     };
     return [...list].sort(by[docSort]);
-  }, [documents, search, docTypeFilter, provFilter, docSort]);
+  }, [documents, search, docTypeFilter, authorFilter, provFilter, docSort]);
 
   const analysis = useMemo(() => {
     if (!metrics.length) return null;
@@ -739,8 +758,8 @@ export default function CaseDetail({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="szukaj w nazwach…"
-            aria-label="Szukaj w nazwach plików"
+            placeholder="szukaj: nazwa lub nr karty…"
+            aria-label="Szukaj w nazwach plików lub po numerze karty akt"
             className="w-44 rounded-lg border border-ink/30 px-3 py-1.5 text-sm outline-none focus:border-neutral-500"
           />
           <select
@@ -756,6 +775,21 @@ export default function CaseDetail({
               </option>
             ))}
           </select>
+          {authorCounts.length > 0 && (
+            <select
+              value={authorFilter}
+              onChange={(e) => setAuthorFilter(e.target.value)}
+              aria-label="Filtruj po wytwórcy"
+              className="max-w-[190px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
+            >
+              <option value="">wytwórca: wszyscy</option>
+              {authorCounts.map(([a, n]) => (
+                <option key={a} value={a}>
+                  {AUTHORS[a]?.label ?? a} ({n})
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={provFilter}
             onChange={(e) => setProvFilter(e.target.value)}
@@ -777,6 +811,7 @@ export default function CaseDetail({
             <option value="size">sortuj: rozmiar ↓</option>
             <option value="type">sortuj: typ</option>
             <option value="status">sortuj: status</option>
+            <option value="karta">sortuj: nr karty akt</option>
           </select>
         </div>
         {suspectCount > 0 && (
@@ -855,7 +890,15 @@ export default function CaseDetail({
                 <div className="min-w-0 flex-1">
                   <div className={`truncate text-sm ${isSuspect(d) ? "text-red-700" : ""}`}>{basename(d.rel_path)}</div>
                   <div className="truncate text-xs text-inksoft">
+                    {d.karta_start != null && (
+                      <span className="mr-1.5 rounded bg-ink/10 px-1.5 py-0.5 font-medium text-ink">
+                        k. {d.karta_start}{d.karta_end && d.karta_end !== d.karta_start ? `–${d.karta_end}` : ""}
+                      </span>
+                    )}
                     {DOC_TYPES[d.doc_type]?.label ?? d.doc_type}
+                    {d.wytworca && AUTHORS[d.wytworca] && (
+                      <span className="ml-2 text-ink/70">· {AUTHORS[d.wytworca].label}</span>
+                    )}
                     {isSuspect(d) && (
                       <span className="ml-2 font-medium text-red-600">· wytwór biegłego — czy na pewno do akt?</span>
                     )}
