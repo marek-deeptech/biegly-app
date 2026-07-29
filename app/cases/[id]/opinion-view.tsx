@@ -557,7 +557,18 @@ export default function OpinionView({
 
         <div className="space-y-4">
           {subanalyses
-            .filter((s) => !["techniki", "powiazania_dane", "powiazania_osint", "espi_events", "krs_boards", "fin_stats"].includes(s.kind))
+            .filter(
+              (s) =>
+                ![
+                  "techniki",
+                  "powiazania_dane",
+                  "powiazania_osint",
+                  "espi_events",
+                  "krs_boards",
+                  "fin_stats",
+                  "pytania_organu", // ma własny panel (Krok 1), nie jest rozdziałem opinii
+                ].includes(s.kind) && !s.kind.startsWith("trem_"), // sekcje wskaźników per instrument → zakładka Analiza liczbowa
+            )
             .map((s) => {
             const approved = s.status === "zatwierdzona";
             return (
