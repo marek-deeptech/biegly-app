@@ -8,6 +8,7 @@ do PDF przez route /cases/[id]/opinion/spoofing.
 import io
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -27,6 +28,36 @@ AUTH = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
 DETAIL_TOP = 12
 
 
+# Wybór autorytatywnego, głównego pliku UTP spośród wielu wariantów w aktach.
+# BLIŹNIACZA logika w TS: lib/intake/utp.ts (isMainUtp, utpVersionKey). Zmiana tu wymaga
+# zmiany tam. Test blokujący wybór dla HUBTECH i MLM: tests/test_utp_pick.py.
+def _is_main(rp):
+    """Główny, skonsolidowany arkusz UTP (Transakcje+Zlecenia, wiele sesji) — NIE plik
+    cząstkowy per dzień („…zrodlo_8.10.2020")."""
+    rp = rp.lower()
+    if "zrodlo" in rp or "źródło" in rp or "zrodł" in rp:
+        return False
+    return "transakcje_i_zlecenia" in rp or ("transakcje" in rp and "zlecenia" in rp)
+
+
+def _utp_version_key(rel_path):
+    """Klucz wersji z nazwy pliku — wyższy = nowszy wariant: (final, rev, corr).
+    Daty/sygnatury (2020, 4.2019, 8.10.2020) maskowane, by nie mylić z numerem wersji."""
+    b = rel_path.rsplit("/", 1)[-1].lower()
+    b = re.sub(r"\.(xlsx|xlsm|xls)$", "", b)
+    b = re.sub(r"\d{1,2}[.\-]\d{1,2}[.\-]\d{2,4}", " ", b)  # 8.10.2020 / 2020-09-11
+    b = re.sub(r"\d{1,2}[.\-]\d{4}", " ", b)                # 4.2019 (sygnatura)
+    b = re.sub(r"\b(19|20)\d{2}\b", " ", b)                 # rok 2020/2019
+    final = 1 if re.search(r"final|ostateczn", b) else 0
+    revs = [int(m.group(1)) for m in re.finditer(r"[-_(](\d+)", b)]
+    revs += [int(m.group(1)) for m in re.finditer(r"\b(?:v|ver|rev|wersja)\.?\s*(\d+)", b)]
+    rev = max(revs) if revs else 0
+    corr = 0
+    for m in re.finditer(r"[-_ ](?:pop|popr|poprawion\w*|korekt\w*|skoryg\w*)(\d*)", b):
+        corr = max(corr, int(m.group(1)) if m.group(1) else 1)
+    return (final, rev, corr)
+
+
 def _req(method, url, data=None, headers=None):
     req = urllib.request.Request(url, data=data, method=method, headers={**AUTH, **(headers or {})})
     with urllib.request.urlopen(req, timeout=55) as r:
@@ -43,18 +74,15 @@ class handler(BaseHTTPRequestHandler):
             # Plik UTP: z body albo auto-rozpoznany z akt (DANE_UTP, główny „Transakcje_i_Zlecenia").
             storage_path = body.get("storagePath")
             if not storage_path:
-                _, db = _req("GET", f"{BASE}/rest/v1/documents?case_id=eq.{case_id}&doc_type=eq.DANE_UTP&select=rel_path,storage_path")
+                _, db = _req("GET", f"{BASE}/rest/v1/documents?case_id=eq.{case_id}&doc_type=eq.DANE_UTP&select=rel_path,storage_path,size_bytes")
                 docs = json.loads(db or b"[]")
                 cand = [d for d in docs if d.get("storage_path") and str(d.get("rel_path", "")).lower().endswith(".xlsx")]
-
-                def _is_main(rp):
-                    rp = rp.lower()
-                    return "transakcje_i_zlecenia" in rp or ("transakcje" in rp and "zlecenia" in rp)
-
                 pick = [d for d in cand if _is_main(str(d.get("rel_path", "")))] or cand
                 if not pick:
                     self._json(400, {"ok": False, "error": "Brak głównego pliku UTP (Transakcje_i_Zlecenia) w aktach — wgraj dane transakcyjne."})
                     return
+                # Najnowszy wariant (wersja w nazwie) NAJPIERW; przy równej wersji — największy (najpełniejszy).
+                pick.sort(key=lambda d: (_utp_version_key(str(d.get("rel_path", ""))), d.get("size_bytes") or 0), reverse=True)
                 storage_path = pick[0]["storage_path"]
 
             # Izolacja spraw: plik musi należeć do TEJ sprawy (storage_path = "<case_id>/…").

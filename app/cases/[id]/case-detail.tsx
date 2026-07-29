@@ -7,6 +7,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { Button, ProgressBar } from "@/components/ui";
 import { classify } from "@/lib/intake/classify";
 import { AUTHORS, DOC_TYPES } from "@/lib/intake/taxonomy";
+import { cmpMainUtp, isMainUtp, utpVariantLabel } from "@/lib/intake/utp";
 import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
@@ -163,7 +164,8 @@ export default function CaseDetail({
     () =>
       documents
         .filter((d) => d.doc_type === "DANE_UTP" && d.storage_path && isMainUtp(d.rel_path))
-        .sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0)),
+        // Najnowszy wariant (wersja w nazwie) NAJPIERW; przy równej wersji — największy (najpełniejszy).
+        .sort(cmpMainUtp),
     [documents],
   );
   const otherUtpCount = useMemo(
@@ -1004,11 +1006,15 @@ export default function CaseDetail({
                 onChange={(e) => setSelectedUtp(e.target.value)}
                 className="max-w-[220px] rounded-lg border border-ink/30 px-2 py-1.5 text-xs"
               >
-                {utpDocs.map((d) => (
-                  <option key={d.id} value={d.storage_path ?? ""}>
-                    {basename(d.rel_path)}
-                  </option>
-                ))}
+                {utpDocs.map((d, i) => {
+                  const tag = utpVariantLabel(d.rel_path);
+                  return (
+                    <option key={d.id} value={d.storage_path ?? ""}>
+                      {basename(d.rel_path)}
+                      {tag ? ` — ${tag}` : ""} ({fmtSize(d.size_bytes)}){i === 0 ? " — najnowszy" : ""}
+                    </option>
+                  );
+                })}
               </select>
             )}
             <Button variant="primary" size="md" onClick={runAnalysis} disabled={!activeUtp} loading={analyzing} loadingLabel="Liczę…">
@@ -1099,11 +1105,6 @@ function basename(p: string): string {
 }
 // Główny plik UTP (łączony: arkusze Transakcje + Zlecenia BO), a NIE źródłowe
 // pliki per-dzień ("…zrodlo…", arkusze "Mikro-…"), których silnik nie liczy.
-function isMainUtp(relPath: string): boolean {
-  const b = basename(relPath).toLowerCase();
-  if (b.includes("zrodlo") || b.includes("źródło")) return false;
-  return b.includes("transakcje_i_zlecenia") || (b.includes("transakcje") && b.includes("zlecenia"));
-}
 function statusBadge(prov: string | null | undefined): { cls: string; label: string } {
   if (prov === "wejście") return { cls: "bg-emerald-100 text-emerald-800", label: "wej" };
   if (prov === "wyjście") return { cls: "bg-red-100 text-red-800", label: "wyj" };
