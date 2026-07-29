@@ -45,7 +45,17 @@ type SubRow = {
   title: string;
   status: string;
   body_md: string;
-  data: { table?: unknown; findings?: string[]; legalRefs?: string[] } | null;
+  data:
+    | {
+        table?: unknown;
+        findings?: string[];
+        legalRefs?: string[];
+        metrics?: Metric[]; // sekcja wskaźników per instrument (subanalizy trem_*)
+        label?: string;
+        isin?: string;
+        transactions?: number;
+      }
+    | null;
   updated_at?: string | null;
 };
 
@@ -213,25 +223,15 @@ export default function CaseDetail({
     return [...list].sort(by[docSort]);
   }, [documents, search, docTypeFilter, authorFilter, provFilter, docSort]);
 
-  const analysis = useMemo(() => {
-    if (!metrics.length) return null;
-    const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
-    const peak = (prefix: string) =>
-      metrics
-        .filter((m) => m.key.startsWith(prefix))
-        .reduce<Metric | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
-    const computedAt = metrics
-      .map((m) => m.computed_at)
-      .filter((v): v is string => !!v)
-      .sort()
-      .pop();
-    return {
-      groupShare: find("group_turnover_share"),
-      washPeak: peak("wash_"),
-      cancelPeak: peak("cancel_"),
-      computedAt: computedAt ?? null,
-    };
-  }, [metrics]);
+  // Sekcje wskaźników PER INSTRUMENT (subanalizy trem_csy / trem_rsy zapisane przez api/trem
+  // w trybie rozdzielonym). Gdy są — „Analiza liczbowa" pokazuje osobny blok dla każdego z nich.
+  const tremInstr = useMemo(
+    () =>
+      subanalyses
+        .filter((s) => /^trem_/.test(s.kind) && Array.isArray(s.data?.metrics) && (s.data?.metrics?.length ?? 0) > 0)
+        .sort((a, b) => (a.title || a.kind).localeCompare(b.title || b.kind, "pl")),
+    [subanalyses],
+  );
 
   async function authToken() {
     const supabase = createClient();
@@ -521,8 +521,12 @@ export default function CaseDetail({
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
       notify(
-        `Policzono łącznie z TREM${data.files?.length ? ` (${data.files.join(", ")})` : ""}: ` +
-          `${data.metrics} wskaźników z ${data.transactions ?? "?"} transakcji`,
+        data.instruments?.length >= 2
+          ? `Policzono TREM osobno dla: ${data.instruments
+              .map((i: { label: string; transactions: number }) => `${i.label} (${i.transactions} tr.)`)
+              .join(", ")} — ${data.transactions ?? "?"} transakcji łącznie`
+          : `Policzono z TREM${data.files?.length ? ` (${data.files.join(", ")})` : ""}: ` +
+            `${data.metrics} wskaźników z ${data.transactions ?? "?"} transakcji`,
       );
       router.refresh();
     } catch (e) {
@@ -1019,7 +1023,7 @@ export default function CaseDetail({
                 loadingLabel="Liczę…"
                 title={`Złączy sparowane pliki TREM: ${tremDocs.map((d) => basename(d.rel_path)).join(", ")}`}
               >
-                Policz z TREM (łącznie)
+                Policz z TREM
               </Button>
             )}
           </div>
@@ -1033,111 +1037,22 @@ export default function CaseDetail({
         )}
         {analyzeMsg && <p className="mb-3 text-sm text-red-600">{analyzeMsg}</p>}
 
-        {metrics.length > 0 && analysis && (
+        {tremInstr.length > 0 ? (
+          // Tryb ROZDZIELONY (np. ZASTAL: CSY i RSY) — osobny blok wskaźników na instrument.
           <>
-            {analysis.computedAt && (
-              <p className="mb-3 text-xs text-inksoft">
-                Policzono: {new Date(analysis.computedAt).toLocaleString("pl-PL")}
-              </p>
-            )}
-            <div className="mb-4 grid grid-cols-3 gap-3">
-              <MetricCard label="Udział Grupy w obrocie" value={analysis.groupShare ? fmt(analysis.groupShare) : "—"} />
-              <MetricCard
-                label="Wash-trades — szczyt"
-                value={analysis.washPeak ? fmt(analysis.washPeak) : "—"}
-                sub={analysis.washPeak?.session_day ?? undefined}
+            <p className="mb-3 text-xs text-inksoft">
+              Wskaźniki liczone osobno dla każdego instrumentu ({tremInstr.map((s) => s.data?.label ?? s.title).join(", ")}).
+            </p>
+            {tremInstr.map((s) => (
+              <MetricsBlock
+                key={s.kind}
+                title={`${s.title}${s.data?.transactions ? ` — ${s.data.transactions.toLocaleString("pl-PL")} transakcji` : ""}`}
+                metrics={(s.data?.metrics ?? []) as Metric[]}
               />
-              <MetricCard
-                label="Anulacje — szczyt"
-                value={analysis.cancelPeak ? fmt(analysis.cancelPeak) : "—"}
-                sub={analysis.cancelPeak?.session_day ?? undefined}
-              />
-            </div>
-            {(() => {
-              const S = analysisSections(metrics);
-              return (
-                <>
-                  <MetricSection title="Obrót ogółem" rows={S.totals} />
-                  {S.entities.length > 0 && (
-                    <div className="mt-4">
-                      <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">
-                        Aktywność podmiotów (per podmiot)
-                      </h3>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-xs text-inksoft">
-                              <th className="py-1 text-left">Podmiot</th>
-                              <th className="py-1 text-right">Udział sprzedaży</th>
-                              <th className="py-1 text-right">Wartość sprzedaży</th>
-                              <th className="py-1 text-right">Wolumen sprzedaży</th>
-                              <th className="py-1 text-right">Wartość kupna</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {S.entities.map((e) => (
-                              <tr key={e.entity} className="border-b border-line last:border-0">
-                                <td className="py-1.5">{capW(e.entity)}</td>
-                                <td className="py-1.5 text-right tabular-nums">{e.sellShare ? fmt(e.sellShare) : "—"}</td>
-                                <td className="py-1.5 text-right tabular-nums">{e.sellVal ? fmt(e.sellVal) : "—"}</td>
-                                <td className="py-1.5 text-right tabular-nums">{e.sellVol ? fmt(e.sellVol) : "—"}</td>
-                                <td className="py-1.5 text-right tabular-nums">{e.buyVal ? fmt(e.buyVal) : "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                  <MetricSection title="Dopasowane zlecenia (matched orders)" rows={S.imo} />
-                  <MetricSection title="Dopasowania — pary podmiotów" rows={S.imoPairs} limit={12} />
-                  <MetricSection title="Pary wewnątrzgrupowe (wash)" rows={S.washPairs} limit={12} />
-                  <MetricSection title="Fazy kursu (pump/dump)" rows={S.phases} />
-                  <MetricSection title="Pozostałe wskaźniki" rows={S.rest} />
-                </>
-              );
-            })()}
-            {metrics.some((m) => m.session_day) && (
-              <div className="mt-5">
-                <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">Per sesja</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-inksoft">
-                        <th className="py-1 text-left">Sesja</th>
-                        <th className="py-1 text-right">Kurs zamk.</th>
-                        <th className="py-1 text-right">Zmiana</th>
-                        <th className="py-1 text-right">Wash</th>
-                        <th className="py-1 text-right">Anulacje kupna</th>
-                        <th className="py-1 text-right">Fixing zamk.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day as string))].sort().map((day) => {
-                        const at = (k: string, exact = false) =>
-                          metrics.find((m) => m.session_day === day && (exact ? m.key === k : m.key.startsWith(k))) ?? null;
-                        const close = at("day_close", true);
-                        const chg = at("day_change_pct", true);
-                        const wash = at("wash_");
-                        const cancel = at("cancel_");
-                        const fix = at("fix_close_share", true);
-                        return (
-                          <tr key={day} className="border-b border-line last:border-0">
-                            <td className="py-1.5">{day}</td>
-                            <td className="py-1.5 text-right tabular-nums">{close ? fmt(close) : "—"}</td>
-                            <td className="py-1.5 text-right tabular-nums">{chg ? fmt(chg) : "—"}</td>
-                            <td className="py-1.5 text-right tabular-nums">{wash ? fmt(wash) : "—"}</td>
-                            <td className="py-1.5 text-right tabular-nums">{cancel ? fmt(cancel) : "—"}</td>
-                            <td className="py-1.5 text-right tabular-nums">{fix ? fmt(fix) : "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            ))}
           </>
+        ) : (
+          metrics.length > 0 && <MetricsBlock metrics={metrics} />
         )}
       </section>
       )}
@@ -1209,6 +1124,115 @@ function fmt(m: Metric): string {
 
 // Grupowanie wskaźników niedziennych w sensowne sekcje (zamiast jednej długiej listy).
 type EntActivity = { entity: string; sellShare: Metric | null; sellVal: Metric | null; sellVol: Metric | null; buyVal: Metric | null };
+// Blok wskaźników dla JEDNEGO zestawu metryk (łącznych albo per instrument CSY/RSY).
+// Wydzielony, by „Analiza liczbowa" mogła pokazać osobną sekcję dla każdego instrumentu.
+function MetricsBlock({ metrics, title }: { metrics: Metric[]; title?: string | null }) {
+  if (!metrics.length) return null;
+  const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
+  const peak = (prefix: string) =>
+    metrics
+      .filter((m) => m.key.startsWith(prefix))
+      .reduce<Metric | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
+  const computedAt = metrics.map((m) => m.computed_at).filter((v): v is string => !!v).sort().pop() ?? null;
+  const groupShare = find("group_turnover_share");
+  const washPeak = peak("wash_");
+  const cancelPeak = peak("cancel_");
+  const S = analysisSections(metrics);
+  const days = [...new Set(metrics.filter((m) => m.session_day).map((m) => m.session_day as string))].sort();
+  return (
+    <div className="mb-6 border-t border-line pt-4 first:mt-0 first:border-t-0 first:pt-0">
+      {title && (
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-ink">{title}</h3>
+      )}
+      {computedAt && (
+        <p className="mb-3 text-xs text-inksoft">Policzono: {new Date(computedAt).toLocaleString("pl-PL")}</p>
+      )}
+      <div className="mb-4 grid grid-cols-3 gap-3">
+        <MetricCard label="Udział Grupy w obrocie" value={groupShare ? fmt(groupShare) : "—"} />
+        <MetricCard label="Wash-trades — szczyt" value={washPeak ? fmt(washPeak) : "—"} sub={washPeak?.session_day ?? undefined} />
+        <MetricCard label="Anulacje — szczyt" value={cancelPeak ? fmt(cancelPeak) : "—"} sub={cancelPeak?.session_day ?? undefined} />
+      </div>
+      <MetricSection title="Obrót ogółem" rows={S.totals} />
+      {S.entities.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">
+            Aktywność podmiotów (per podmiot)
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-inksoft">
+                  <th className="py-1 text-left">Podmiot</th>
+                  <th className="py-1 text-right">Udział sprzedaży</th>
+                  <th className="py-1 text-right">Wartość sprzedaży</th>
+                  <th className="py-1 text-right">Wolumen sprzedaży</th>
+                  <th className="py-1 text-right">Wartość kupna</th>
+                </tr>
+              </thead>
+              <tbody>
+                {S.entities.map((e) => (
+                  <tr key={e.entity} className="border-b border-line last:border-0">
+                    <td className="py-1.5">{capW(e.entity)}</td>
+                    <td className="py-1.5 text-right tabular-nums">{e.sellShare ? fmt(e.sellShare) : "—"}</td>
+                    <td className="py-1.5 text-right tabular-nums">{e.sellVal ? fmt(e.sellVal) : "—"}</td>
+                    <td className="py-1.5 text-right tabular-nums">{e.sellVol ? fmt(e.sellVol) : "—"}</td>
+                    <td className="py-1.5 text-right tabular-nums">{e.buyVal ? fmt(e.buyVal) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      <MetricSection title="Dopasowane zlecenia (matched orders)" rows={S.imo} />
+      <MetricSection title="Dopasowania — pary podmiotów" rows={S.imoPairs} limit={12} />
+      <MetricSection title="Pary wewnątrzgrupowe (wash)" rows={S.washPairs} limit={12} />
+      <MetricSection title="Fazy kursu (pump/dump)" rows={S.phases} />
+      <MetricSection title="Pozostałe wskaźniki" rows={S.rest} />
+      {days.length > 0 && (
+        <div className="mt-5">
+          <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">Per sesja</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-inksoft">
+                  <th className="py-1 text-left">Sesja</th>
+                  <th className="py-1 text-right">Kurs zamk.</th>
+                  <th className="py-1 text-right">Zmiana</th>
+                  <th className="py-1 text-right">Wash</th>
+                  <th className="py-1 text-right">Anulacje kupna</th>
+                  <th className="py-1 text-right">Fixing zamk.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {days.map((day) => {
+                  const at = (k: string, exact = false) =>
+                    metrics.find((m) => m.session_day === day && (exact ? m.key === k : m.key.startsWith(k))) ?? null;
+                  const close = at("day_close", true);
+                  const chg = at("day_change_pct", true);
+                  const wash = at("wash_");
+                  const cancel = at("cancel_");
+                  const fix = at("fix_close_share", true);
+                  return (
+                    <tr key={day} className="border-b border-line last:border-0">
+                      <td className="py-1.5">{day}</td>
+                      <td className="py-1.5 text-right tabular-nums">{close ? fmt(close) : "—"}</td>
+                      <td className="py-1.5 text-right tabular-nums">{chg ? fmt(chg) : "—"}</td>
+                      <td className="py-1.5 text-right tabular-nums">{wash ? fmt(wash) : "—"}</td>
+                      <td className="py-1.5 text-right tabular-nums">{cancel ? fmt(cancel) : "—"}</td>
+                      <td className="py-1.5 text-right tabular-nums">{fix ? fmt(fix) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function analysisSections(metrics: Metric[]) {
   const nd = metrics.filter((m) => !m.session_day);
   const pick = (re: RegExp) => nd.filter((m) => re.test(m.key));

@@ -117,6 +117,7 @@ class handler(BaseHTTPRequestHandler):
 
             rows = compute_trem(tx, fragments)
 
+            # Zestaw ŁĄCZNY → tabela metrics (zasila opinię/Wnioski, zachowanie wsteczne).
             _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}",
                  headers={"Prefer": "return=minimal"})
             payload = clean_metrics(case_id, rows)
@@ -125,7 +126,49 @@ class handler(BaseHTTPRequestHandler):
                      data=json.dumps(payload[i:i + 500]).encode("utf-8"),
                      headers={"Content-Type": "application/json", "Prefer": "return=minimal"})
 
-            self._json(200, {"ok": True, "metrics": len(payload), "files": files, "transactions": len(tx)})
+            # Rozbicie PER INSTRUMENT (osobne sekcje wskaźników — ZASTAL: CSY i RSY). Instrument
+            # z kolumny SYMBOL/INSTRISIN (ISIN); znane ISIN-y mapujemy na krótkie etykiety.
+            isin_label = {"PLCSYSA00016": "CSY", "PLRSYSA00014": "RSY", "PLZSTAL00012": "ZASTAL"}
+            groups = {}
+            for r in tx:
+                key = str(r.get("SYMBOL") or r.get("INSTRISIN") or "").strip()
+                groups.setdefault(key, []).append(r)
+
+            def _sanit(ms):
+                out = []
+                for m in ms:
+                    v = m.get("value")
+                    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                        m = {**m, "value": None}
+                    out.append(m)
+                return out
+
+            # Zawsze czyścimy stare sekcje per-instrument; wpisujemy je tylko, gdy realnie >1 instrument.
+            _req("DELETE", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}&kind=like.trem_*",
+                 headers={"Prefer": "return=minimal"})
+            instruments, subs_payload = [], []
+            for isin, rows_i in sorted(groups.items(), key=lambda kv: isin_label.get(kv[0], kv[0])):
+                if not rows_i:
+                    continue
+                label = isin_label.get(isin, isin or "—")
+                mi = _sanit(compute_trem(rows_i, fragments))
+                slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "x"
+                subs_payload.append({
+                    "case_id": case_id, "kind": f"trem_{slug}", "chapter_no": "IV",
+                    "title": f"TREM — {label}", "status": "szkic",
+                    "body_md": f"Wskaźniki transakcyjne TREM dla instrumentu {label} ({isin}) — {len(rows_i)} transakcji.",
+                    "data": {"label": label, "isin": isin, "transactions": len(rows_i), "metrics": mi},
+                })
+                instruments.append({"label": label, "isin": isin, "transactions": len(rows_i)})
+            if len(subs_payload) >= 2:
+                _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
+                     data=json.dumps(subs_payload).encode("utf-8"),
+                     headers={"Content-Type": "application/json",
+                              "Prefer": "resolution=merge-duplicates,return=minimal"})
+
+            self._json(200, {"ok": True, "metrics": len(payload), "files": files,
+                             "transactions": len(tx),
+                             "instruments": instruments if len(instruments) >= 2 else []})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"ok": False, "error": str(e)})
 
