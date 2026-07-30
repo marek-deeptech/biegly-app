@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui";
+import { buildAnchors, entityQueries, pairQuery, personQueries, withSites, BUSINESS_SITES_A, BUSINESS_SITES_B, REGISTRY_SITES } from "@/lib/osint/queries";
+import { registryLinks, type KrsOdpis } from "@/lib/osint/registry";
 import { createClient } from "@/lib/supabase/client";
 
 // A4 OSINT — dwie sekcje:
@@ -39,10 +41,11 @@ const LINK_TYPES = [
 ];
 
 const SOCIAL = ["linkedin.", "x.com", "twitter.", "facebook.", "instagram.", "youtube.", "tiktok.", "goldenline"];
-const REGISTRY = ["ms.gov.pl", "rejestr.io", "aleo.com", "krs-online", "opencorporates", "ec.europa.eu", "ekrs", "imsig", "gov.pl"];
+const REGISTRY = ["ms.gov.pl", "rejestr.io", "aleo.com", "krs-online", "krs-pobierz", "opencorporates", "ec.europa.eu",
+  "ekrs", "imsig", "gov.pl", "saos.org.pl", "bizraport", "biznesradar"];
 const PRESS = ["wyborcza", "rp.pl", "parkiet", "bankier", "money.pl", "forbes", "businessinsider", "onet", "wp.pl",
-  "interia", "tvn", "gazetaprawna", "pb.pl", "stockwatch", "strefainwestorow", "gpwinfostrefa", "wnp.pl", "spidersweb",
-  "polsatnews", "rmf", "radiozet", "biznesalert", "cyberdefence"];
+  "interia", "tvn", "gazetaprawna", "pb.pl", "stockwatch", "strefainwestorow", "gpwinfostrefa", "infostrefa",
+  "biznes.pap", "pap.pl", "stooq", "wnp.pl", "spidersweb", "polsatnews", "rmf", "radiozet", "biznesalert", "cyberdefence"];
 
 function host(url: string): string {
   try {
@@ -107,19 +110,33 @@ export default function OsintPanel({
   const [q, setQ] = useState("");
   const [social, setSocial] = useState(false);
   const [sugg, setSugg] = useState<Sugg | null>(null);
+  const [caseMeta, setCaseMeta] = useState<{ name: string; signature: string }>({ name: "", signature: "" });
+  // Odpis KRS (oficjalne API) — obowiązkowe źródło rejestrowe.
+  const [krsQ, setKrsQ] = useState("");
+  const [krsRec, setKrsRec] = useState<KrsOdpis | null>(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       const supabase = createClient();
-      const { data } = await supabase.from("cases").select("group_roster").eq("id", caseId).single();
+      const { data } = await supabase.from("cases").select("name,signature,group_roster").eq("id", caseId).single();
       const r = (data?.group_roster as { entities?: Entity[] } | null)?.entities ?? [];
-      if (alive) setRoster(r);
+      if (alive) {
+        setRoster(r);
+        setCaseMeta({ name: data?.name ?? "", signature: data?.signature ?? "" });
+      }
     })();
     return () => {
       alive = false;
     };
   }, [caseId]);
+
+  // Kotwice zapytań (lib/osint/queries): emitent + spółki z rostera — precyzyjne
+  // wyszukiwanie zamiast „wszystkich Janów Kowalskich".
+  const anchors = useMemo(
+    () => buildAnchors(caseMeta.name, roster, { sig: caseMeta.signature }),
+    [caseMeta, roster],
+  );
 
   // Kolejka par SPÓŁEK z sygnałów silnika: wspólne IP (A3) + wash-pary (pair_intra::).
   // Fragmenty z silnika (np. „joyfix") mapujemy na pełne nazwy z rostera do zapytań.
@@ -198,8 +215,14 @@ export default function OsintPanel({
     }
   }
 
+  // Zapytanie KOTWICZONE per encja: osoba → z emitentem/spółką (nie „wszyscy Janowie
+  // Kowalscy"), podmiot → z kontekstem rejestrowym. Wariant [0] = najmocniejsza kotwica.
+  const anchoredQuery = (e: Entity): string =>
+    (e.kind === "osoba" ? personQueries(e.name, anchors, 1)[0] : entityQueries(e.name, anchors, 1)[0]) ??
+    cleanName(e.name);
+
   const searchEntity = async (e: Entity) => {
-    await run("A:" + e.name, cleanName(e.name), e.name, e.fragment, "profile");
+    await run("A:" + e.name, anchoredQuery(e), e.name, e.fragment, "profile");
     setSearched((prev) => {
       const next = new Set(prev).add(e.name);
       void persistSearched([...next]);
@@ -222,7 +245,7 @@ export default function OsintPanel({
         setBusy("A:" + e.name);
         let res: WebResult[] = [];
         try {
-          res = await webSearch(cleanName(e.name), false);
+          res = await webSearch(anchoredQuery(e), false);
         } catch {
           res = [];
         }
@@ -240,13 +263,63 @@ export default function OsintPanel({
     }
   }
   const searchPair = (a: string, b: string, suffix: string, label: string) =>
-    run(`B:${a}|${b}|${label}`, `"${a}" "${b}"${suffix ? " " + suffix : ""}`, `${a} ↔ ${b} · ${label}`, "", "link");
+    run(`B:${a}|${b}|${label}`, `${pairQuery(a, b)}${suffix ? " " + suffix : ""}`, `${a} ↔ ${b} · ${label}`, "", "link");
   const searchFree = (query?: string) => {
     const term = (query ?? q).trim();
     if (!term) return;
     if (query) setQ(query);
     return run("Bq", term, term, "", "link", social);
   };
+  // Wyszukiwanie ZAKRESOWE (operator site:): rejestry publiczne / 15 portali biznesowych
+  // (dwie grupy scalane — długi ciąg OR-ów obniża jakość wyników).
+  async function searchScoped(scope: "registry" | "business") {
+    const term = q.trim();
+    if (!term) return;
+    setBusy("Bq");
+    setCtx({ label: `${term} · ${scope === "registry" ? "rejestry" : "portale biznesowe"}`, frag: "", add: "link" });
+    setResults([]);
+    setMsg("");
+    try {
+      if (scope === "registry") {
+        setResults(await webSearch(withSites(term, REGISTRY_SITES)));
+      } else {
+        const [a, b] = await Promise.all([
+          webSearch(withSites(term, BUSINESS_SITES_A)).catch(() => [] as WebResult[]),
+          webSearch(withSites(term, BUSINESS_SITES_B)).catch(() => [] as WebResult[]),
+        ]);
+        const seen = new Set<string>();
+        setResults([...a, ...b].filter((r) => !seen.has(r.url) && seen.add(r.url)));
+      }
+    } catch (e) {
+      setMsg(`Wyszukiwanie: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+  // Odpis KRS z oficjalnego API (obowiązkowe źródło rejestrowe) — osoby z organów
+  // można dodać do powiązań jednym kliknięciem (źródło: api-krs, cytowalne).
+  async function fetchKrs(nr?: string) {
+    const val = (nr ?? krsQ).replace(/\D/g, "");
+    if (val.length !== 10) {
+      setMsg("Podaj 10-cyfrowy numer KRS.");
+      return;
+    }
+    if (nr) setKrsQ(nr);
+    setBusy("krs");
+    setMsg("");
+    setKrsRec(null);
+    try {
+      const r = await fetch(`/cases/${caseId}/osint/krs?krs=${val}`);
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.reason || `HTTP ${r.status}`);
+      setKrsRec(j as KrsOdpis);
+    } catch (e) {
+      setMsg(`KRS: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+  const krsApiUrl = (krs: string) => `https://api-krs.ms.gov.pl/api/krs/OdpisAktualny/${krs}?rejestr=P&format=json`;
 
   async function fetchSuggestions() {
     setBusy("sugg");
@@ -400,11 +473,14 @@ export default function OsintPanel({
     return (
       <div key={k} className="rounded-lg border border-line bg-paper p-3">
         <p className="mb-2 text-xs font-medium">Wyniki dla: {label}</p>
+        {/* Rejestry publiczne (katalog lib/osint/registry) — celowane linki zamiast szukania na ślepo */}
         <div className="mb-3 flex flex-wrap gap-2 text-[11px]">
           <span className="text-inksoft">Rejestry:</span>
-          <a href={`https://opencorporates.com/companies?q=${encodeURIComponent(cleanName(label))}`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">OpenCorporates</a>
-          <a href={`https://rejestr.io/szukaj?text=${encodeURIComponent(cleanName(label))}`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">rejestr.io (KRS)</a>
-          <a href={`https://wyszukiwarka-krs.ms.gov.pl/`} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">wyszukiwarka KRS</a>
+          {registryLinks(cleanName(label), roster.find((e) => e.name === label)?.kind === "osoba").map((l) => (
+            <a key={l.label} href={l.url} title={l.what} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">
+              {l.label}
+            </a>
+          ))}
         </div>
         {res.length === 0 && <p className="text-[11px] text-inksoft">Brak wyników z wyszukiwarki — sprawdź rejestry powyżej.</p>}
         {CAT_ORDER.filter((c) => g[c]?.length).map((c) => (
@@ -571,6 +647,12 @@ export default function OsintPanel({
               >
                 Szukaj
               </Button>
+              <Button variant="outline" size="sm" onClick={() => searchScoped("registry")} disabled={busy !== null || !q.trim()} title="Tylko rejestry: rejestr.io, ALEO, iMSiG, OpenCorporates…">
+                w rejestrach
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => searchScoped("business")} disabled={busy !== null || !q.trim()} title="15 portali biznesowo-giełdowych: bankier, PAP Biznes, StockWatch, BiznesRadar…">
+                w portalach
+              </Button>
               <Button
                 variant="success"
                 size="sm"
@@ -602,6 +684,77 @@ export default function OsintPanel({
                 </div>
               </div>
             )}
+
+            {/* Odpis KRS — oficjalne API MS (obowiązkowe źródło rejestrowe). Osoby z organów
+                dodajesz do powiązań jednym kliknięciem (źródło: api-krs, cytowalne). */}
+            <div className="mt-2 border-t border-line pt-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-medium text-inksoft">KRS (odpis aktualny, api-krs.ms.gov.pl):</span>
+                <input
+                  value={krsQ}
+                  onChange={(e) => setKrsQ(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && fetchKrs()}
+                  placeholder="np. 0000067681"
+                  className="w-36 rounded-lg border border-ink/30 px-2 py-1 text-[12px] outline-none focus:border-neutral-500"
+                />
+                <Button variant="outline" size="sm" onClick={() => fetchKrs()} disabled={busy !== null} loading={busy === "krs"} loadingLabel="Pobieram…">
+                  Pobierz odpis
+                </Button>
+                {sugg && sugg.krs.length > 0 && (
+                  <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-inksoft">
+                    z akt:
+                    {sugg.krs.map((k, i) => (
+                      <button key={i} onClick={() => fetchKrs(k.value)} disabled={busy !== null} title={k.source || ""} className="rounded-full border border-ink/20 px-2 py-0.5 text-[11px] hover:bg-ink hover:text-paper disabled:opacity-40">
+                        {k.value}
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </div>
+              {krsRec && (
+                <div className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50/50 p-2 text-[12px]">
+                  <p>
+                    <strong>{krsRec.company.nazwa}</strong> — KRS {krsRec.company.krs}
+                    {krsRec.company.nip ? ` · NIP ${krsRec.company.nip}` : ""}
+                    {krsRec.company.regon ? ` · REGON ${krsRec.company.regon}` : ""}
+                    {krsRec.company.adres ? ` · ${krsRec.company.adres}` : ""}
+                  </p>
+                  {krsRec.persons.length > 0 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {krsRec.persons.map((p, i) => (
+                        <li key={i} className="flex items-center gap-2">
+                          <span>
+                            {p.osoba} <span className="text-inksoft">({p.funkcja})</span>
+                          </span>
+                          <button
+                            onClick={() =>
+                              setLinks((l) => [
+                                ...l,
+                                {
+                                  typ: "wspólny zarząd / rada",
+                                  podmioty: `${p.osoba} ↔ ${krsRec.company.nazwa}`,
+                                  opis: `${p.funkcja} (odpis aktualny KRS, stan z ${krsRec.company.stanZDnia || "—"})`,
+                                  zrodlo: krsApiUrl(krsRec.company.krs),
+                                  data: new Date().toISOString().slice(0, 10),
+                                },
+                              ])
+                            }
+                            className="rounded-full border border-emerald-400 px-2 py-0.5 text-[10px] text-emerald-800 hover:bg-emerald-600 hover:text-white"
+                          >
+                            + powiązanie
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-1 text-[10px] text-inksoft">
+                    Publiczne API maskuje dane osobowe gwiazdkami (imiona/nazwiska/PESEL) — pełne dane w wyszukiwarce
+                    KRS i odpisach z akt; wartość odpisu: NIP/REGON/adres/funkcje + pivot do CRBR i Białej listy.
+                    Źródło cytowalne: {krsRec.source}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Kolejka par SPÓŁEK — z sygnałów silnika (IP / wash) */}

@@ -13,6 +13,8 @@ import { pdfText } from "@/lib/intake/pdf";
 import { braveSearch, gleifByLei, gleifByName, extractLeis, type GleifRecord, type WebHit } from "./collect";
 import type { OsintContent, Block, Run } from "./content";
 import type { GraphData, GEdge, GNode } from "./graph-generic";
+import { buildAnchors, entityQueries, pairQuery, personQueries } from "./queries";
+import { extractKrsNumbers, fetchKrsOdpis, fmtKrs } from "./registry";
 
 type Entity = { name: string; fragment?: string; kind?: "podmiot" | "osoba" };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,7 +36,7 @@ type AnalysisJSON = {
   chains: AChain[]; entities: AEntityDetail[]; conclusions: string[]; caveats: string[];
 };
 type Critique = { gaps: string[]; unsupported: string[]; queries: string[]; converged: boolean };
-type Evidence = { caseName: string; sig: string; rosterText: string; gleifText: string; aktaText: string; webText: string; panelText: string; queries: string[] };
+type Evidence = { caseName: string; sig: string; rosterText: string; gleifText: string; krsText?: string; aktaText: string; webText: string; panelText: string; queries: string[] };
 export type RunStage = "gather" | "search" | "synth" | "review" | "finalize" | "done";
 type RunState = { stage: RunStage; round: number; evidence: Evidence; analysis: AnalysisJSON | null; notes: string[] };
 export type AdvanceResult = { stage: RunStage; round: number; done: boolean; note: string; stats?: Record<string, number> };
@@ -106,6 +108,9 @@ function evidenceBlock(ev: Evidence): string {
     `SPRAWA: ${ev.caseName}  (sygn. ${ev.sig})`, "",
     "ROSTER (podmioty i osoby z akt):", ev.rosterText || "(brak)", "",
     "USTALENIA BIEGŁEGO Z PANELU OSINT (ręczne, każde z cytowanym źródłem — traktuj jako materiał):", ev.panelText || "(brak)", "",
+    "ODPISY KRS (oficjalne API api-krs.ms.gov.pl — cytuj jako 'KRS <nr> odpis aktualny'; UWAGA: dane osobowe" +
+      " częściowo maskowane gwiazdkami — NIE odtwarzaj zamaskowanych nazwisk, dopasowuj po funkcji/spółce):",
+    ev.krsText || "(brak)", "",
     "REKORDY GLEIF:", ev.gleifText || "(brak)", "",
     "WYNIKI WYSZUKIWAŃ WEB:", ev.webText || "(brak)", "",
     "FRAGMENTY AKT (postanowienie / KRS / załączniki):", ev.aktaText || "(brak)",
@@ -147,6 +152,20 @@ async function stepGather(supabase: Supa, caseId: string): Promise<Evidence> {
     const g = await gleifByName(nm); if (g) { gleif.push(g); have.add(g.name.toLowerCase()); }
   }
 
+  // KRS — OBOWIĄZKOWY etap rejestrowy: odpisy z oficjalnego API dla numerów jawnie
+  // wskazanych w aktach + numerów z GLEIF (registeredAs = numer w rejestrze krajowym).
+  const krsSet = new Set<string>(extractKrsNumbers(akta.join("\n")));
+  for (const g of gleif) {
+    const nr = (g.registeredAs ?? "").replace(/\D/g, "");
+    if (nr.length === 10 && g.jurisdiction.toUpperCase().includes("PL")) krsSet.add(nr);
+  }
+  const krsRecs = [];
+  for (const nr of [...krsSet].slice(0, 8)) {
+    const rec = await fetchKrsOdpis(nr);
+    if (rec) krsRecs.push(rec);
+  }
+  const krsText = krsRecs.map(fmtKrs).join("\n");
+
   // Ustalenia biegłego z panelu (A/B) — dodatkowe źródło (evidence-only, z URL).
   const { data: pl } = await supabase.from("subanalyses").select("data").eq("case_id", caseId).eq("kind", "powiazania_osint").maybeSingle();
   type PL = { typ?: string; podmioty?: string; opis?: string; zrodlo?: string; data?: string };
@@ -156,27 +175,37 @@ async function stepGather(supabase: Supa, caseId: string): Promise<Evidence> {
     .map((l) => `- ${l.podmioty} | ${l.typ ?? ""} | ${l.opis ?? ""} | źródło: ${l.zrodlo}`)
     .join("\n");
 
+  // Zapytania KOTWICZONE (lib/osint/queries.ts) — nie szukamy „wszystkich Janów
+  // Kowalskich": osoba zawsze w koniunkcji z emitentem/spółką z rostera, podmiot
+  // z kontekstem rejestrowym. Miasta z odpisów KRS jako dodatkowe kotwice.
+  const anchors = buildAnchors(caseRow?.name ?? "", roster, {
+    cities: [...new Set(krsRecs.map((r) => r.company.adres.split(" ").pop() || "").filter(Boolean))].slice(0, 3),
+  });
   const queries: string[] = [];
-  for (const p of podmioty.slice(0, 8)) queries.push(`${cleanName(p.name)} KRS zarząd powiązania`);
+  for (const p of podmioty.slice(0, 8)) queries.push(...entityQueries(p.name, anchors, 2));
+  for (const o of osoby.slice(0, 6)) queries.push(...personQueries(o.name, anchors, 1));
   const people = osoby.slice(0, 4).map((e) => cleanName(e.name));
-  for (let i = 0; i < people.length; i++) for (let j = i + 1; j < people.length; j++) if (queries.length < 14) queries.push(`"${people[i]}" "${people[j]}"`);
+  for (let i = 0; i < people.length; i++)
+    for (let j = i + 1; j < people.length; j++)
+      if (queries.length < 20) queries.push(pairQuery(people[i], people[j]));
 
   return {
     caseName: caseRow?.name ?? "",
     sig: caseRow?.signature ?? "—",
     rosterText: [...podmioty, ...osoby].map((e) => `- ${e.name} [${e.kind ?? "podmiot"}]`).join("\n"),
     gleifText: fmtGleif(gleif),
+    krsText,
     aktaText: akta.join("\n\n").slice(0, 42000),
     webText: "",
     panelText,
-    queries,
+    queries: [...new Set(queries)].slice(0, 18),
   };
 }
 
 // 2) search — Brave po zapytaniach z gather; dołóż webText.
 async function stepSearch(ev: Evidence): Promise<Evidence> {
   const web: { q: string; hits: WebHit[] }[] = [];
-  for (const q of ev.queries.slice(0, 14)) { const hits = await braveSearch(q); if (hits.length) web.push({ q, hits }); }
+  for (const q of ev.queries.slice(0, 18)) { const hits = await braveSearch(q); if (hits.length) web.push({ q, hits }); }
   return { ...ev, webText: fmtWeb(web) };
 }
 
