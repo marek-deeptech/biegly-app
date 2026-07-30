@@ -26,6 +26,7 @@ import {
 import type { ChartSpec } from "./charts";
 import { buildRelationGraph, relationGraphSvg } from "./relation-graph";
 import { buildGraphSvg, type GraphData } from "@/lib/osint/graph-generic";
+import { milisystemGraphSvg } from "@/lib/osint/graph";
 
 export type Conf = "grounded" | "review" | "todo";
 export type Para = { text: string; conf: Conf };
@@ -1993,6 +1994,22 @@ export function buildOpinion(
   );
   const merged = chapters.map((c) => (exact.has(c.no) ? chapterFromStored(exact.get(c.no)!, c.no, c.title) : c));
 
+  // PYTANIA ORGANU w rozdziale I — ZAWSZE dosłownie. Redakcja prozą (proza_i) nadpisuje
+  // builderowy rozdział I (który listował pytania), więc po scaleniu dokładamy listę
+  // deterministycznie: to pytania postanowienia są podstawą opinii i muszą być w treści.
+  {
+    const chI = merged.find((c) => c.no === "I");
+    if (chI && exact.has("I") && opinionQ.length) {
+      const already = chI.paras.some((p) => p.text.includes(opinionQ[0].slice(0, 60)));
+      if (!already)
+        chI.paras = [
+          ...chI.paras,
+          { conf: "grounded" as Conf, text: "Pytania postanowienia o dopuszczeniu dowodu z opinii biegłego (dosłownie):" },
+          ...opinionQ.map((q, i) => ({ conf: "grounded" as Conf, text: `${i + 1}. ${q}` })),
+        ];
+    }
+  }
+
   // Tabele pomocnicze z ekstrakcji źródeł PDF: zdarzenia ESPI → rozdział ESPI,
   // organy z odpisów KRS → rozdział relacji. Realne dane z akt, nie placeholdery.
   const AUX_TABLES: [IVKind, string][] = [
@@ -2112,11 +2129,18 @@ export function buildOpinion(
     const relCh = relNo ? merged.find((x) => x.no === relNo) : null;
     if (relCh && relCh.status !== "todo") {
       const graphs: Placeholder[] = [];
-      // 1) graf relacji kapitałowo-osobowych
+      // 1) graf relacji kapitałowo-osobowych. Dla sprawy Milisystem — graf KURATOROWANY
+      // (milisystemGraphSvg: KRS/GLEIF/akta, jak załącznik trasy /opinion/graf); dla
+      // pozostałych — generowany z rostera + pair_intra + organów KRS.
+      const isMlmCase = /milisystem|intelligent gaming|2intellect|\bmlm\b/i.test(caseRow.name ?? "");
       const entities =
         ((caseRow.group_roster as { entities?: { name: string; kind: string; fragment?: string }[] } | null)
           ?.entities) ?? [];
-      if (entities.length) {
+      if (isMlmCase) {
+        try {
+          graphs.push({ kind: "wykres", name: "Graf powiązań kapitałowo-osobowych (KRS, GLEIF, akta sprawy i źródła jawne — opracowanie własne)", svg: milisystemGraphSvg() });
+        } catch { /* graf opcjonalny */ }
+      } else if (entities.length) {
         const pairs = metrics
           .filter((m) => m.key.startsWith("pair_intra::"))
           .map((m) => {

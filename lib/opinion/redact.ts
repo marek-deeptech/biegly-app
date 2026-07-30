@@ -157,7 +157,7 @@ export function buildWnioskiRedactPrompt(inp: WnioskiRedactInput): { system: str
 // ── Redakcja rozdziałów IV (analiza) — narracja wokół liczb z silnika ──
 export const IV_REDACT_KINDS = [
   "ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump",
-  "fixing", "concentration",
+  "fixing", "concentration", "reversal",
 ] as const;
 export type IvRedactKind = (typeof IV_REDACT_KINDS)[number];
 
@@ -192,6 +192,10 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
     "Koncentracja zleceń w krótkim odcinku sesji (zał. I lit. A pkt e MAR) — szczytowe okna 15-minutowe, " +
     "w których Grupa skupiała dominującą część wolumenu sesji; omów sesje z koncentracją ≥ progu, wskaż okna " +
     "czasowe (szczególnie przy otwarciu 09:00–09:15 i zamknięciu 16:45–17:15) i ich znaczenie dla kształtowania kursu.",
+  reversal:
+    "Odwrócenie pozycji w krótkim okresie (zał. I lit. A pkt d MAR) — podmioty Grupy kupujące i sprzedające " +
+    "ten sam instrument w TEJ SAMEJ sesji na istotne kwoty; omów największe odwrócenia per (sesja, podmiot) " +
+    "z tabeli, ich skalę względem obrotu sesji i wymowę (obrót bez zmiany realnej ekspozycji).",
 };
 
 export type IvRedactInput = {
