@@ -157,6 +157,7 @@ export function buildWnioskiRedactPrompt(inp: WnioskiRedactInput): { system: str
 // ── Redakcja rozdziałów IV (analiza) — narracja wokół liczb z silnika ──
 export const IV_REDACT_KINDS = [
   "ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump",
+  "fixing", "concentration",
 ] as const;
 export type IvRedactKind = (typeof IV_REDACT_KINDS)[number];
 
@@ -183,6 +184,14 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
     "Layering & spoofing — składanie i anulowanie zleceń bez zamiaru realizacji; omów anulacje sesja po sesji.",
   pumpdump:
     "Pump and dump — faza pompowania kursu i późniejszej wyprzedaży pakietu.",
+  fixing:
+    "Manipulacja na fixingu (marking the close, zał. I lit. A pkt g MAR) — udział Grupy w wolumenie fixingu " +
+    "otwarcia i zamknięcia; omów sesje, w których Grupa stanowiła całość lub większość obrotu fixingu " +
+    "(ustalanie kursu odniesienia), na podstawie tabeli udziałów sesja po sesji.",
+  concentration:
+    "Koncentracja zleceń w krótkim odcinku sesji (zał. I lit. A pkt e MAR) — szczytowe okna 15-minutowe, " +
+    "w których Grupa skupiała dominującą część wolumenu sesji; omów sesje z koncentracją ≥ progu, wskaż okna " +
+    "czasowe (szczególnie przy otwarciu 09:00–09:15 i zamknięciu 16:45–17:15) i ich znaczenie dla kształtowania kursu.",
 };
 
 export type IvRedactInput = {

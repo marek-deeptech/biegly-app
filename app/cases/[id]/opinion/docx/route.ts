@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const { data: caseRow } = await supabase
     .from("cases")
-    .select("name,signature")
+    .select("name,signature,group_roster")
     .eq("id", id)
     .single();
   if (!caseRow) return new Response("Not found", { status: 404 });

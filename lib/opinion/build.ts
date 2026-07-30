@@ -24,14 +24,17 @@ import {
   type IVKind,
 } from "./chapters";
 import type { ChartSpec } from "./charts";
+import { buildRelationGraph, relationGraphSvg } from "./relation-graph";
+import { buildGraphSvg, type GraphData } from "@/lib/osint/graph-generic";
 
 export type Conf = "grounded" | "review" | "todo";
 export type Para = { text: string; conf: Conf };
 export type OpTable = { caption: string; head: string[]; rows: string[][] };
 // Placeholder elementu graficznego/tabelarycznego. Gdy silnik ma dane serii
 // (chart), DOCX renderuje prawdziwy wykres (charts.ts → PNG); bez danych —
-// oznaczone miejsce, biegły wstawia element ręcznie.
-export type Placeholder = { kind: "wykres" | "tabela"; name: string; label?: string; chart?: ChartSpec };
+// oznaczone miejsce, biegły wstawia element ręcznie. `svg` = gotowa grafika
+// wektorowa (grafy powiązań: relacje/IP/OSINT) rasteryzowana przez renderer PDF.
+export type Placeholder = { kind: "wykres" | "tabela"; name: string; label?: string; chart?: ChartSpec; svg?: string };
 export type Chapter = {
   no: string;
   title: string;
@@ -1877,7 +1880,7 @@ function buildAttachmentList(stored: StoredSub[]): string[] {
 }
 
 export function buildOpinion(
-  caseRow: { name: string; signature: string | null },
+  caseRow: { name: string; signature: string | null; group_roster?: unknown },
   metrics: Metric[],
   documents: Doc[],
   stored: StoredSub[] = [],
@@ -2020,6 +2023,41 @@ export function buildOpinion(
       }));
   }
 
+  // Zestawienie PER INSTRUMENT (TREM — np. ZASTAL: CSY i RSY) do rozdziału ekon-fin:
+  // syntetyczna tabela z subanaliz trem_* (transakcje, obrót, udział Grupy, szczyty
+  // wash/koncentracji/fixingu per instrument) — pełne rozbicia są w aplikacji.
+  {
+    const tremSubs = stored.filter((s) => s.kind.startsWith("trem_"));
+    const ekofinNo = plan.find((x) => x.kind === "ekofin")?.no;
+    const ekofinCh = ekofinNo ? merged.find((x) => x.no === ekofinNo) : null;
+    if (tremSubs.length >= 2 && ekofinCh && ekofinCh.status !== "todo") {
+      const rowFor = (s: StoredSub): string[] => {
+        const d = (s.data ?? {}) as { label?: string; transactions?: number; metrics?: Metric[] };
+        const ms: Metric[] = Array.isArray(d.metrics) ? d.metrics : [];
+        const f = (k: string) => ms.find((m) => m.key === k)?.value ?? null;
+        const pk = (pfx: string) => ms.filter((m) => m.key.startsWith(pfx)).reduce<number | null>((a, m) => (m.value != null && (a == null || m.value > a) ? m.value : a), null);
+        const pl = (v: number | null, u = "") => (v == null ? "—" : `${Math.round(v).toLocaleString("pl-PL")}${u}`);
+        const pc = (v: number | null) => (v == null ? "—" : `${v.toLocaleString("pl-PL")}%`);
+        return [
+          String(d.label ?? s.title ?? s.kind),
+          pl(d.transactions ?? f("totals_transactions"), " szt"),
+          pl(f("totals_value"), " zł"),
+          pc(f("group_turnover_share")),
+          pc(pk("wash_")),
+          pc(pk("conc_peak_share")),
+          pc(pk("fix_close_share")),
+        ];
+      };
+      const tbl: OpTable = {
+        caption: "Tabela. Zestawienie wskaźników per instrument (TREM) — transakcje, obrót, udział Grupy oraz szczyty wash/koncentracji/fixingu",
+        head: ["Instrument", "Transakcje", "Wartość obrotu", "Udział Grupy", "Wash maks.", "Koncentracja maks. (15 min)", "Fixing zamk. maks."],
+        rows: tremSubs.sort((a, b) => a.kind.localeCompare(b.kind)).map(rowFor),
+      };
+      const cur = chapterTables(ekofinCh);
+      if (!cur.some((t) => t.caption === tbl.caption)) ekofinCh.tables = [...cur, tbl];
+    }
+  }
+
   // Globalna numeracja tabel (Tabela nr N) w kolejności rozdziałów — spójna dla
   // podpisów w rozdziałach i spisu tabel w rozdziale VI. Rozdział VI (spis) pomijany.
   let tno = 0;
@@ -2065,6 +2103,80 @@ export function buildOpinion(
     if (extra.length) ch.placeholders = [...(ch.placeholders ?? []), ...extra];
   }
 
+  // GRAFY POWIĄZAŃ do rozdziału relacji (wektorowe SVG → rasteryzuje renderer PDF):
+  //  1) kapitałowo-osobowy — roster Grupy + obrót wewnątrzgrupowy (pair_intra) + organy KRS,
+  //  2) zbieżność IP — pary użytkowników dzielących adresy (subanaliza powiazania_dane),
+  //  3) OSINT — graf ustaleń agenta (subanaliza osint_analysis.data.graph).
+  {
+    const relNo = plan.find((x) => x.kind === "relacje")?.no;
+    const relCh = relNo ? merged.find((x) => x.no === relNo) : null;
+    if (relCh && relCh.status !== "todo") {
+      const graphs: Placeholder[] = [];
+      // 1) graf relacji kapitałowo-osobowych
+      const entities =
+        ((caseRow.group_roster as { entities?: { name: string; kind: string; fragment?: string }[] } | null)
+          ?.entities) ?? [];
+      if (entities.length) {
+        const pairs = metrics
+          .filter((m) => m.key.startsWith("pair_intra::"))
+          .map((m) => {
+            const [a, b] = m.key.slice("pair_intra::".length).split("|");
+            return { a, b, value: m.value ?? 0 };
+          })
+          .filter((p) => p.a && p.b)
+          .sort((x, y) => y.value - x.value)
+          .slice(0, 30);
+        const krs =
+          ((stored.find((s) => s.kind === "krs_boards")?.data as {
+            persons?: { name: string; role: string; entity: string }[];
+          } | null)?.persons) ?? [];
+        try {
+          const { graph } = buildRelationGraph({
+            caseName: caseRow.name,
+            signature: caseRow.signature,
+            emitterLabel: caseRow.name || "Emitent",
+            entities,
+            pairs,
+            krs,
+          });
+          graphs.push({ kind: "wykres", name: "Graf powiązań kapitałowo-osobowych (roster Grupy, obrót wewnątrzgrupowy, organy KRS)", svg: relationGraphSvg(graph) });
+        } catch { /* graf opcjonalny — bez danych pomijamy */ }
+      }
+      // 2) graf zbieżności IP (Krok 4)
+      const ipRows =
+        ((stored.find((s) => s.kind === "powiazania_dane")?.data as {
+          table?: { rows?: string[][] };
+        } | null)?.table?.rows) ?? [];
+      if (ipRows.length) {
+        try {
+          const users = [...new Set(ipRows.flatMap((r) => [r[0], r[1]]).filter(Boolean))].slice(0, 20);
+          const nid = (u: string) => "ip:" + u.toLowerCase();
+          const g: GraphData = {
+            title: `Zbieżność adresów IP — ${caseRow.name} (pary użytkowników dzielących logowania)`,
+            center: { id: "__ipc", label: "Wspólna infrastruktura IP", sub: "logowania do rachunków" },
+            clusters: [{ name: "Użytkownicy dzielący adresy IP", nodes: users.map((u) => ({ id: nid(u), label: u })) }],
+            edges: ipRows
+              .filter((r) => r[0] && r[1])
+              .slice(0, 28)
+              .map((r) => ({ a: nid(r[0]), b: nid(r[1]), label: `${r[2] ?? "?"} wsp. IP`, thick: Number(r[2] ?? 0) >= 3 })),
+          };
+          graphs.push({ kind: "wykres", name: "Graf zbieżności adresów IP — pary użytkowników dzielących logowania z tych samych adresów", svg: buildGraphSvg(g) });
+        } catch { /* graf opcjonalny */ }
+      }
+      // 3) graf OSINT (agent) — zapis w data.content.graphData (starsze przebiegi: data.graph)
+      const osintData = stored.find((s) => s.kind === "osint_analysis")?.data as
+        | { graph?: GraphData; content?: { graphData?: GraphData } }
+        | null;
+      const og = osintData?.content?.graphData ?? osintData?.graph;
+      if (og && Array.isArray(og.clusters) && og.center) {
+        try {
+          graphs.push({ kind: "wykres", name: "Graf powiązań OSINT — ustalenia agenta (KRS, GLEIF, źródła jawne; każda relacja ze źródłem)", svg: buildGraphSvg(og) });
+        } catch { /* graf opcjonalny */ }
+      }
+      if (graphs.length) relCh.placeholders = [...(relCh.placeholders ?? []), ...graphs];
+    }
+  }
+
   // Numeracja wykresów: wyrenderowane z danych silnika (chart) + oznaczone
   // miejsca „do wstawienia" — wspólna, globalna numeracja jak w KM.
   let wno = 0;
@@ -2074,8 +2186,9 @@ export function buildOpinion(
     for (const ph of c.placeholders ?? []) {
       if (ph.kind === "wykres") {
         wno++;
-        ph.label = ph.chart ? `Wykres nr ${wno}` : `Wykres nr ${wno} — do wstawienia`;
-        chartToc.push({ n: wno, name: ph.name, chNo: c.no, rendered: !!ph.chart });
+        const rendered = !!(ph.chart || ph.svg);
+        ph.label = rendered ? `Wykres nr ${wno}` : `Wykres nr ${wno} — do wstawienia`;
+        chartToc.push({ n: wno, name: ph.name, chNo: c.no, rendered });
       } else {
         ph.label = "Tabela — do wstawienia";
       }

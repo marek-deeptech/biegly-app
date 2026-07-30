@@ -42,13 +42,57 @@ type RunState = { stage: RunStage; round: number; evidence: Evidence; analysis: 
 export type AdvanceResult = { stage: RunStage; round: number; done: boolean; note: string; stats?: Record<string, number> };
 
 // ── Anthropic: jedno wywołanie → JSON ──
-async function modelJson<T>(system: string, user: string, maxTokens = 8000): Promise<T> {
+// Odpowiedź bywa UCIĘTA na limicie tokenów (długie analizy) — wtedy pełny JSON.parse
+// pada w połowie tablicy. repairJson odzyskuje najdłuższy poprawny prefiks, domykając
+// otwarte nawiasy/cudzysłów (dane częściowe > brak danych; recenzent doszuka braki).
+function repairJson(raw: string): string | null {
+  const s = raw.indexOf("{");
+  if (s < 0) return null;
+  const txt = raw.slice(s);
+  // stany stosu po każdym znaku (jeden przebieg), potem od końca szukamy punktu domknięcia
+  const stack: string[] = [];
+  const states: { i: number; stack: string[]; inStr: boolean }[] = [];
+  let inStr = false, esc = false;
+  for (let i = 0; i < txt.length; i++) {
+    const ch = txt[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+    states.push({ i, stack: [...stack], inStr });
+  }
+  for (let k = states.length - 1; k >= 0 && k >= states.length - 4000; k--) {
+    const st = states[k];
+    if (st.inStr) continue;
+    const ch = txt[st.i];
+    if (!/[\]}"0-9el]/.test(ch)) continue; // koniec wartości: ] } " cyfra true/false/null
+    const closers = [...st.stack].reverse().map((c) => (c === "{" ? "}" : "]")).join("");
+    const cand = txt.slice(0, st.i + 1) + closers;
+    try {
+      JSON.parse(cand);
+      return cand;
+    } catch { /* próbuj wcześniejszy punkt */ }
+  }
+  return null;
+}
+
+async function modelJson<T>(system: string, user: string, maxTokens = 12000): Promise<T> {
   const client = new Anthropic();
   const msg = await client.messages.create({ model: "claude-opus-4-8", max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] });
   const raw = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n").replace(/```json|```/g, "").trim();
   const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
-  if (s < 0 || e <= s) throw new Error("Model nie zwrócił JSON.");
-  return JSON.parse(raw.slice(s, e + 1)) as T;
+  if (s < 0) throw new Error("Model nie zwrócił JSON.");
+  if (e > s) {
+    try {
+      return JSON.parse(raw.slice(s, e + 1)) as T;
+    } catch { /* spróbuj naprawy uciętej odpowiedzi */ }
+  }
+  const fixed = repairJson(raw);
+  if (!fixed) throw new Error("Model nie zwrócił poprawnego JSON (ucięta odpowiedź nie do odzyskania).");
+  return JSON.parse(fixed) as T;
 }
 
 const SCHEMA =
@@ -279,13 +323,13 @@ function assemble(a: AnalysisJSON, sygn: string): OsintContent {
   if (a.chains.length)
     sections.push({ heading: "ŁAŃCUCHY POWIĄZAŃ OSOBOWYCH W REJESTRZE KRS", blocks: [
       { t: "p", runs: R("Rotacyjna obsada tych samych osób w organach powiązanych podmiotów (z odpisów KRS):") },
-      ...a.chains.flatMap((ch): Block[] => [{ t: "h3", text: `${ch.person}${ch.ident ? ` (${ch.ident})` : ""}` }, ...ch.steps.map((s): Block => ({ t: "arrow", runs: R(s) }))]),
+      ...a.chains.flatMap((ch): Block[] => [{ t: "h3", text: `${ch.person}${ch.ident ? ` (${ch.ident})` : ""}` }, ...(Array.isArray(ch.steps) ? ch.steps : []).map((s): Block => ({ t: "arrow", runs: R(s) }))]),
       srcBlock("Odpisy pełne KRS — akta sprawy"),
     ] });
   if (a.entities.length)
     sections.push({ heading: "PODMIOTY I OSOBY Z WNIOSKU", blocks: a.entities.flatMap((en): Block[] => [
       { t: "h2", text: en.name },
-      { t: "data", headers: ["Cecha", "Ustalenie"], widths: [26, 74], rows: en.rows },
+      { t: "data", headers: ["Cecha", "Ustalenie"], widths: [26, 74], rows: Array.isArray(en.rows) ? en.rows : [] },
       ...(en.note ? [{ t: "p", runs: R(en.note) } as Block] : []),
       srcBlock(en.source || "GLEIF / rejestry / akta sprawy"),
     ]) });

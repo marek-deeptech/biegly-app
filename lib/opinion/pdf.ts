@@ -14,7 +14,7 @@ const isTopChapter = (no: string) => /^(I|II|III|IV|V|VI|VII)$/.test(no.trim());
 // Wykres z danych silnika: SVG → PNG (resvg + DejaVu, jak w DOCX) → data URL do pdfmake.
 // Identyczny wygląd co w .docx; błąd renderu → null (degradacja do ramki „do wstawienia").
 let fontPath: string | null | undefined;
-function chartDataUrl(spec: ChartSpec): string | null {
+function rasterize(svg: string, width: number): string | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Resvg } = require("@resvg/resvg-js") as typeof import("@resvg/resvg-js");
@@ -22,8 +22,8 @@ function chartDataUrl(spec: ChartSpec): string | null {
       const p = join(process.cwd(), "node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf");
       try { readFileSync(p); fontPath = p; } catch { fontPath = null; }
     }
-    const r = new Resvg(chartSvg(spec), {
-      fitTo: { mode: "width", value: 1400 },
+    const r = new Resvg(svg, {
+      fitTo: { mode: "width", value: width },
       font: fontPath
         ? { fontFiles: [fontPath], defaultFontFamily: "DejaVu Sans", loadSystemFonts: false }
         : { loadSystemFonts: true },
@@ -34,6 +34,9 @@ function chartDataUrl(spec: ChartSpec): string | null {
     return null;
   }
 }
+const chartDataUrl = (spec: ChartSpec): string | null => rasterize(chartSvg(spec), 1400);
+// Grafy powiązań (SVG z build.ts: relacje/IP/OSINT) — szersza rasteryzacja, pełna szerokość strony.
+const svgDataUrl = (svg: string): string | null => rasterize(svg, 2200);
 
 function sourceLine(sig: string | null): Pm {
   return {
@@ -79,10 +82,10 @@ function chapterNodes(ch: Chapter, final: boolean, sig: string | null): Pm[] {
     out.push(...tableBlock(tbl, sig));
 
   for (const ph of ch.placeholders ?? []) {
-    const img = ph.chart ? chartDataUrl(ph.chart) : null;
+    const img = ph.chart ? chartDataUrl(ph.chart) : ph.svg ? svgDataUrl(ph.svg) : null;
     if (img) {
       out.push(
-        { image: img, width: 384, alignment: "center", margin: [0, 6, 0, 2] },
+        { image: img, width: ph.svg ? 500 : 384, alignment: "center", margin: [0, 6, 0, 2] },
         { text: `${ph.label ?? "Wykres"}. ${ph.name}`, bold: true, alignment: "center", fontSize: 9, margin: [0, 0, 0, 2] },
         sourceLine(sig),
       );
