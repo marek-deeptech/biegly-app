@@ -100,6 +100,67 @@ def load_trem_paired(source) -> list[dict]:
     return rows
 
 
+def load_knf_orders(source, isins: list[str] | None = None) -> tuple[list[dict], dict]:
+    """Adapter: ZESTAWIENIE ZLECEŃ KNF → format arkusza „Zlecenia BO" (UTP).
+
+    W aktach ZASTAL nie ma pliku UTP z arkuszem zleceń, ale JEST zbiorcze zestawienie
+    zleceń giełdowych podmiotów Grupy sporządzone przez KNF (zał. 5 do zawiadomienia):
+    jeden wiersz na zlecenie, kolumny ``Rodzaj zlecenia`` (K/S), ``Data złożenia``
+    (z czasem), ``ISIN``, ``Wolumen``, ``Limit``, ``Właściciel``, ``Realizacja``,
+    ``Nr rachunku``, ``DM``, ``Mod / Anulata``.
+
+    Mapowanie na klucze silnika (engine.spoofing / engine.metrics):
+      Rodzaj zlecenia → ``K/S`` · Data złożenia → ``Data`` + ``OrderEntry Time``
+      Wolumen → ``Wolumen`` · Realizacja → ``Wolumen zreal.`` · Limit → ``Limit``
+      DM → ``Biuro`` · Nr rachunku → ``Konto`` · Mod / Anulata → ``OrderModificationDate``
+
+    RÓŻNICA METODYCZNA vs UTP (istotna dla opinii): zestawienie NIE zawiera czasu
+    anulacji/modyfikacji zlecenia — jest wyłącznie czas złożenia. „Anulowany" wolumen
+    liczy się tak samo (Wolumen − Realizacja = część niewprowadzona do obrotu), ale
+    ``CancelReplaceTime`` pozostaje pusty, więc rekonstrukcja śróddzienna traktuje
+    zlecenie jako obecne do końca sesji (kwotowania orientacyjne, bez krzywej anulacji).
+
+    Zwraca ``(orders, owner_map)``; owner_map = {(Biuro, Konto) → Właściciel} zbudowana
+    wprost z kolumny ``Właściciel`` (w UTP wymagała głosowania po arkuszu transakcji).
+    ``isins`` (opcjonalnie) ogranicza wynik do instrumentów sprawy.
+    """
+    raw = source.read() if hasattr(source, "read") else source
+    rows = load_rows(io.BytesIO(raw), "Arkusz1")
+    want = {str(i).strip().upper() for i in (isins or [])}
+    out: list[dict] = []
+    owner_map: dict[tuple[str, str], str] = {}
+    for r in rows:
+        isin = str(r.get("ISIN") or "").strip().upper()
+        if want and isin not in want:
+            continue
+        side = str(r.get("Rodzaj zlecenia") or "").strip().upper()[:1]
+        if side not in ("K", "S"):
+            continue
+        entry = r.get("Data złożenia")
+        entry_s = entry.strftime("%Y-%m-%d %H:%M:%S") if hasattr(entry, "strftime") else str(entry or "")
+        biuro, konto = r.get("DM"), r.get("Nr rachunku")
+        owner = str(r.get("Właściciel") or "").strip()
+        if owner:
+            from .identity import norm_acct  # import lokalny — unika cyklu przy starcie modułu
+
+            owner_map[(norm_acct(biuro), norm_acct(konto))] = owner
+        out.append({
+            "Data": entry_s[:10],
+            "K/S": side,
+            "Biuro": biuro,
+            "Konto": konto,
+            "Wolumen": r.get("Wolumen"),
+            "Wolumen zreal.": r.get("Realizacja"),
+            "Limit": r.get("Limit"),
+            "OrderEntry Time": entry_s,
+            "CancelReplaceTime": "",  # zestawienie KNF nie podaje czasu anulacji
+            "OrderModificationDate": r.get("Mod / Anulata") or "",
+            "ISIN": isin,
+            "Właściciel": owner,
+        })
+    return out, owner_map
+
+
 def session_date(value) -> str:
     """Normalizuje wartość daty sesji do formatu ISO 'YYYY-MM-DD'."""
     if value is None:

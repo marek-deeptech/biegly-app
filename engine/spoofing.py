@@ -237,14 +237,20 @@ def detect_layering(
     min_cancel_vol: float = 20000.0,
     min_cancel_share: float = 0.5,
     max_orders_per_day: int = 80,
+    owner_map: dict | None = None,
 ) -> dict:
     """Zwraca strukturę analizy layering/spoofing per sesja + listę dni manipulacyjnych.
 
     Dzień oznaczany jako manipulacyjny, gdy anulowany wolumen kupna Grupy ≥ min_cancel_vol
     ORAZ udział anulacji ≥ min_cancel_share ORAZ Grupa realizowała tego dnia sprzedaż
     (strona przeciwna). Zwraca też sekwencje zleceń do tabel dowodowych.
+
+    `owner_map` (opcjonalnie) = gotowa mapa (Biuro, Konto) → właściciel. Podaje ją adapter
+    zestawienia KNF (`engine.loader.load_knf_orders`), gdzie właściciel stoi wprost przy
+    zleceniu; przy plikach UTP mapa powstaje z arkusza transakcji (głosowanie).
     """
-    owner_map = build_account_owner_map(transactions)
+    if owner_map is None:
+        owner_map = build_account_owner_map(transactions)
 
     buy = defaultdict(lambda: {"declared": 0.0, "cancelled": 0.0, "filled": 0.0, "orders": 0, "levels": set(), "layer_orders": 0})
     sell = defaultdict(lambda: {"declared": 0.0, "exec": 0.0, "orders": 0, "exec_orders": 0})

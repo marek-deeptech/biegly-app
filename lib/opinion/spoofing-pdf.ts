@@ -25,7 +25,7 @@ export type SpoofAnalysis = {
   days: SpoofDay[]; manip_days: string[]; entities: string[];
   totals: { sessions_flagged: number; cancelled_buy_total: number; declared_buy_total: number; sell_exec_total: number; layer_orders_total: number };
   params: { min_cancel_vol: number; min_cancel_share: number };
-  meta: { caseName: string; signature: string; book_source?: boolean };
+  meta: { caseName: string; signature: string; book_source?: boolean; source_note?: string; calibration_note?: string };
 };
 
 const DETAIL_DAYS = 12;
@@ -128,8 +128,11 @@ function docDefinition(a: SpoofAnalysis): Pm {
   content.push(
     { text: [{ text: "Definicja. ", bold: true }, "Layering to odmiana spoofingu — składanie wielu zleceń limitowanych po jednej stronie arkusza na różnych poziomach cen (warstwy), bez zamiaru realizacji, w celu wywołania złudzenia podaży/popytu; realizacja następuje po stronie przeciwnej po sztucznie utworzonej cenie, a zlecenia-warstwy są następnie anulowane (G. Mark, „Spoofing and Layering”, J. Corp. L. 45:2)."], style: "body", margin: [0, 0, 0, 6] },
     { text: [{ text: "Podstawa prawna. ", bold: true }, "Art. 12 ust. 1 lit. a) rozporządzenia MAR (2014/596) — zlecenia wprowadzające lub mogące wprowadzać w błąd co do podaży/popytu lub ceny; Załącznik I sekcja A lit. a) MAR; w prawie USA — CEA §4c(a)(5) (CFTC) oraz Exchange Act §9(a)(2)/§10(b)."], style: "body", margin: [0, 0, 0, 6] },
-    { text: [{ text: "Źródło danych. ", bold: true }, "Arkusz zleceń UTP (jeden wiersz na zlecenie): strona (K/S), wolumen zadeklarowany, wolumen zrealizowany, limit (cena), czas wprowadzenia i modyfikacji/anulacji. „Anulowany” wolumen = wolumen zadeklarowany − zrealizowany (część niewprowadzona do obrotu)."], style: "body", margin: [0, 0, 0, 6] },
-    { text: [{ text: "Kryterium wykrycia (per sesja). ", bold: true }, `duże zlecenia kupna Grupy, w większości niezrealizowane i anulowane (udział anulacji ≥ ${pct(a.params.min_cancel_share)}, anulowany wolumen ≥ ${pl(a.params.min_cancel_vol)} szt), rozłożone na wielu poziomach cen, przy jednoczesnej realizacji sprzedaży Grupy po stronie przeciwnej. Detekcja jest obiektywna i wskazuje wszystkie sesje spełniające kryterium; wybór najsilniejszych przykładów należy do biegłego.`], style: "body", margin: [0, 0, 0, 8] },
+    { text: [{ text: "Źródło danych. ", bold: true }, a.meta.source_note ?? "Arkusz zleceń UTP (jeden wiersz na zlecenie): strona (K/S), wolumen zadeklarowany, wolumen zrealizowany, limit (cena), czas wprowadzenia i modyfikacji/anulacji. „Anulowany” wolumen = wolumen zadeklarowany − zrealizowany (część niewprowadzona do obrotu)."], style: "body", margin: [0, 0, 0, 6] },
+    { text: [{ text: "Kryterium wykrycia (per sesja). ", bold: true }, `duże zlecenia kupna Grupy, w większości niezrealizowane i anulowane (udział anulacji ≥ ${pct(a.params.min_cancel_share)}, anulowany wolumen ≥ ${pl(a.params.min_cancel_vol)} szt), rozłożone na wielu poziomach cen, przy jednoczesnej realizacji sprzedaży Grupy po stronie przeciwnej. Detekcja jest obiektywna i wskazuje wszystkie sesje spełniające kryterium; wybór najsilniejszych przykładów należy do biegłego.`], style: "body", margin: [0, 0, 0, 6] },
+    ...(a.meta.calibration_note
+      ? [{ text: [{ text: "Kalibracja progu. ", bold: true }, a.meta.calibration_note], style: "body", margin: [0, 0, 0, 8] } as Pm]
+      : []),
     { text: [{ text: "Wykres per sesja. ", bold: true }, "Obszary przedstawiają zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż) i ich saldo (Różnica). ",
       a.meta.book_source
         ? "Linie najlepszej oferty kupna i sprzedaży (BestBid/BestAsk) odtworzono z arkusza zleceń UTP silnikiem dopasowań (matching engine) na wszystkich zleceniach rynku — w fazie ciągłej (09:00–16:50); z definicji kwotowania nie krzyżują się. Fazy aukcyjne pominięto."
