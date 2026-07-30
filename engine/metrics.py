@@ -314,13 +314,31 @@ def matched_orders(transactions: list[dict], group_fragments: list[str] | None =
 
 
 def _tx_time(r: dict) -> str | None:
-    """Czas transakcji HH:MM:SS — z TRANSACTTIME_TXT (string) lub CZAS_TR (time)."""
+    """Czas transakcji HH:MM:SS z dostępnych wariantów kolumn (odporne na format).
+
+    Warianty spotykane w aktach:
+      • TRANSACTTIME_TXT (HubTech/MLM) — string 'YYYY-MM-DD HH:MM:SS,micros';
+      • CZAS_TR — obiekt time (część eksportów) LUB string 'HH:MM:SS' (ZASTAL TREM);
+      • TRANSACTTIME — obiekt datetime LUB string 'YYYY-MM-DD HH:MM:SS,micros' (ZASTAL TREM).
+    Bez tego detektory śróddzienne (koncentracja lit. e, fixing lit. g) gubiły WSZYSTKIE
+    wiersze TREM (czas jako string) i zwracały pusto mimo policzonych metryk."""
     t = r.get("TRANSACTTIME_TXT")
     if isinstance(t, str) and len(t) >= 19:
         return t[11:19]
     c = r.get("CZAS_TR")
-    if c is not None and hasattr(c, "strftime"):
-        return c.strftime("%H:%M:%S")
+    if c is not None:
+        if hasattr(c, "strftime"):
+            return c.strftime("%H:%M:%S")
+        s = str(c).strip()
+        if len(s) >= 8 and s[2] == ":" and s[5] == ":":
+            return s[:8]
+    tt = r.get("TRANSACTTIME")
+    if tt is not None:
+        if hasattr(tt, "strftime"):
+            return tt.strftime("%H:%M:%S")
+        s = str(tt)
+        if len(s) >= 19 and s[10] == " ":
+            return s[11:19]
     return None
 
 
