@@ -46,6 +46,15 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
   const fx = peak(metrics, "fix_pre_cancel_vol");
   const rv = peak(metrics, "rev_val::");
   const cc = peak(metrics, "conc_peak_share");
+  // Rozróżnienie stanów, żeby komunikat nie mówił „policz wskaźniki", gdy JUŻ policzono:
+  //  (a) metryk brak w ogóle → policz wskaźniki;
+  //  (b) metryki są, ale danego wskaźnika nie da się wyznaczyć z policzonego pliku
+  //      (np. brak arkusza zleceń albo kolumny UTP, jak TIME_DIFF w danych TREM).
+  const computed = metrics.length > 0;
+  const gap = (need: string) =>
+    computed
+      ? `policzono — brak danych do tego wskaźnika: ${need}`
+      : "brak policzonych wskaźników — policz wskaźniki (zakładka Analiza liczbowa)";
   // Manipulacja informacją: komunikaty ESPI zbieżne z sesjami o dużej zmianie kursu.
   const events = (stored.find((s) => s.kind === "espi_events")?.data?.events ?? []).filter(
     (e) => e.session && e.chg != null && Math.abs(e.chg) >= INFO_MIN_CHG,
@@ -60,7 +69,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
       id: "aktywnosc",
       auto: sessions > 0 && sessions <= AKT_MAX_SESSIONS,
       signal: !sessions
-        ? "brak policzonych sesji — policz wskaźniki"
+        ? gap("wymaga transakcji z datą sesji")
         : sessions <= AKT_MAX_SESSIONS
           ? `okno ${sessions} sesji${gs?.value != null ? `, udział Grupy ${gs.value}%` : ""} — pełny przegląd aktywności per sesja wykonalny`
           : `długi okres (${sessions} sesji) — przegląd zastąpi analiza per technika (np. layering sesja-po-sesji)`,
@@ -71,7 +80,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
       signal:
         wp && wp.value != null
           ? `wolumen transakcji wewnątrzgrupowych do ${wp.value}% wolumenu sesji (${wp.session_day})`
-          : "brak policzonego wskaźnika wash — policz wskaźniki",
+          : gap("wymaga transakcji z identyfikacją właścicieli (rachunki wewnątrzgrupowe)"),
     },
     {
       id: "layering",
@@ -79,7 +88,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
       signal:
         cp && cp.value != null
           ? `anulacje zleceń kupna Grupy do ${cp.value}% zadeklarowanego wolumenu (${cp.session_day})`
-          : "brak policzonego wskaźnika anulacji — policz wskaźniki (UTP ze zleceniami)",
+          : gap("wymaga arkusza zleceń (Zlecenia BO) w pliku UTP"),
     },
     {
       // Pojedyncze dopasowanie ≈ szum; sygnał od ≥2 dopasowań wewnątrzgrupowych ≤2 s.
@@ -87,7 +96,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
       auto: (imoCount ?? 0) >= 2,
       signal:
         imoCount == null
-          ? "brak policzonego wskaźnika dopasowań — policz wskaźniki"
+          ? gap("wymaga kolumny czasu złożenia zleceń (TIME_DIFF) — nieobecnej w danych TREM")
           : imoCount === 0
             ? "0 dopasowań wzajemnych ≤2 s — brak sygnału"
             : `${imoCount} dopasowań wzajemnych (≤2 s) o wartości ${(imoValue ?? 0).toLocaleString("pl-PL")} zł` +
@@ -110,7 +119,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
       signal:
         fx && fx.value != null
           ? `${pl(fx.value)} szt w zleceniach Grupy 16:50–17:00 niewprowadzonych do obrotu (${fx.session_day})`
-          : "brak zleceń Grupy w fazie przed zamknięciem — lub policz wskaźniki (UTP ze zleceniami)",
+          : gap("wymaga arkusza zleceń (Zlecenia BO) w pliku UTP"),
     },
     {
       id: "reversal",
@@ -118,7 +127,9 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
       signal:
         rv && rv.value != null
           ? `odwrócenie pozycji do ${pl(rv.value)} zł w jednej sesji — ${rv.key.slice("rev_val::".length)} (${rv.session_day})`
-          : "brak odwróceń pozycji ≥50 tys. zł w jednej sesji — lub policz wskaźniki",
+          : computed
+            ? "brak odwróceń pozycji ≥ 50 tys. zł w jednej sesji — brak sygnału"
+            : "brak policzonych wskaźników — policz wskaźniki (zakładka Analiza liczbowa)",
     },
     {
       id: "concentration",
@@ -127,7 +138,9 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
         cc && cc.value != null
           ? `szczytowe okno 15 min sesji ${cc.session_day}: Grupa ${cc.value}% wolumenu sesji` +
             ((cc.value ?? 0) < CONC_MIN_SHARE ? ` — poniżej progu ${CONC_MIN_SHARE}%` : "")
-          : "brak policzonej koncentracji śródsesyjnej — policz wskaźniki",
+          : computed
+            ? "brak koncentracji śróddziennej w policzonym pliku (możliwa do uzupełnienia z danych transakcyjnych)"
+            : "brak policzonych wskaźników — policz wskaźniki (zakładka Analiza liczbowa)",
     },
     {
       id: "infomanip",
