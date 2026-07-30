@@ -36,22 +36,35 @@ ROWS = [
     ["K", "2019-03-29 09:20:00", CSY, 20000, 7.20, "Wieczorek Konrad", 5000, None, 2, "84217301", "902", None, None],
     ["S", "2019-03-29 15:30:00", CSY, 9000, 7.50, "Omegia", 9000, None, 3, "19002472", "914", None, None],
     ["K", "2019-03-29 10:00:00", "PLYLWHT00012", 99999, 1.00, "Zalewski Konrad", 0, None, 4, "19002403", "914", None, None],
+    # zdarzenia: osobne wiersze powiązane z pierwotnym zleceniem przez „Nr zlecenia"
+    ["Anulata K", "2019-03-29 16:50:22", CSY, 30000, 7.30, "Zalewski Konrad", 0, None, 1, "19002403", "914", None, None],
+    ["Modyfikacja K", "2019-03-29 09:45:00", CSY, 20000, 7.20, "Wieczorek Konrad", 0, None, 2, "84217301", "902", None, None],
 ]
 
 
 def test_adapter_maps_columns_and_filters_isin():
     orders, owner_map = load_knf_orders(_xlsx(ROWS), [CSY, RSY])
-    assert len(orders) == 3, "zlecenie spoza CSY/RSY musi zostać odfiltrowane"
+    assert len(orders) == 3, "zlecenie spoza CSY/RSY odfiltrowane; wiersze zdarzeń nie tworzą duplikatów"
     o = orders[0]
     assert o["K/S"] == "K"
     assert o["Data"] == "2019-03-29"
     assert o["OrderEntry Time"] == "2019-03-29 09:15:00"
     assert o["Wolumen"] == 30000 and o["Wolumen zreal."] == 0 and o["Limit"] == 7.30
     assert o["Biuro"] == "914" and o["Konto"] == "19002403"
-    assert o["CancelReplaceTime"] == "", "zestawienie KNF nie ma czasu anulacji"
     # owner_map budowana wprost z kolumny Właściciel (klucze znormalizowane jak w silniku)
     assert owner_map[("914", "19002403")] == "Zalewski Konrad"
     assert owner_map[("902", "84217301")] == "Wieczorek Konrad"
+
+
+def test_cancel_and_modify_events_merged_into_order():
+    """Wiersze „Anulata K"/„Modyfikacja K" niosą CZAS zdarzenia i łączą się z pierwotnym
+    zleceniem przez „Nr zlecenia" — bez tego rekonstrukcja śróddzienna nie zna momentu
+    wycofania zlecenia (kluczowe dla layeringu przy fixingu)."""
+    orders, _ = load_knf_orders(_xlsx(ROWS), [CSY, RSY])
+    by_nr = {o["Nr zlecenia"]: o for o in orders}
+    assert by_nr["1"]["CancelReplaceTime"] == "2019-03-29 16:50:22"
+    assert by_nr["2"]["OrderModificationDate"] == "2019-03-29 09:45:00"
+    assert by_nr["3"]["CancelReplaceTime"] == "", "zlecenie bez zdarzenia zostaje puste"
 
 
 def test_detector_flags_session_from_knf_orders():

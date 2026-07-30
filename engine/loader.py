@@ -112,51 +112,72 @@ def load_knf_orders(source, isins: list[str] | None = None) -> tuple[list[dict],
     Mapowanie na klucze silnika (engine.spoofing / engine.metrics):
       Rodzaj zlecenia → ``K/S`` · Data złożenia → ``Data`` + ``OrderEntry Time``
       Wolumen → ``Wolumen`` · Realizacja → ``Wolumen zreal.`` · Limit → ``Limit``
-      DM → ``Biuro`` · Nr rachunku → ``Konto`` · Mod / Anulata → ``OrderModificationDate``
+      DM → ``Biuro`` · Nr rachunku → ``Konto``
 
-    RÓŻNICA METODYCZNA vs UTP (istotna dla opinii): zestawienie NIE zawiera czasu
-    anulacji/modyfikacji zlecenia — jest wyłącznie czas złożenia. „Anulowany" wolumen
-    liczy się tak samo (Wolumen − Realizacja = część niewprowadzona do obrotu), ale
-    ``CancelReplaceTime`` pozostaje pusty, więc rekonstrukcja śróddzienna traktuje
-    zlecenie jako obecne do końca sesji (kwotowania orientacyjne, bez krzywej anulacji).
+    ZDARZENIA ANULACJI I MODYFIKACJI. Zestawienie zapisuje je jako OSOBNE WIERSZE
+    o rodzaju ``Anulata K``/``Anulata S``/``Modyfikacja K``/``Modyfikacja S``, powiązane
+    z pierwotnym zleceniem wspólnym ``Nr zlecenia``; czas zdarzenia stoi w kolumnie
+    ``Data złożenia`` tego wiersza. Adapter scala je z pierwotnym zleceniem, wypełniając
+    ``CancelReplaceTime`` (anulata) i ``OrderModificationDate`` (modyfikacja) — dzięki temu
+    rekonstrukcja śróddzienna zna moment wycofania zlecenia, a nie tylko jego złożenie.
+    Zdarzenia bez dopasowanego zlecenia bazowego są pomijane (nie tworzą duplikatów).
 
     Zwraca ``(orders, owner_map)``; owner_map = {(Biuro, Konto) → Właściciel} zbudowana
     wprost z kolumny ``Właściciel`` (w UTP wymagała głosowania po arkuszu transakcji).
     ``isins`` (opcjonalnie) ogranicza wynik do instrumentów sprawy.
     """
+    from .identity import norm_acct  # import lokalny — unika cyklu przy starcie modułu
+
     raw = source.read() if hasattr(source, "read") else source
     rows = load_rows(io.BytesIO(raw), "Arkusz1")
     want = {str(i).strip().upper() for i in (isins or [])}
+
+    def _ts(v) -> str:
+        return v.strftime("%Y-%m-%d %H:%M:%S") if hasattr(v, "strftime") else str(v or "")
+
+    # 1) zdarzenia: Nr zlecenia → (czas anulacji, czas modyfikacji)
+    cancels: dict[str, str] = {}
+    mods: dict[str, str] = {}
+    for r in rows:
+        kind = str(r.get("Rodzaj zlecenia") or "").strip().lower()
+        nr = str(r.get("Nr zlecenia") or "").strip()
+        if not nr:
+            continue
+        if kind.startswith("anulata"):
+            cancels[nr] = _ts(r.get("Data złożenia"))
+        elif kind.startswith("modyfikacja"):
+            mods[nr] = _ts(r.get("Data złożenia"))
+
+    # 2) zlecenia bazowe (K/S) + doklejenie zdarzeń
     out: list[dict] = []
     owner_map: dict[tuple[str, str], str] = {}
     for r in rows:
         isin = str(r.get("ISIN") or "").strip().upper()
         if want and isin not in want:
             continue
-        side = str(r.get("Rodzaj zlecenia") or "").strip().upper()[:1]
-        if side not in ("K", "S"):
+        kind = str(r.get("Rodzaj zlecenia") or "").strip().upper()
+        if kind not in ("K", "S"):  # wiersze zdarzeń obsłużone wyżej
             continue
-        entry = r.get("Data złożenia")
-        entry_s = entry.strftime("%Y-%m-%d %H:%M:%S") if hasattr(entry, "strftime") else str(entry or "")
+        entry_s = _ts(r.get("Data złożenia"))
+        nr = str(r.get("Nr zlecenia") or "").strip()
         biuro, konto = r.get("DM"), r.get("Nr rachunku")
         owner = str(r.get("Właściciel") or "").strip()
         if owner:
-            from .identity import norm_acct  # import lokalny — unika cyklu przy starcie modułu
-
             owner_map[(norm_acct(biuro), norm_acct(konto))] = owner
         out.append({
             "Data": entry_s[:10],
-            "K/S": side,
+            "K/S": kind,
             "Biuro": biuro,
             "Konto": konto,
             "Wolumen": r.get("Wolumen"),
             "Wolumen zreal.": r.get("Realizacja"),
             "Limit": r.get("Limit"),
             "OrderEntry Time": entry_s,
-            "CancelReplaceTime": "",  # zestawienie KNF nie podaje czasu anulacji
-            "OrderModificationDate": r.get("Mod / Anulata") or "",
+            "CancelReplaceTime": cancels.get(nr, ""),
+            "OrderModificationDate": mods.get(nr, ""),
             "ISIN": isin,
             "Właściciel": owner,
+            "Nr zlecenia": nr,
         })
     return out, owner_map
 
