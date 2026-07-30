@@ -27,3 +27,19 @@ export function keywordWindows(text: string, pattern: RegExp, radius = 700, maxC
   if (!spans.length) return text.slice(0, maxChars);
   return spans.map(([s, e]) => text.slice(s, e)).join("\n[…]\n").slice(0, maxChars);
 }
+
+// Wariant zachowujący PODZIAŁ NA LINIE — potrzebny tam, gdzie struktura dokumentu
+// niesie znaczenie (nagłówki rozdziałów opinii). `pdfText` zgniata wszystkie białe
+// znaki do pojedynczych spacji, przez co nagłówki „IV.4. Wash trades" przestają być
+// rozpoznawalne jako osobne wiersze. Tu normalizujemy spacje TYLKO wewnątrz linii.
+export async function pdfLines(bytes: ArrayBuffer | Uint8Array, maxChars = 900_000): Promise<string> {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const pdf = await getDocumentProxy(data);
+  const { text } = await extractText(pdf, { mergePages: true });
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[ \t\u00a0]{2,}/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .slice(0, maxChars);
+}

@@ -11,6 +11,7 @@ import {
 } from "@/lib/opinion/redact";
 import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opinion/build";
 import { buildStyleCorpus } from "@/lib/opinion/korekty";
+import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -268,8 +269,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // (tabela `korekty`). Model się nie douczy, ale przykłady „tak model napisał / tak
   // biegły poprawił" przesuwają kolejne redakcje w stronę jego stylu. Brak korekt lub
   // brak migracji 0007 → funkcja zwraca null i prompt zostaje bez zmian.
-  const styl = await buildStyleCorpus(supabase, isWnioski ? "wnioski" : chapter);
-  const systemZeStylem = styl ? `${system}\n\n${styl}` : system;
+  // Dwie warstwy uczenia stylu, w kolejności rosnącej specyficzności:
+  //  1) WZORZEC — zszkieletyzowany rozdział tego samego rodzaju z wcześniejszej opinii
+  //     biegłego (korpus `wzorce`). Uczy architektury wywodu; rośnie z liczbą spraw.
+  //  2) KOREKTY — jego własne poprawki nanoszone w tej aplikacji (korpus `korekty`).
+  //     Są świeższe i bardziej konkretne, więc stoją bliżej generacji (na końcu).
+  const rodzaj = isWnioski ? "wnioski" : chapter;
+  const [wzorzec, styl] = await Promise.all([
+    buildWzorzecBlock(supabase, rodzaj),
+    buildStyleCorpus(supabase, rodzaj),
+  ]);
+  const systemZeStylem = [system, wzorzec, styl].filter(Boolean).join("\n\n");
 
   try {
     const client = new Anthropic();
