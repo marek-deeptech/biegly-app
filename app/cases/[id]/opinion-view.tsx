@@ -17,7 +17,10 @@ import {
   type SubResult,
 } from "@/lib/opinion/build";
 import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
+import { zapiszKorekte } from "@/lib/opinion/korekty";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
+
+type AuditKryterium = { kryterium: string; status: "spelnione" | "czesciowo" | "brak"; waga: number; uwaga: string };
 
 type Metric = {
   key: string;
@@ -89,6 +92,10 @@ export default function OpinionView({
   const [msg, setMsg] = useState("");
   const [view, setView] = useState<"rozdzialy" | "montaz" | "recenzent" | "opinia">("rozdzialy");
   const [reBusy, setReBusy] = useState(false);
+  const [auBusy, setAuBusy] = useState(false);
+  const [auWynik, setAuWynik] = useState<number | null>(null);
+  const [auKryteria, setAuKryteria] = useState<AuditKryterium[] | null>(null);
+  const [auMsg, setAuMsg] = useState("");
   const [reMsg, setReMsg] = useState("");
   const [reFindings, setReFindings] = useState<
     { gap: string; chapter: string; sources: string[]; note: string; found: boolean }[] | null
@@ -351,6 +358,27 @@ export default function OpinionView({
     }
   }
 
+  // Audytor opinii — punktacja wobec rubryki + weryfikacja liczb wobec metryk silnika.
+  async function audit() {
+    setAuBusy(true);
+    setAuMsg("");
+    try {
+      const r = await fetch(`/cases/${caseId}/opinion/audit`, { method: "POST" });
+      const j = await r.json();
+      if (!j.ok) {
+        setAuMsg(j.reason || "Błąd audytu.");
+        return;
+      }
+      setAuWynik(j.wynik as number);
+      setAuKryteria(j.kryteria as AuditKryterium[]);
+      setAuMsg(j.podsumowanie || j.message || "");
+    } catch {
+      setAuMsg("Błąd sieci przy audycie.");
+    } finally {
+      setAuBusy(false);
+    }
+  }
+
   // „Przeanalizuj ponownie" — przeszukuje dokumenty akt pod kątem braków [do uzupełnienia].
   async function reanalyze() {
     setReBusy(true);
@@ -376,10 +404,20 @@ export default function OpinionView({
     setBusy(s.id);
     setMsg("");
     const supabase = createClient();
-    const { error } = await supabase.from("subanalyses").update({ body_md: draftFor(s) }).eq("id", s.id);
+    const nowa = draftFor(s);
+    const { error } = await supabase.from("subanalyses").update({ body_md: nowa }).eq("id", s.id);
+    if (error) {
+      setBusy(null);
+      setMsg(migrationHint(error.message));
+      return;
+    }
+    // PĘTLA UCZENIA: różnica model → biegły to jedyny nośnik wiedzy eksperta, jaki
+    // aplikacja może zakumulować (model się nie douczy). Zapis jest best-effort —
+    // brak migracji 0007 nie może zablokować zapisu samej subanalizy.
+    const { zapisano, pct } = await zapiszKorekte(supabase, caseId, s, nowa);
     setBusy(null);
-    if (error) setMsg(migrationHint(error.message));
-    else router.refresh();
+    setMsg(zapisano ? `Zapisano. Korekta (${pct}% zmian) trafiła do wzorców stylu.` : "");
+    router.refresh();
   }
 
   async function setStatus(s: SubRow, status: "szkic" | "zatwierdzona") {
@@ -767,6 +805,58 @@ export default function OpinionView({
             );
           })}
         </ul>
+
+        {/* Audytor opinii — punktacja wobec rubryki, weryfikacja liczb wobec metryk */}
+        <div className="mt-4 border-t border-line pt-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="primary" size="sm" onClick={audit} loading={auBusy} loadingLabel="Audytuję opinię…">
+              Audyt opinii (punktacja)
+            </Button>
+            {auWynik != null && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  auWynik >= 80
+                    ? "bg-emerald-100 text-emerald-800"
+                    : auWynik >= 55
+                      ? "bg-amber-100 text-amber-900"
+                      : "bg-red-100 text-red-800"
+                }`}
+              >
+                {auWynik}/100
+              </span>
+            )}
+            {auMsg && <span className="text-xs text-inksoft">{auMsg}</span>}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-inksoft">
+            Ocenia opinię wobec rubryki (odpowiedzi na pytania organu, pokrycie tez liczbami, atrybucja
+            imienna, podstawa prawna, rozdzielenie faktów od ocen, źródła). <strong>Każdą liczbę z opinii
+            sprawdza wobec metryk silnika</strong> — nie wobec własnej oceny. Wynik zapisuje się w historii,
+            więc widać postęp jakości między sprawami.
+          </p>
+          {auKryteria && auKryteria.length > 0 && (
+            <ul className="mt-3 space-y-1.5">
+              {auKryteria.map((k, i) => (
+                <li key={i} className="flex gap-2 text-[11px]">
+                  <span
+                    className={
+                      k.status === "spelnione"
+                        ? "text-emerald-700"
+                        : k.status === "czesciowo"
+                          ? "text-amber-700"
+                          : "text-red-700"
+                    }
+                  >
+                    {k.status === "spelnione" ? "✓" : k.status === "czesciowo" ? "◐" : "✗"}
+                  </span>
+                  <span>
+                    <span className="text-inksoft">({k.waga} pkt)</span> {k.kryterium}
+                    {k.uwaga && <span className="block text-inksoft">→ {k.uwaga}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         {/* Przeanalizuj ponownie — przeszukanie dokumentów akt pod kątem braków */}
         <div className="mt-4 border-t border-line pt-3">

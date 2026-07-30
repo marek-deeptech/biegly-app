@@ -10,6 +10,7 @@ import {
   type RedactChapter,
 } from "@/lib/opinion/redact";
 import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opinion/build";
+import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -263,6 +264,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     meta = REDACT_META[chapter as RedactChapter];
   }
 
+  // SPRZĘŻENIE ZWROTNE: dokładamy do systemu wzorce z WŁASNYCH poprawek biegłego
+  // (tabela `korekty`). Model się nie douczy, ale przykłady „tak model napisał / tak
+  // biegły poprawił" przesuwają kolejne redakcje w stronę jego stylu. Brak korekt lub
+  // brak migracji 0007 → funkcja zwraca null i prompt zostaje bez zmian.
+  const styl = await buildStyleCorpus(supabase, isWnioski ? "wnioski" : chapter);
+  const systemZeStylem = styl ? `${system}\n\n${styl}` : system;
+
   try {
     const client = new Anthropic();
     const msg = await client.messages.create({
@@ -274,7 +282,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         : isIv ? 5500
         : chapter === "III" ? 8000
         : 2500,
-      system,
+      system: systemZeStylem,
       messages: [{ role: "user", content: userPrompt }],
     });
     const text = msg.content

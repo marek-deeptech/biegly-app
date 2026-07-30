@@ -11,6 +11,7 @@ import { cmpMainUtp, isMainUtp, utpVariantLabel } from "@/lib/intake/utp";
 import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
+import CompletenessPanel from "./completeness-panel";
 import PytaniaPanel from "./pytania-panel";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
@@ -992,6 +993,9 @@ export default function CaseDetail({
       </section>
       )}
 
+      {tab === "overview" && (
+        <CompletenessPanel documents={documents} caseName={caseRow.name} signature={caseRow.signature} />
+      )}
       {tab === "overview" && <PytaniaPanel caseId={caseRow.id} />}
       {tab === "overview" && <RosterPanel caseId={caseRow.id} />}
 
