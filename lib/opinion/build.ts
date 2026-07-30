@@ -27,6 +27,8 @@ import type { ChartSpec } from "./charts";
 import { buildRelationGraph, relationGraphSvg } from "./relation-graph";
 import { buildGraphSvg, type GraphData } from "@/lib/osint/graph-generic";
 import { milisystemGraphSvg } from "@/lib/osint/graph";
+import { ipChartSvg, type IpEvent } from "./ip-chart";
+import { sessionChartSvg, type SessionSeries } from "./session-chart";
 
 export type Conf = "grounded" | "review" | "todo";
 export type Para = { text: string; conf: Conf };
@@ -2187,6 +2189,25 @@ export function buildOpinion(
           graphs.push({ kind: "wykres", name: "Graf zbieżności adresów IP — pary użytkowników dzielących logowania z tych samych adresów", svg: buildGraphSvg(g) });
         } catch { /* graf opcjonalny */ }
       }
+      // 2b) wykres „data × adres IP" (styl wykresu nr 6 analizy specjalisty): punkt = logowanie
+      // podmiotu; nałożenie symboli = różne podmioty na tym samym IP tego samego dnia.
+      const ipEvents =
+        ((stored.find((s) => s.kind === "powiazania_dane")?.data as {
+          chart?: { events?: IpEvent[] };
+        } | null)?.chart?.events) ?? [];
+      if (ipEvents.length) {
+        try {
+          const { svg, truncated } = ipChartSvg(ipEvents);
+          graphs.push({
+            kind: "wykres",
+            name:
+              "Zbieżność logowań w czasie (data × adres IP) — logowania podmiotów ze współdzielonych adresów; " +
+              "nałożenie symboli oznacza logowania różnych podmiotów z tego samego adresu" +
+              (truncated ? ` (pokazano najbardziej znamienne adresy; pominięto ${truncated} zdarzeń)` : ""),
+            svg,
+          });
+        } catch { /* wykres opcjonalny */ }
+      }
       // 3) graf OSINT (agent) — zapis w data.content.graphData (starsze przebiegi: data.graph)
       const osintData = stored.find((s) => s.kind === "osint_analysis")?.data as
         | { graph?: GraphData; content?: { graphData?: GraphData } }
@@ -2198,6 +2219,43 @@ export function buildOpinion(
         } catch { /* graf opcjonalny */ }
       }
       if (graphs.length) relCh.placeholders = [...(relCh.placeholders ?? []), ...graphs];
+    }
+  }
+
+  // WYKRESY SESYJNE LAYERINGU do rozdziału layering — z detektora Spoofing & Layering
+  // (subanaliza spoofing_analysis): rekonstrukcja arkusza per sesja (SumaWolK/S, Różnica,
+  // BestBid/BestAsk z silnika dopasowań) dla najsilniejszych sesji; pełny raport z tabelami
+  // sekwencji zleceń i wariantem B (aukcje) stanowi załącznik opinii.
+  {
+    const layNo = plan.find((x) => x.kind === "layering")?.no;
+    const layCh = layNo ? merged.find((x) => x.no === layNo) : null;
+    type SpoofDayLite = {
+      day: string; manip?: boolean; cancelled_buy?: number; declared_buy?: number;
+      cancel_ratio?: number; sell_exec_vol?: number; layer_orders?: number; series?: SessionSeries;
+    };
+    const spoofDays =
+      ((stored.find((s) => s.kind === "spoofing_analysis")?.data as {
+        analysis?: { days?: SpoofDayLite[] };
+      } | null)?.analysis?.days) ?? [];
+    if (layCh && layCh.status !== "todo" && spoofDays.length) {
+      const pl0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("pl-PL"));
+      const withSeries = spoofDays
+        .filter((d) => d.manip && d.series && d.series.times?.length)
+        .sort((a, b) => (b.cancelled_buy ?? 0) - (a.cancelled_buy ?? 0))
+        .slice(0, 12);
+      const extra: Placeholder[] = withSeries.map((d) => ({
+        kind: "wykres" as const,
+        name:
+          `Sesja ${d.day} — zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż), saldo oraz BestBid/BestAsk ` +
+          `(silnik dopasowań, faza ciągła); anulowane kupno ${pl0(d.cancelled_buy)} szt ` +
+          `(${((d.cancel_ratio ?? 0) * 100).toFixed(1).replace(".", ",")}% zadeklarowanego), ` +
+          `sprzedaż zrealizowana ${pl0(d.sell_exec_vol)} szt, warstw ${d.layer_orders ?? 0}`,
+        svg: sessionChartSvg(
+          d.series!, d.day, d.series!.bid, d.series!.ask,
+          `Wykres A — sesja ${d.day}: aktywność arkusza zleceń Grupy i kwotowania (matching engine)`,
+        ),
+      }));
+      if (extra.length) layCh.placeholders = [...(layCh.placeholders ?? []), ...extra];
     }
   }
 
