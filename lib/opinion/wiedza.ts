@@ -64,10 +64,56 @@ type Fragment = {
   wiedza_zrodla: { tytul: string; autor: string | null; rok: number | null; ranga: number } | null;
 };
 
+/**
+ * Wybór fragmentów do promptu — ranking trójstopniowy plus limit na źródło.
+ *
+ * Działa na PEŁNYM zbiorze pasujących fragmentów, nie na oknie zapytania: to
+ * właśnie ucięcie przed rankingiem sprawiało, że materiał organu nadzoru nigdy
+ * nie docierał do promptu.
+ *
+ * 1. Trafność tagu przed rangą źródła — fragment o layeringu z artykułu jest dla
+ *    rozdziału o layeringu lepszy niż ogólny fragment od organu nadzoru.
+ * 2. Przy równej trafności rozstrzyga ranga (przepis i organ przed monografią).
+ * 3. Najwyżej 2 fragmenty z jednego źródła — inaczej monografia (335 z 396
+ *    fragmentów) wypełniłaby każdy blok sama.
+ */
+function wybierz<T extends { techniki: string[]; tresc?: string; wiedza_zrodla: Fragment["wiedza_zrodla"] }>(
+  rows: T[],
+  tagi: string[],
+): T[] {
+  const trafnosc = (f: T) => {
+    const idx = f.techniki.map((t) => tagi.indexOf(t)).filter((i) => i >= 0);
+    return idx.length ? Math.min(...idx) : tagi.length;
+  };
+  const posortowane = [...rows].sort(
+    (a, b) =>
+      trafnosc(a) - trafnosc(b) ||
+      (b.wiedza_zrodla?.ranga ?? 0) - (a.wiedza_zrodla?.ranga ?? 0) ||
+      (b.tresc?.length ?? 0) - (a.tresc?.length ?? 0),
+  );
+  const zeZrodla = new Map<string, number>();
+  const wybrane: T[] = [];
+  for (const f of posortowane) {
+    const klucz = f.wiedza_zrodla?.tytul ?? "?";
+    if ((zeZrodla.get(klucz) ?? 0) >= 2) continue;
+    zeZrodla.set(klucz, (zeZrodla.get(klucz) ?? 0) + 1);
+    wybrane.push(f);
+    if (wybrane.length >= MAX_FRAGMENTOW) break;
+  }
+  return wybrane;
+}
+
 /** „Martysz 2015, s. 120–121" — postać, w jakiej przypis ma trafić do opinii. */
 function cytat(f: Fragment): string {
   const z = f.wiedza_zrodla;
-  const nazwisko = z?.autor?.split(/\s+/).slice(-1)[0] ?? z?.tytul?.slice(0, 40) ?? "źródło";
+  // Ostatnie słowo to nazwisko TYLKO przy autorze osobowym („Czesław Martysz" →
+  // „Martysz"). Przy autorze instytucjonalnym dawało „Finansowego 2024" zamiast
+  // „Urząd Komisji Nadzoru Finansowego 2024" — przypis nie do przyjęcia w opinii.
+  const czlony = z?.autor?.trim().split(/\s+/) ?? [];
+  const nazwisko =
+    czlony.length === 2 ? czlony[1]
+    : czlony.length ? czlony.join(" ")
+    : z?.tytul?.slice(0, 40) ?? "źródło";
   const rok = z?.rok ? ` ${z.rok}` : "";
   const s =
     f.strona_od == null ? ""
@@ -94,47 +140,38 @@ export async function buildWiedzaBlock(
   const kolumny = "tresc,strona_od,strona_do,techniki,wiedza_zrodla(tytul,autor,rok,ranga)";
   let rows: Fragment[] = [];
 
+  // DWA PRZEBIEGI, nie jeden z limitem. Pojedyncze zapytanie z `.limit(N)` ucina wynik
+  // PRZED rankingiem — a kolejność bez `order` jest fizyczna, więc decyduje o niej to,
+  // co wgrano najpierw. Materiał UKNF (ranga 4, najwyższa) wgrany jako trzeci, po 335
+  // fragmentach monografii, nie mieścił się w oknie i NIGDY nie trafiał do promptu.
+  // Przebieg 1 pobiera same metadane (bez treści) i ustala wybór na pełnym zbiorze;
+  // przebieg 2 dociąga treść wyłącznie wybranych fragmentów.
   try {
     const { data, error } = await supabase
       .from("wiedza")
-      .select(kolumny)
+      .select("id,techniki,wiedza_zrodla(tytul,ranga)")
       .overlaps("techniki", tagi)
-      .eq("aktywny", true)
-      .limit(60);
+      .eq("aktywny", true);
     if (error) return null; // brak migracji 0009 — cicho, bez wywracania redakcji
-    rows = (data ?? []) as unknown as Fragment[];
+    const meta = (data ?? []) as unknown as (Fragment & { id: string })[];
+    if (!meta.length) return null;
+
+    const idy = wybierz(meta, tagi).map((m) => m.id);
+    if (!idy.length) return null;
+
+    const { data: pelne, error: e2 } = await supabase
+      .from("wiedza")
+      .select(kolumny)
+      .in("id", idy);
+    if (e2) return null;
+    rows = (pelne ?? []) as unknown as Fragment[];
   } catch {
     return null;
   }
 
   if (!rows.length) return null;
 
-  // Ranking trójstopniowy. Trafność tagu PRZED rangą źródła: fragment o layeringu
-  // z artykułu jest dla rozdziału o layeringu lepszy niż ogólny fragment z materiału
-  // organu nadzoru. Dopiero przy równej trafności rozstrzyga ranga, a na końcu długość.
-  const trafnosc = (f: Fragment) => {
-    const idx = f.techniki.map((t) => tagi.indexOf(t)).filter((i) => i >= 0);
-    return idx.length ? Math.min(...idx) : tagi.length;
-  };
-  rows.sort(
-    (a, b) =>
-      trafnosc(a) - trafnosc(b) ||
-      (b.wiedza_zrodla?.ranga ?? 0) - (a.wiedza_zrodla?.ranga ?? 0) ||
-      b.tresc.length - a.tresc.length,
-  );
-
-  // Nie więcej niż 2 fragmenty z jednego źródła — inaczej Martysz (335 z 400 fragmentów)
-  // wypełniłby każdy blok sam i stanowisko organu nadzoru nigdy by się nie pokazało.
-  const zeZrodla = new Map<string, number>();
-  const wybrane: Fragment[] = [];
-  for (const f of rows) {
-    const klucz = f.wiedza_zrodla?.tytul ?? "?";
-    if ((zeZrodla.get(klucz) ?? 0) >= 2) continue;
-    zeZrodla.set(klucz, (zeZrodla.get(klucz) ?? 0) + 1);
-    wybrane.push(f);
-    if (wybrane.length >= MAX_FRAGMENTOW) break;
-  }
-  const bloki = wybrane.map((f) => {
+  const bloki = wybierz(rows, tagi).map((f) => {
     const t = f.tresc.length > MAX_ZN_FRAGMENTU ? `${f.tresc.slice(0, MAX_ZN_FRAGMENTU)}…` : f.tresc;
     return `[${cytat(f)}]\n${t}`;
   });

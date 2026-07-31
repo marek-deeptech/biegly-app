@@ -125,6 +125,16 @@ WZORCE_PRAWNE = [
 
 MIN_ZN, CEL_ZN, MAX_ZN = 400, 2500, 4200
 
+# Supabase Storage odrzuca klucze z polskimi znakami (InvalidKey). Transliterujemy
+# WYŁĄCZNIE ścieżkę w Storage — tytuł źródła w bazie zostaje w oryginalnym brzmieniu,
+# bo to on trafia do przypisu w opinii.
+_TRANS = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
+
+
+def klucz_storage(nazwa: str) -> str:
+    czysta = nazwa.translate(_TRANS)
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", czysta).strip("_")
+
 
 def env() -> tuple[str, str]:
     out = {}
@@ -289,7 +299,7 @@ def main() -> int:
             continue
 
         # 1. kopia źródła do Storage — repozytorium ma przetrwać utratę plików lokalnych
-        sp = f"wiedza/{p.name}"
+        sp = f"wiedza/{klucz_storage(nazwa)}"
         try:
             req(f"{url}/storage/v1/object/{BUCKET}/{urllib.parse.quote(sp)}", key, "POST",
                 p.read_bytes(), {"Content-Type": "application/octet-stream", "x-upsert": "true"})
@@ -315,6 +325,20 @@ def main() -> int:
                     "tresc": f["tresc"], "hash": hashlib.md5(f["tresc"].encode("utf8")).hexdigest(),
                     "techniki": f["techniki"], "pojecia": f["pojecia"],
                     "znakow": len(f["tresc"])} for f in frs]
+        # Odsiew powtórzeń W OBRĘBIE źródła: prezentacje mają identyczne slajdy
+        # (przerywniki sekcji, stopki), a dwa wiersze o tym samym haszu w jednej
+        # partii wywracają całe polecenie — „ON CONFLICT DO UPDATE command cannot
+        # affect row a second time". Bez tego CEDUR zapisywał 0 z 51 fragmentów.
+        widziane: set[str] = set()
+        unikalne = []
+        for w in wiersze:
+            if w["hash"] in widziane:
+                continue
+            widziane.add(w["hash"])
+            unikalne.append(w)
+        if len(unikalne) < len(wiersze):
+            print(f"    ⊘ pominięto {len(wiersze) - len(unikalne)} powtórzonych fragmentów (identyczna treść)")
+        wiersze = unikalne
         zapisane = 0
         for i in range(0, len(wiersze), 100):
             partia = wiersze[i : i + 100]
