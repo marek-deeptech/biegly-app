@@ -12,7 +12,8 @@ import {
 import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opinion/build";
 import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
-import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
+import { buildWiedzaBlock } from "@/lib/opinion/wiedza";
+import { PROSECUTOR_QUESTIONS, TECHNIQUES, type TechniqueId } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 
@@ -274,12 +275,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   //     biegłego (korpus `wzorce`). Uczy architektury wywodu; rośnie z liczbą spraw.
   //  2) KOREKTY — jego własne poprawki nanoszone w tej aplikacji (korpus `korekty`).
   //     Są świeższe i bardziej konkretne, więc stoją bliżej generacji (na końcu).
+  //  3) WIEDZA — doktryna i przepisy z repozytorium `wiedza` (globalnego, niezwiązanego
+  //     ze sprawą). Odpowiada za poprawność DEFINICJI i kwalifikacji prawnej techniki,
+  //     nie za styl. Stoi PRZED wzorcem i korektami, bo jest najbardziej ogólna,
+  //     a bliżej generacji mają stać rzeczy najbardziej specyficzne dla biegłego.
   const rodzaj = isWnioski ? "wnioski" : chapter;
-  const [wzorzec, styl] = await Promise.all([
+  const [wiedza, wzorzec, styl] = await Promise.all([
+    buildWiedzaBlock(supabase, rodzaj, TECHNIQUES[rodzaj as TechniqueId]?.label),
     buildWzorzecBlock(supabase, rodzaj),
     buildStyleCorpus(supabase, rodzaj),
   ]);
-  const systemZeStylem = [system, wzorzec, styl].filter(Boolean).join("\n\n");
+  const systemZeStylem = [system, wiedza, wzorzec, styl].filter(Boolean).join("\n\n");
 
   try {
     const client = new Anthropic();
