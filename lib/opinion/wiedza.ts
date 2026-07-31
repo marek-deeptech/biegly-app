@@ -11,10 +11,50 @@
 // liczba nie może pochodzić z literatury — liczby wychodzą wyłącznie z silnika.
 // Bez tego repozytorium wiedzy zamieniłoby się w źródło zmyślonych faktów.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { IvRedactKind } from "@/lib/opinion/redact";
 
 /** Ile fragmentów trafia do promptu i jak długi może być każdy. */
 const MAX_FRAGMENTOW = 4;
 const MAX_ZN_FRAGMENTU = 1400;
+
+/**
+ * PROFIL DOKTRYNY — jakich tagów szukać dla danego rozdziału, w kolejności trafności.
+ *
+ * Bez tego repozytorium obsługiwało wyłącznie rozdziały o nazwie równej nazwie techniki,
+ * czyli 7 z 15. Największe zbiory wiedzy (`ogolne` — 137 fragmentów ogólnej teorii
+ * manipulacji) nie miały rozdziału, który by o nie zapytał, a rozdział III — u biegłego
+ * 20 tys. znaków czystej doktryny i jedyny w całej opinii poświęcony teorii — dostawał zero.
+ *
+ * Rozdziały techniczne pytają najpierw o swój tag, potem o teorię ogólną: gdy monografia
+ * poświęca danej technice mało miejsca (a poświęca — „wash" pada 10 razy na milion znaków),
+ * lepszy jest fragment ogólny niż brak materiału.
+ */
+// Typ WYMUSZA komplet: dodanie techniki do katalogu bez wpisu tutaj nie skompiluje się.
+// Dokładnie ten mechanizm — cicha luka zamiast błędu — sprawił, że `infomanip` wypadł
+// z listy redakcji, a rozdziały I/III/V nie dostawały wzorca stylu przez wiele tygodni.
+type RodzajRozdzialu = IvRedactKind | "proza_i" | "proza_iii" | "proza_v" | "wnioski";
+
+const PROFIL: Record<RodzajRozdzialu, string[]> = {
+  // Wstęp teoretyczny — przegląd całej problematyki, od ogółu do technik.
+  proza_iii: ["ogolne", "infomanip", "wash", "layering", "pumpdump", "fixing", "concentration"],
+  proza_i: ["ogolne"],
+  proza_v: ["ogolne"],
+  wnioski: ["ogolne"],
+  // Moduły przeglądowe — bez własnej techniki MAR.
+  ekofin: ["ogolne"],
+  relacje: ["ogolne"],
+  aktywnosc: ["concentration", "ogolne"],
+  espi: ["infomanip", "ogolne"],
+  // Techniki: własny tag, potem teoria ogólna jako uzupełnienie.
+  wash: ["wash", "ogolne"],
+  imo: ["imo", "wash", "ogolne"],
+  layering: ["layering", "ogolne"],
+  pumpdump: ["pumpdump", "ogolne"],
+  fixing: ["fixing", "ogolne"],
+  reversal: ["reversal", "concentration", "ogolne"],
+  concentration: ["concentration", "ogolne"],
+  infomanip: ["infomanip", "ogolne"],
+};
 
 type Fragment = {
   tresc: string;
@@ -37,22 +77,20 @@ function cytat(f: Fragment): string {
 }
 
 /**
- * Zwraca blok promptu z fragmentami doktryny dotyczącymi danej techniki.
+ * Zwraca blok promptu z fragmentami doktryny właściwymi dla danego rozdziału.
  *
- * Dobór jest DWUSTOPNIOWY, bo sama zgodność tagów nie wystarcza: słownictwo technik
- * jest w polskiej literaturze rzadkie („wash" pada 10 razy na milion znaków), więc
- * po dopasowaniu tagów uzupełniamy wynik wyszukiwaniem pełnotekstowym po nazwie
- * techniki. Kolejność wewnątrz wyniku wyznacza ranga źródła — przy rozbieżności
- * doktryny z przepisem lub stanowiskiem organu nadzoru pierwszeństwo ma ten drugi.
+ * `rodzaj` to KLUCZ rozdziału (`proza_iii`, `wash`, `wnioski`…), nie jego numer —
+ * profil rozwija go na listę tagów uporządkowaną wg trafności, bo słownictwo technik
+ * jest w polskiej literaturze rzadkie i sam tag techniki często nie wystarcza.
  *
- * Zwraca `null`, gdy brak wiedzy dla techniki albo brak migracji 0009 — wtedy prompt
+ * Zwraca `null`, gdy brak wiedzy dla rozdziału albo brak migracji 0009 — wtedy prompt
  * zostaje bez zmian (degradacja łagodna, tak jak przy `wzorce` i `korekty`).
  */
 export async function buildWiedzaBlock(
   supabase: SupabaseClient,
-  technika: string,
-  fraza?: string,
+  rodzaj: string,
 ): Promise<string | null> {
+  const tagi = PROFIL[rodzaj as RodzajRozdzialu] ?? [rodzaj, "ogolne"];
   const kolumny = "tresc,strona_od,strona_do,techniki,wiedza_zrodla(tytul,autor,rok,ranga)";
   let rows: Fragment[] = [];
 
@@ -60,44 +98,42 @@ export async function buildWiedzaBlock(
     const { data, error } = await supabase
       .from("wiedza")
       .select(kolumny)
-      .contains("techniki", [technika])
+      .overlaps("techniki", tagi)
       .eq("aktywny", true)
-      .limit(24);
+      .limit(60);
     if (error) return null; // brak migracji 0009 — cicho, bez wywracania redakcji
     rows = (data ?? []) as unknown as Fragment[];
   } catch {
     return null;
   }
 
-  // Uzupełnienie pełnotekstowe, gdy tagów jest mało. `fraza` pozwala zawęzić do
-  // terminu z rozdziału (np. „marking the close"), gdy sam tag daje zbyt szeroki wynik.
-  if (rows.length < MAX_FRAGMENTOW && fraza) {
-    try {
-      const { data } = await supabase
-        .from("wiedza")
-        .select(kolumny)
-        .eq("aktywny", true)
-        .ilike("tresc", `%${fraza}%`)
-        .limit(12);
-      const znane = new Set(rows.map((r) => r.tresc.slice(0, 80)));
-      for (const r of (data ?? []) as unknown as Fragment[]) {
-        if (!znane.has(r.tresc.slice(0, 80))) rows.push(r);
-      }
-    } catch {
-      /* uzupełnienie jest opcjonalne — brak wyniku nie jest błędem */
-    }
-  }
-
   if (!rows.length) return null;
 
-  // Ranga malejąco, a przy równej randze dłuższy fragment (więcej kontekstu).
+  // Ranking trójstopniowy. Trafność tagu PRZED rangą źródła: fragment o layeringu
+  // z artykułu jest dla rozdziału o layeringu lepszy niż ogólny fragment z materiału
+  // organu nadzoru. Dopiero przy równej trafności rozstrzyga ranga, a na końcu długość.
+  const trafnosc = (f: Fragment) => {
+    const idx = f.techniki.map((t) => tagi.indexOf(t)).filter((i) => i >= 0);
+    return idx.length ? Math.min(...idx) : tagi.length;
+  };
   rows.sort(
     (a, b) =>
+      trafnosc(a) - trafnosc(b) ||
       (b.wiedza_zrodla?.ranga ?? 0) - (a.wiedza_zrodla?.ranga ?? 0) ||
       b.tresc.length - a.tresc.length,
   );
 
-  const wybrane = rows.slice(0, MAX_FRAGMENTOW);
+  // Nie więcej niż 2 fragmenty z jednego źródła — inaczej Martysz (335 z 400 fragmentów)
+  // wypełniłby każdy blok sam i stanowisko organu nadzoru nigdy by się nie pokazało.
+  const zeZrodla = new Map<string, number>();
+  const wybrane: Fragment[] = [];
+  for (const f of rows) {
+    const klucz = f.wiedza_zrodla?.tytul ?? "?";
+    if ((zeZrodla.get(klucz) ?? 0) >= 2) continue;
+    zeZrodla.set(klucz, (zeZrodla.get(klucz) ?? 0) + 1);
+    wybrane.push(f);
+    if (wybrane.length >= MAX_FRAGMENTOW) break;
+  }
   const bloki = wybrane.map((f) => {
     const t = f.tresc.length > MAX_ZN_FRAGMENTU ? `${f.tresc.slice(0, MAX_ZN_FRAGMENTU)}…` : f.tresc;
     return `[${cytat(f)}]\n${t}`;

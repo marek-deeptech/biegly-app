@@ -2,6 +2,7 @@
 // Zasada: model REDAGUJE prozę, ale NIE liczy i NIE wymyśla — liczby i fakty
 // pochodzą z silnika i są wstrzykiwane do promptu; model ma ich nie zmieniać.
 // Czysta funkcja (bez SDK), żeby dało się ją testować.
+import { CATALOG_KINDS } from "@/lib/opinion/chapters";
 
 export type RedactChapter = "I" | "III" | "V";
 
@@ -155,10 +156,12 @@ export function buildWnioskiRedactPrompt(inp: WnioskiRedactInput): { system: str
 }
 
 // ── Redakcja rozdziałów IV (analiza) — narracja wokół liczb z silnika ──
-export const IV_REDACT_KINDS = [
-  "ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump",
-  "fixing", "concentration", "reversal",
-] as const;
+// WYPROWADZONE Z KATALOGU, NIE PRZEPISANE. Ta lista była wcześniej ręczną kopią
+// i zdryfowała: brakowało w niej `infomanip`, przez co technika obecna w katalogu
+// prawnym i w planie rozdziałów nie dawała się rozwinąć prozą. Kopiowane listy
+// rozjeżdżają się zawsze — źródłem prawdy jest CATALOG_KINDS z chapters.ts.
+// „ekofin", „espi" i „relacje" dochodzą osobno: to moduły przeglądowe, nie techniki MAR.
+export const IV_REDACT_KINDS = ["ekofin", "espi", "relacje", ...CATALOG_KINDS] as const;
 export type IvRedactKind = (typeof IV_REDACT_KINDS)[number];
 
 const IV_PURPOSE: Record<IvRedactKind, string> = {
@@ -196,6 +199,11 @@ const IV_PURPOSE: Record<IvRedactKind, string> = {
     "Odwrócenie pozycji w krótkim okresie (zał. I lit. A pkt d MAR) — podmioty Grupy kupujące i sprzedające " +
     "ten sam instrument w TEJ SAMEJ sesji na istotne kwoty; omów największe odwrócenia per (sesja, podmiot) " +
     "z tabeli, ich skalę względem obrotu sesji i wymowę (obrót bez zmiany realnej ekspozycji).",
+  infomanip:
+    "Manipulacja informacją (art. 12 ust. 1 lit. c MAR) — rozpowszechnianie informacji wprowadzających " +
+    "w błąd co do instrumentu finansowego; omów zestawienie raportów bieżących ESPI/EBI z reakcją kursu " +
+    "i aktywnością Grupy w otoczeniu publikacji. Rozstrzygnięcie, czy komunikat był nieprawdziwy, należy " +
+    "do organu — biegły opisuje wyłącznie zbieżność czasową i jej skalę.",
 };
 
 export type IvRedactInput = {

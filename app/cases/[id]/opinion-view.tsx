@@ -17,6 +17,10 @@ import {
   type SubResult,
 } from "@/lib/opinion/build";
 import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
+// Listy rozdziałów wyprowadzone z katalogu, nie przepisane: zaszyte kopie pomijały
+// fixing, concentration i reversal, więc techniki wykryte przez silnik nie dawały się
+// rozwinąć prozą — przycisk po prostu nie istniał.
+import { IV_REDACT_KINDS } from "@/lib/opinion/redact";
 import { zapiszKorekte } from "@/lib/opinion/korekty";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 
@@ -656,7 +660,7 @@ export default function OpinionView({
                       <Button variant="successSolid" size="sm" onClick={() => setStatus(s, "zatwierdzona")} disabled={busy !== null}>
                         Zatwierdź
                       </Button>
-                      {["ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump", "wnioski"].includes(s.kind) && (
+                      {[...IV_REDACT_KINDS, "wnioski"].includes(s.kind) && (
                         <button
                           onClick={() => {
                             if (!confirm("Nadpisać treść świeżym wynikiem z danych? Twoje zmiany w tej subanalizie zostaną utracone.")) return;
@@ -669,7 +673,7 @@ export default function OpinionView({
                           {s.kind === "wnioski" ? "Odśwież z subanaliz" : "Odśwież z danych"}
                         </button>
                       )}
-                      {["ekofin", "espi", "aktywnosc", "relacje", "wash", "imo", "layering", "pumpdump"].includes(s.kind) && (
+                      {(IV_REDACT_KINDS as readonly string[]).includes(s.kind) && (
                         <button
                           onClick={() => expandChapter(s.kind)}
                           disabled={busy !== null}

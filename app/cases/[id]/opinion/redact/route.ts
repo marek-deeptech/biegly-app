@@ -279,9 +279,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   //     ze sprawą). Odpowiada za poprawność DEFINICJI i kwalifikacji prawnej techniki,
   //     nie za styl. Stoi PRZED wzorcem i korektami, bo jest najbardziej ogólna,
   //     a bliżej generacji mają stać rzeczy najbardziej specyficzne dla biegłego.
-  const rodzaj = isWnioski ? "wnioski" : chapter;
+  // KLUCZ ROZDZIAŁU, nie surowa nazwa. Rozdziały I/III/V są w korpusach zapisane jako
+  // `proza_i` / `proza_iii` / `proza_v` (tak nazywa je REDACT_META.kind), a pytanie szło
+  // wcześniej o „I"/„III"/„V" — wzorzec stylu dla tych trzech NIGDY nie trafiał, mimo
+  // że leżał w bazie. Sprawdzone zapytaniem: rodzaj=III → 0 wzorców, proza_iii → 2.
+  const rodzaj = isWnioski ? "wnioski" : (REDACT_META[chapter as RedactChapter]?.kind ?? chapter);
   const [wiedza, wzorzec, styl] = await Promise.all([
-    buildWiedzaBlock(supabase, rodzaj, TECHNIQUES[rodzaj as TechniqueId]?.label),
+    buildWiedzaBlock(supabase, rodzaj),
     buildWzorzecBlock(supabase, rodzaj),
     buildStyleCorpus(supabase, rodzaj),
   ]);
