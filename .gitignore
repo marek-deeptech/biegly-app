@@ -23,3 +23,6 @@ node_modules/
 next-env.d.ts
 .vercel/
 *.tsbuildinfo
+
+# Pliki dowodowe golden testów (duże, odtwarzalne: scripts/fetch_fixture.py)
+.fixtures/
