@@ -240,3 +240,32 @@ export async function buildWzorzecBlock(
     `--- wzorzec (szkielet) ---\n${tresc}\n--- koniec wzorca ---`
   );
 }
+
+// ── Kontrola proweniencji ────────────────────────────────────────────────────
+
+// Znaczniki produkowane WYŁĄCZNIE przez tę aplikację. Jedno trafienie przesądza,
+// że plik jest jej własnym wytworem, a nie autorską opinią biegłego.
+//
+// Po co: gdyby korpus wzorców zasilić opiniami wygenerowanymi przez aplikację,
+// model uczyłby się WŁASNEGO stylu zamiast stylu biegłego — sprzężenie zwrotne,
+// które utrwala bieżące maniery zamiast je korygować. Przy pierwszym zasiewie
+// 41 z 55 wzorców pochodziło właśnie z generatów; stąd ta bramka.
+//
+// UWAGA: frazy, których aplikacja nauczyła się OD biegłego (np. „Źródło: opracowanie
+// własne na podstawie akt sprawy") celowo NIE są tu wymienione — występują w obu
+// źródłach i dawały fałszywe alarmy na autentycznych opiniach.
+const ODCISKI_APLIKACJI = [
+  "[do uzupełnienia]",
+  "Rozdział do wygenerowania",
+  "Subanaliza:",
+  "silnik faktów",
+  "— do wstawienia",
+  "Wykres — do wstawienia",
+  "Tabela — do wstawienia",
+];
+
+/** Czy tekst jest wytworem aplikacji (a więc NIE nadaje się na wzorzec stylu). */
+export function czyGeneratAplikacji(tekst: string): { generat: boolean; odciski: string[] } {
+  const odciski = ODCISKI_APLIKACJI.filter((o) => tekst.includes(o));
+  return { generat: odciski.length > 0, odciski };
+}
