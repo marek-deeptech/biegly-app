@@ -10,6 +10,8 @@
 //   1. Co mam? 2. Czego przez to NIE udowodnię? 3. O co wystąpić do organu?
 // Jest w pełni deterministyczny (bez modelu) — to inwentaryzacja, nie ocena.
 
+import { WYMOGI_BANK } from "@/lib/domain/taxonomy-bank";
+
 export type DocLite = { rel_path: string; doc_type: string };
 
 export type Wymog = {
@@ -42,6 +44,16 @@ const TECH_LABEL: Record<string, string> = {
   ekofin: "Analiza ekonomiczno-finansowa",
   espi: "Analiza raportów ESPI/EBI",
   pytania: "Pytania organu (podstawa opinii)",
+  // Moduły dziedziny bankowej (pakiet `ryzyko_bankowe` w lib/domain).
+  makro: "Otoczenie makroekonomiczne",
+  sygnaly_rynkowe: "Sygnały rynkowe: CDS i ratingi",
+  media: "Publikacje prasowe",
+  ekspozycja_sektor: "Skala sektora bankowego wobec gospodarki",
+  sprawozdania: "Analiza sprawozdań finansowych kontrahenta",
+  adekwatnosc: "Współczynniki kapitałowe w czasie",
+  limity: "Metodyka limitów i koncentracja zaangażowania",
+  procedury: "Proces decyzyjny i dokumenty wewnętrzne",
+  otoczenie_prawne: "Otoczenie prawne i standardy identyfikacji ryzyka",
 };
 
 export const WYMOGI: Wymog[] = [
@@ -186,8 +198,12 @@ export type RaportKompletnosci = {
 
 const basename = (p: string) => p.split(/[/\\]/).pop() ?? p;
 
-export function buildCompleteness(documents: DocLite[]): RaportKompletnosci {
-  const wymogi: WymogStatus[] = WYMOGI.map((w) => {
+// Wymogi zależą od dziedziny: akta bankowe niosą metodyki limitów i protokoły
+// komitetów, a nie arkusze zleceń. Brak typu → GPW, bo sprawy sprzed migracji 0010
+// nie mają ustawionego typu i ich raport musi wyglądać jak dotąd.
+export function buildCompleteness(documents: DocLite[], typ?: string | null): RaportKompletnosci {
+  const zestaw = typ === "ryzyko_bankowe" ? WYMOGI_BANK : WYMOGI;
+  const wymogi: WymogStatus[] = zestaw.map((w) => {
     // 1) dopasowanie po typie dokumentu (mocniejszy sygnał — świadoma klasyfikacja)
     const poTypie = w.docTypes.length
       ? documents.filter((d) => w.docTypes.includes(d.doc_type))
@@ -213,11 +229,14 @@ export function buildCompleteness(documents: DocLite[]): RaportKompletnosci {
 
   const spelnioneIds = new Set(wymogi.filter((w) => w.spelniony).map((w) => w.wymog.id));
 
-  // Technika jest dostępna, gdy KAŻDY wymóg ją odblokowujący jest spełniony.
-  const wszystkieTechniki = [...new Set(WYMOGI.flatMap((w) => w.unlocks))];
+  // Moduł jest dostępny, gdy KAŻDY wymóg go odblokowujący jest spełniony.
+  // Lista modułów pochodzi z AKTYWNEGO zestawu wymogów, nie ze stałej WYMOGI —
+  // inaczej raport sprawy bankowej wypisywałby wash trades i layering, których
+  // ta dziedzina w ogóle nie zna.
+  const wszystkieTechniki = [...new Set(zestaw.flatMap((w) => w.unlocks))];
   const techniki: TechnikaStatus[] = wszystkieTechniki
     .map((kind) => {
-      const potrzebne = WYMOGI.filter((w) => w.unlocks.includes(kind));
+      const potrzebne = zestaw.filter((w) => w.unlocks.includes(kind));
       const brakujace = potrzebne.filter((w) => !spelnioneIds.has(w.id)).map((w) => w.label);
       return { kind, label: TECH_LABEL[kind] ?? kind, dostepna: brakujace.length === 0, brakujace };
     })
