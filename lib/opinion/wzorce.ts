@@ -269,3 +269,73 @@ export function czyGeneratAplikacji(tekst: string): { generat: boolean; odciski:
   const odciski = ODCISKI_APLIKACJI.filter((o) => tekst.includes(o));
   return { generat: odciski.length > 0, odciski };
 }
+
+// ── Nazwy resztkowe: kontrola dla spraw BEZ rostera w bazie ──────────────────
+//
+// Najpewniejsza warstwa szkieletyzacji opiera się na rosterach z tabeli `cases`.
+// Dla opinii z KOLEJNYCH spraw (historyczne opinie biegłego, których w bazie nie ma)
+// tej warstwy nie ma — zostają same heurystyki, a `wykryjWycieki` sprawdza wyłącznie
+// nazwy znane z rosterów. Efekt: raport pokazywałby „szczelny ✓", choć nazwisko z
+// nieznanej sprawy właśnie przetrwało. Tu wykrywamy takie resztki do przeglądu okiem.
+
+/** Terminy pisane wielką literą, które są częścią języka opinii — nie nazwami stron. */
+const SLOWNIK_DOMENOWY = new Set(
+  (
+    // instytucje i rynek
+    "KNF GPW KDPW UOKiK ESMA MAR RD UE PL EOG NewConnect Catalyst BondSpot WIG ISIN " +
+    "ESPI EBI UTP TREM MiFID MiFIR LEI KRS NIP REGON PKD OTC " +
+    "Komisja Giełda Giełdy Giełdzie Papierów Wartościowych Nadzoru Finansowego Krajowy Depozyt " +
+    "Sąd Sądu Sądzie Sądowy Prokuratura Prokuratury Prokurator Prokuratorem Rzeczypospolitej Polskiej " +
+    // akty prawne i struktura dokumentu
+    "Rozporządzenie Rozporządzenia Rozporządzeniu Dyrektywa Dyrektywy Ustawa Ustawy Ustawie " +
+    "Kodeks Kodeksu Dziennik Urzędowy Załącznik Załączniku Załącznika Artykuł Artykule " +
+    "Sekcja Sekcji Tabela Tabeli Wykres Wykresu Rozdział Rozdziale Opinia Opinii Wnioski " +
+    "Analiza Analizy Podsumowanie Wstęp Przedmiot Spis Treści " +
+    // typowe początki zdań w prozie prawniczej
+    "Biegły Biegłego Grupa Grupy Grupie Grupę Emitent Emitenta Spółka Spółki Spółce Spółkę " +
+    "Podmiot Podmioty Podmiotu Osoba Osoby Rachunek Rachunku Zlecenie Zlecenia Transakcja Transakcje " +
+    "Kurs Kursu Wolumen Obrót Obrotu Sesja Sesji Data Daty Okres Okresu Wartość Wartości " +
+    "Powyższe Poniższe Niniejsza Niniejszy Niniejsze Zgodnie Ponadto Jednocześnie Natomiast " +
+    "Wobec Zatem Przy Dla Oraz Jako Który Która Które Powyżej Poniżej Ustalono Stwierdzono " +
+    "Zdaniem Analizie Badaniu Materiale Aktach Sprawie Sprawy Sprawa " +
+    // nagłówki tabel i zwroty sprawozdawcze (wychwycone na realnych opiniach)
+    "Razem RAZEM Suma SUMA Łącznie Ogółem Liczba LICZBA Udział UDZIAŁ Wartość WARTOŚĆ " +
+    "Zrealizowane Niezrealizowane Anulowane Kupno Sprzedaż Saldo Lp Nazwa Rodzaj Numer Adres " +
+    "Siedziba Źródło Czy Jakie Jaki Jakich Powyższa Poniższa Uwagi Uwaga Legenda Objaśnienia " +
+    // formy prawne rozpisane słownie (także z literówkami spotykanymi w skanach)
+    "Akcyjna AKCYJNA Spółka SPÓŁKA SPÓLKA Spolka Ograniczoną Odpowiedzialnością Komandytowa " +
+    "Dom Maklerski Maklerskiego Biuro Bank Banku " +
+    // miesiące (samodzielne, poza wzorcem daty)
+    "Styczeń Luty Marzec Kwiecień Maj Czerwiec Lipiec Sierpień Wrzesień Październik Listopad Grudzień"
+  ).split(/\s+/),
+);
+
+const RZYMSKIE = /^[IVXLC]+$/;
+
+/**
+ * Zwraca nazwy własne, które PRZETRWAŁY szkieletyzację — kandydatów do przeglądu.
+ * Liczy tylko wystąpienia ŚRÓDZDANIOWE (nie po kropce), bo w polskim każde zdanie
+ * zaczyna się wielką literą i początki zdań zalałyby raport szumem.
+ */
+export function resztkoweNazwy(szkielet: string): { nazwa: string; ile: number }[] {
+  const licznik = new Map<string, number>();
+  const dodaj = (w: string) => {
+    if (w.length < 3 || RZYMSKIE.test(w) || SLOWNIK_DOMENOWY.has(w)) return;
+    licznik.set(w, (licznik.get(w) ?? 0) + 1);
+  };
+
+  // 1) Wielka+małe (Joyfix, Kowalski) — wyłącznie śródzdaniowo.
+  for (const m of szkielet.matchAll(
+    /(^|[^.!?:;\n]\s+)([A-ZĆŁŃÓŚŹŻ][\p{Ll}]{2,})(?![\p{L}])/gu,
+  )) {
+    dodaj(m[2]);
+  }
+  // 2) WERSALIKI ≥4 znaki (JOYFIX w nagłówku) — niezależnie od pozycji.
+  for (const m of szkielet.matchAll(/(?<![\p{L}⟨])([A-ZĆŁŃÓŚŹŻ]{4,})(?![\p{L}⟩])/gu)) {
+    dodaj(m[1]);
+  }
+
+  return [...licznik.entries()]
+    .map(([nazwa, ile]) => ({ nazwa, ile }))
+    .sort((a, b) => b.ile - a.ile || a.nazwa.localeCompare(b.nazwa, "pl"));
+}
