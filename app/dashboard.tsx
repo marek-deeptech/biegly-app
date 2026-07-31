@@ -5,12 +5,14 @@ import { useRef } from "react";
 import { useFormStatus } from "react-dom";
 
 import { Button } from "@/components/ui";
+import { WSZYSTKIE_PAKIETY, packDla } from "@/lib/domain";
 
 type Case = {
   id: string;
   name: string;
   signature: string | null;
   created_at: string;
+  typ?: string | null;
 };
 
 export default function Dashboard({
@@ -50,6 +52,20 @@ export default function Dashboard({
             placeholder="sygnatura (np. RP I Ds 4.2019)"
             className="w-56 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500"
           />
+          {/* Jedyny moment, w którym wybór dziedziny jest realny — potem sprawa niesie
+              swój typ sama i wyznacza plan rozdziałów, katalog prawny i silnik. */}
+          <select
+            name="typ"
+            defaultValue="manipulacja_gpw"
+            aria-label="Dziedzina opinii"
+            className="w-52 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+          >
+            {WSZYSTKIE_PAKIETY.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
           <AddCaseButton />
         </form>
       </section>
@@ -73,6 +89,9 @@ export default function Dashboard({
                     {c.signature && (
                       <span className="ml-2 text-xs text-inksoft">{c.signature}</span>
                     )}
+                    <span className="ml-2 rounded bg-ink/10 px-1.5 py-0.5 text-[10px] text-inksoft">
+                      {packDla(c.typ).label}
+                    </span>
                   </span>
                   <span className="text-xs text-inksoft">
                     {new Date(c.created_at).toLocaleDateString("pl-PL")}

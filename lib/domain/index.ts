@@ -21,6 +21,8 @@
 // rozdziału ANALIZA i podstawa prawna.
 import { CATALOG_KINDS, type IVKind } from "@/lib/opinion/chapters";
 import type { BankModul } from "@/lib/domain/prawo-bankowe";
+import { WYMOGI_BANK } from "@/lib/domain/taxonomy-bank";
+import { RECOMMENDED, REQUIRED } from "@/lib/intake/taxonomy";
 
 export type CaseType = "manipulacja_gpw" | "ryzyko_bankowe";
 
@@ -162,3 +164,19 @@ export function packDla(typ: string | null | undefined): DomainPack {
 }
 
 export const WSZYSTKIE_PAKIETY = Object.values(PAKIETY);
+
+/**
+ * Typy dokumentów wymagane i zalecane dla dziedziny — do prostej listy kontrolnej
+ * na stronie sprawy.
+ *
+ * Dla dziedziny bankowej wyprowadzone z WYMOGI_BANK (krytyczne → wymagane), zamiast
+ * utrzymywane jako druga lista. Dublowanie takich zestawień rozjeżdżało już w tym
+ * projekcie cztery funkcje naraz.
+ */
+export function wymaganeTypy(typ?: string | null): { required: string[]; recommended: string[] } {
+  if (typ !== "ryzyko_bankowe") return { required: REQUIRED, recommended: RECOMMENDED };
+  const plaskie = (kryt: boolean) => [
+    ...new Set(WYMOGI_BANK.filter((w) => w.krytyczny === kryt).flatMap((w) => w.docTypes)),
+  ];
+  return { required: plaskie(true), recommended: plaskie(false) };
+}

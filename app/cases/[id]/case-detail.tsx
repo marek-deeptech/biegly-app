@@ -17,7 +17,7 @@ import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
 import Albin from "./albin";
 
-type CaseRow = { id: string; name: string; signature: string | null };
+type CaseRow = { id: string; name: string; signature: string | null; typ?: string | null };
 type Doc = {
   id: string;
   rel_path: string;
@@ -313,7 +313,9 @@ export default function CaseDetail({
         uploaded = false;
       }
       sentBase += f.size;
-      const { code, source, provenance } = classify(rel);
+      // Klasyfikacja MUSI znać dziedzinę — bez tego akta bankowe byłyby czytane
+      // regułami GPW i metodyka limitów trafiałaby do UNKNOWN.
+      const { code, source, provenance } = classify(rel, caseRow.typ);
       rows.push({
         case_id: caseRow.id,
         rel_path: rel,
@@ -994,7 +996,7 @@ export default function CaseDetail({
       )}
 
       {tab === "overview" && (
-        <CompletenessPanel documents={documents} caseName={caseRow.name} signature={caseRow.signature} />
+        <CompletenessPanel documents={documents} caseName={caseRow.name} signature={caseRow.signature} typ={caseRow.typ} />
       )}
       {tab === "overview" && <PytaniaPanel caseId={caseRow.id} />}
       {tab === "overview" && <RosterPanel caseId={caseRow.id} />}

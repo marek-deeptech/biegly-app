@@ -16,14 +16,17 @@ export default function CompletenessPanel({
   documents,
   caseName,
   signature,
+  typ,
 }: {
   documents: DocLite[];
   caseName: string;
   signature: string | null;
+  /** Dziedzina sprawy — wyznacza zestaw wymogów i listę modułów analizy. */
+  typ?: string | null;
 }) {
   const [pokazPismo, setPokazPismo] = useState(false);
   const [skopiowano, setSkopiowano] = useState(false);
-  const raport = useMemo(() => buildCompleteness(documents), [documents]);
+  const raport = useMemo(() => buildCompleteness(documents, typ), [documents, typ]);
   const pismo = useMemo(() => pismoDoOrganu(raport, caseName, signature), [raport, caseName, signature]);
 
   const dostepne = raport.techniki.filter((t) => t.dostepna);

@@ -1,7 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 
 import AppHeader from "@/app/app-header";
-import { DOC_TYPES, RECOMMENDED, REQUIRED } from "@/lib/intake/taxonomy";
+import { packDla, wymaganeTypy } from "@/lib/domain";
+import { DOC_TYPES } from "@/lib/intake/taxonomy";
+import { DOC_TYPES_BANK } from "@/lib/domain/taxonomy-bank";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 import CaseDetail from "./case-detail";
@@ -45,12 +47,16 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   const has = (code: string) =>
     present.has(code) ||
     (code === "OPINIA_UKNF" && (present.has("OPINIA_BIEGLY_PROK") || present.has("OPINIA_INNY_BIEGLY")));
-  const checklist = REQUIRED.map((code) => ({ label: DOC_TYPES[code].label, present: has(code) }));
-  const recommended = RECOMMENDED.map((code) => ({ label: DOC_TYPES[code].label, present: has(code) }));
+  // Lista kontrolna zależy od dziedziny — akta bankowe niosą metodyki limitów
+  // i protokoły komitetów, a nie arkusze zleceń.
+  const etykiety: Record<string, { label: string }> = { ...DOC_TYPES, ...DOC_TYPES_BANK };
+  const { required, recommended: zalecaneTypy } = wymaganeTypy(caseRow.typ);
+  const checklist = required.map((code) => ({ label: etykiety[code]?.label ?? code, present: has(code) }));
+  const recommended = zalecaneTypy.map((code) => ({ label: etykiety[code]?.label ?? code, present: has(code) }));
 
   return (
     <>
-      <AppHeader email={user.email ?? ""} />
+      <AppHeader email={user.email ?? ""} dziedzina={packDla(caseRow.typ).label} />
       <CaseDetail
         caseRow={caseRow}
         documents={documents}

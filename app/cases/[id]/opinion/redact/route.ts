@@ -13,7 +13,7 @@ import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opin
 import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
 import { buildWiedzaBlock } from "@/lib/opinion/wiedza";
-import { PROSECUTOR_QUESTIONS, TECHNIQUES, type TechniqueId } from "@/lib/opinion/legal";
+import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
 
