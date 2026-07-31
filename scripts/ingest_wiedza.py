@@ -300,7 +300,7 @@ def main() -> int:
         wiersz = {k: v for k, v in meta.items() if k != "sha256"}
         wiersz.update(storage_path=sp, sha256=meta.get("sha256"), stron=len(strony))
         try:
-            odp = req(f"{url}/rest/v1/wiedza_zrodla?on_conflict=tytul,autor", key, "POST",
+            odp = req(f"{url}/rest/v1/wiedza_zrodla?on_conflict=tytul", key, "POST",
                       json.dumps(wiersz, ensure_ascii=False).encode(),
                       {"Content-Type": "application/json",
                        "Prefer": "resolution=merge-duplicates,return=representation"})
@@ -310,14 +310,16 @@ def main() -> int:
             continue
 
         # 3. fragmenty partiami
+        # `hash` jest kluczem tożsamości fragmentu — patrz komentarz w migracji 0009.
         wiersze = [{"zrodlo_id": zid, "strona_od": f["strona_od"], "strona_do": f["strona_do"],
-                    "tresc": f["tresc"], "techniki": f["techniki"], "pojecia": f["pojecia"],
+                    "tresc": f["tresc"], "hash": hashlib.md5(f["tresc"].encode("utf8")).hexdigest(),
+                    "techniki": f["techniki"], "pojecia": f["pojecia"],
                     "znakow": len(f["tresc"])} for f in frs]
         zapisane = 0
         for i in range(0, len(wiersze), 100):
             partia = wiersze[i : i + 100]
             try:
-                req(f"{url}/rest/v1/wiedza?on_conflict=zrodlo_id,strona_od,tresc", key, "POST",
+                req(f"{url}/rest/v1/wiedza?on_conflict=zrodlo_id,hash", key, "POST",
                     json.dumps(partia, ensure_ascii=False).encode(),
                     {"Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"})
                 zapisane += len(partia)

@@ -39,7 +39,10 @@ create table if not exists public.wiedza_zrodla (
   aktywne       boolean not null default true,
   created_at    timestamptz not null default now()
 );
-create unique index if not exists wiedza_zrodla_tytul_uidx on public.wiedza_zrodla(tytul, coalesce(autor, ''));
+-- Klucz naturalny: tytuł. Świadomie BEZ autora — indeks unikalny na (tytul, autor)
+-- nie dedupikuje wierszy z autorem NULL (NULL-e są w indeksie rozróżnialne), a indeks
+-- na wyrażeniu coalesce(...) nie daje się użyć w ON CONFLICT z PostgREST.
+create unique index if not exists wiedza_zrodla_tytul_uidx on public.wiedza_zrodla(tytul);
 
 -- ── 2. Fragmenty (jednostka wyszukiwania i cytowania) ────────────────────────
 create table if not exists public.wiedza (
@@ -49,6 +52,11 @@ create table if not exists public.wiedza (
   strona_do     integer,
   sekcja        text,                  -- tytuł rozdziału/slajdu, gdy rozpoznany
   tresc         text not null,
+  -- Suma kontrolna treści (md5, liczona przy ingeście). Istnieje po to, by dało się
+  -- założyć indeks unikalny: btree nie przyjmie pełnej treści (fragmenty sięgają
+  -- 4200 znaków, limit wiersza to ~2700 bajtów), a indeks na left(tresc, N) nie
+  -- daje się użyć w ON CONFLICT z PostgREST.
+  hash          text not null,
   -- Tagi technik: wash | layering | imo | pumpdump | fixing | reversal |
   -- concentration | infomanip | insider | ogolne. Nadawane deterministycznie
   -- (słowa kluczowe), nie przez model — dobór wzorca do opinii sądowej musi
@@ -74,9 +82,10 @@ begin
     'create index if not exists wiedza_fts_idx on public.wiedza using gin (to_tsvector(%L, tresc))', cfg);
 end $$;
 
--- jeden fragment na (źródło, strona_od, pierwsze znaki) — ponowny ingest nadpisuje
-create unique index if not exists wiedza_frag_uidx
-  on public.wiedza(zrodlo_id, coalesce(strona_od, 0), left(tresc, 120));
+-- Jeden fragment o danej treści na źródło — ponowny ingest nadpisuje, nie duplikuje.
+-- Bez `strona_od` w kluczu: gdyby chunking się zmienił i ten sam akapit trafił na inną
+-- stronę, powstałby duplikat. Treść jest tu identycznością fragmentu.
+create unique index if not exists wiedza_frag_uidx on public.wiedza(zrodlo_id, hash);
 
 alter table public.wiedza_zrodla enable row level security;
 alter table public.wiedza        enable row level security;
