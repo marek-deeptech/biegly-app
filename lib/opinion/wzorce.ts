@@ -146,24 +146,137 @@ export function rodzajZTytulu(tytul: string): string {
   if (/relacj|powiąza/.test(t)) return "relacje";
   if (/aktywnoś/.test(t)) return "aktywnosc";
   if (/espi|ebi|raport\w* bieżąc/.test(t)) return "espi";
-  if (/ekonomiczno|finansow|otoczeni/.test(t)) return "ekofin";
-  if (/wniosk/.test(t)) return "wnioski";
+  // Rozdziały teoretyczne PRZED ekonomiczno-finansowym: „MANIPULACJA INSTRUMENTEM
+  // FINANSOWYM — UJĘCIE TEORETYCZNE" trafiał do `ekofin`, bo wzorzec `finansow`
+  // łapał „finansowym" z nazwy instrumentu. Wzorzec ekofin jest teraz węższy.
+  if (/teoretyczn|ujęcie prawne|ujęcie teoret|wstęp|zastosowane techniki/.test(t)) return "proza_iii";
+  if (/ekonomiczno|sytuacj\w+ finansow|otoczeni\w* rynkow/.test(t)) return "ekofin";
+  // W nowszym szkielecie biegłego nie ma rozdziału „Wnioski" — jego rolę pełni
+  // „Odpowiedzi na postawione pytania". To ten sam gatunek wypowiedzi.
+  if (/wniosk|odpowiedzi na (postawione )?pytani/.test(t)) return "wnioski";
   if (/podsumowan/.test(t)) return "proza_v";
-  if (/wstęp|teoretyczn|ujęci/.test(t)) return "proza_iii";
+  if (/ujęci/.test(t)) return "proza_iii";
   if (/przedmiot|podstawa prawna/.test(t)) return "proza_i";
+
+  // ── Moduły dziedziny bankowej (pakiet `ryzyko_bankowe`) ────────────────────
+  // Dopisane PO wzorcach GPW, żeby nie zmienić klasyfikacji spraw manipulacyjnych.
+  // Wzorce z podrozdziałów A–L opinii PO III Ds 84.2020.
+  if (/inflacj|kurs walutow|stopy procentow|makroekonomicz/.test(t)) return "makro";
+  if (/\bcds\b|credit default|rating/.test(t)) return "sygnaly_rynkowe";
+  if (/artykuł z|prasy|prasow/.test(t)) return "media";
+  if (/aktywa banków|do pkb|wobec pkb/.test(t)) return "ekspozycja_sektor";
+  if (/sprawozdania finansow|elementów sprawozdania/.test(t)) return "sprawozdania";
+  if (/adekwatnoś|współczynnik\w* kapitałow|fundusz\w* własn/.test(t)) return "adekwatnosc";
+  if (/limit/.test(t)) return "limity";
+  if (/otoczenie prawne|standard\w* identyfikacj|procedur|uchwał\w* zarządu/.test(t)) return "otoczenie_prawne";
   return "inne";
 }
 
+// Nagłówek w tekście z zachowanymi liniami. Trzy formy naraz, bo biegły używa
+// wszystkich: rzymskiej („IV. ANALIZA"), arabskiej („4. Wash trades") i BEZ NUMERU
+// („ZASTOSOWANE TECHNIKI MANIPULACJI" — numer bywa tylko w spisie treści).
+// Próg długości jest niski (5 znaków), bo tytuły bywają krótkie: „WNIOSKI", „WSTĘP",
+// „ANALIZA". Fałszywe trafienia odsiewa filtr treści < 400 znaków niżej.
 const NAGLOWEK =
-  /^\s*((?:[IVX]{1,4})(?:\.\d+)?)[.)]?\s+([A-ZĆŁŃÓŚŹŻ][^\n]{4,120})$/gm;
+  /^\s*(?:((?:[IVXLC]{1,5}|\d{1,2}|[A-Z])(?:\.\d+)*)[.)]\s+([A-ZĄĆĘŁŃÓŚŹŻ][^\n]{4,120})|()([A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻ\s\d.,()–—-]{4,110}))$/gm;
 
 // Fallback dla PDF: `unpdf` zwraca CAŁY dokument jako jedną linię (zero znaków
-// nowej linii), więc kotwice ^$ nie działają. Szukamy więc nagłówków w strumieniu
+// nowej linii), więc kotwice ^$ nie działają. Szukamy nagłówków w strumieniu
 // ciągłym: numer + WERSALIKOWY tytuł. Wpisy spisu treści odpadają same, bo są
-// zakończone kropkami wiodącymi („4. WASH TRADES ....... 57") — stąd negatywny
-// lookahead na kropki i cyfrę strony.
+// zakończone kropkami wiodącymi („4. WASH TRADES ....... 57").
+//
+// Półpauza i myślnik w klasie tytułu są konieczne: „ANALIZA – ODPOWIEDZI NA PYTANIA"
+// bez nich nie pasowało, przez co cały ogon opinii (179 tys. znaków w SFI, 129 tys.
+// w FTI) zostawał doklejony do rozdziału „WNIOSKI".
 const NAGLOWEK_INLINE =
-  /(?:^|\s)((?:[IVX]{1,4}|\d{1,2})(?:\.\d+)?)\.\s+([A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻ\s.-]{6,70}?)(?=\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]|\s+[Ww] |\s+[Nn]a )/g;
+  /(?:^|\s)((?:[IVXLC]{1,5}|\d{1,2})(?:\.\d+)?)\.\s+([A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻ\s.,()–—-]{6,70}?)(?=\s+[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]|\s+[Ww] |\s+[Nn]a )/g;
+
+export type Rozdzial = { no: string; tytul: string; tresc: string; poziom: number };
+
+const _ODSL = (s: string) =>
+  s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+
+/**
+ * Rozdziały z .docx po STYLACH NAGŁÓWKÓW Worda — autorytatywna struktura dokumentu.
+ *
+ * DLACZEGO NIE REGEX NA TEKŚCIE:
+ * Rozdzielacz tekstowy widział w opinii HubTech 7 rozdziałów, a dokument ma ich 14.
+ * Cała różnica to poziom 2 — czyli DOKŁADNIE rozdziały technik (Wash trades, Improper
+ * matched orders, Layering and spoofing, aktywność, relacje, ekofin, ESPI), które
+ * zlepiały się w jeden blok 108 tys. znaków pod nagłówkiem „IV. ANALIZA". Stąd korpus
+ * wzorców nie miał ANI JEDNEGO wzorca techniki, mimo że materiał leżał w bazie od
+ * miesięcy. W MLM ten sam blok ma 221 tys. znaków.
+ *
+ * Numer rozdziału bierzemy z treści nagłówka, gdy tam jest („IV. ANALIZA", „4. Wash
+ * trades", „A) INFLACJA"). Przy numeracji automatycznej Worda numeru w tekście nie ma
+ * — wtedy składamy go z pozycji, żeby rozdziały dały się rozróżnić i uporządkować.
+ */
+export function rozdzialyZDocx(xml: string): Rozdzial[] {
+  type Trafienie = { poziom: number; tytul: string; idx: number };
+  const naglowki: Trafienie[] = [];
+  const akapity: { tekst: string; naglowek: Trafienie | null }[] = [];
+
+  for (const frag of xml.split(/<w:p[ >]/).slice(1)) {
+    const styl = frag.match(/<w:pStyle w:val="([^"]+)"/)?.[1] ?? "";
+    const tekst = _ODSL([...frag.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1]).join(""))
+      .replace(/\s+/g, " ")
+      .trim();
+    // Style bywają nazwane po angielsku (Heading1) i po polsku (Nagwek1 — Word gubi
+    // znaki diakrytyczne w identyfikatorach stylów), stąd oba warianty.
+    const m = styl.match(/^(?:Heading|Nagwek|Nag[łl][oó]wek)\s*(\d)?/i);
+    if (m && tekst && !/^\d+$/.test(tekst)) {
+      const t: Trafienie = { poziom: Number(m[1] ?? 1), tytul: tekst, idx: naglowki.length };
+      naglowki.push(t);
+      akapity.push({ tekst, naglowek: t });
+    } else if (tekst) {
+      akapity.push({ tekst, naglowek: null });
+    }
+  }
+  if (!naglowki.length) return [];
+
+  const out: Rozdzial[] = [];
+  let biezacy: Trafienie | null = null;
+  let bufor: string[] = [];
+  const licznik: number[] = [];
+
+  const numer = (t: Trafienie): string => {
+    // Litera jako numer („A) INFLACJA – CPI") obok cyfr rzymskich i arabskich —
+    // tak numeruje podrozdziały analizy szkielet opinii bankowych. Bez tego „A)"
+    // i „B)" spadały na licznik pozycyjny, a „C)" i „I)" łapały się jako rzymskie,
+    // przez co numeracja jednego rozdziału mieszała dwa systemy.
+    const wTytule = t.tytul.match(/^((?:[IVXLC]+|[A-Z]|\d+)(?:\.\d+)*)[.)]/);
+    if (wTytule) return wTytule[1];
+    licznik.length = t.poziom;
+    licznik[t.poziom - 1] = (licznik[t.poziom - 1] ?? 0) + 1;
+    return licznik.filter((n) => n).join(".");
+  };
+
+  const domknij = () => {
+    if (!biezacy) return;
+    const tresc = bufor.join("\n").trim();
+    // Nagłówek bez treści to pozycja spisu treści albo pusty tytuł działu.
+    if (tresc.length > 400) {
+      out.push({ no: numer(biezacy), tytul: biezacy.tytul, tresc, poziom: biezacy.poziom });
+    }
+  };
+
+  for (const a of akapity) {
+    if (a.naglowek) {
+      domknij();
+      biezacy = a.naglowek;
+      bufor = [a.tekst];
+    } else if (biezacy) {
+      bufor.push(a.tekst);
+    }
+  }
+  domknij();
+  return out;
+}
 
 /** Dzieli pełny tekst opinii na rozdziały po nagłówkach „IV.4. Wash trades". */
 export function podzielNaRozdzialy(
@@ -171,7 +284,11 @@ export function podzielNaRozdzialy(
 ): { no: string; tytul: string; tresc: string }[] {
   const hits: { no: string; tytul: string; idx: number }[] = [];
   for (const m of tekst.matchAll(NAGLOWEK)) {
-    hits.push({ no: m[1], tytul: m[2].trim(), idx: m.index ?? 0 });
+    // Wariant nienumerowany zwraca puste m[1] i tytuł w m[4] — numer nadajemy z pozycji.
+    const numerowany = m[1] !== undefined && m[1] !== "";
+    const tytul = (numerowany ? m[2] : m[4] ?? "").trim();
+    if (!tytul) continue;
+    hits.push({ no: numerowany ? m[1] : String(hits.length + 1), tytul, idx: m.index ?? 0 });
   }
   if (!hits.length) {
     // Druga próba — dokument bez podziału na linie (PDF).
