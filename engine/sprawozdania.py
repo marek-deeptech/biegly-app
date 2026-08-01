@@ -377,3 +377,176 @@ def sprawdz_spojnosc(o: Odczyt, poz: list[Pozycje]) -> list[str]:
                     f"{p.dzien}: fundusze własne ({p.fundusze_wlasne:,.0f}) ≠ suma składników ({skladniki:,.0f})"
                 )
     return uwagi
+
+
+# ── Zestawienie pozycji do rozdziału opinii ──────────────────────────────────
+# Rozdział „Analiza sprawozdań finansowych" pokazuje KWOTY, nie wskaźniki. Te same
+# odczyty zasilają `wskazniki` w bank.py, ale wskaźnik jest ilorazem i ukrywa skalę:
+# udział depozytów 22% nie mówi, czy bank urósł dwukrotnie, czy skurczył się o połowę.
+# Biegły w opinii MBR omawia obie warstwy i tak samo musi umieć aplikacja.
+
+GRUPY: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Suma bilansowa i portfel", [
+        ("aktywa_ogolem", "Aktywa ogółem"),
+        ("kredyty_brutto", "Kredyty i pożyczki udzielone klientom"),
+        ("kredyty_zagrozone", "w tym kredyty zagrożone"),
+        ("odpisy", "Odpisy z tytułu utraty wartości"),
+    ]),
+    ("Struktura finansowania", [
+        ("zobowiazania_ogolem", "Zobowiązania ogółem"),
+        ("depozyty_klientow", "Depozyty klientów"),
+        ("finansowanie_hurtowe", "Finansowanie hurtowe (emisje dłużne, rynek międzybankowy)"),
+        ("kapital_wlasny", "Kapitał własny"),
+    ]),
+    ("Fundusze własne i ekspozycja na ryzyko", [
+        ("kapital_cet1", "Kapitał podstawowy Tier 1 (CET1)"),
+        ("kapital_at1", "Kapitał dodatkowy Tier 1"),
+        ("kapital_tier2", "Kapitał Tier 2"),
+        ("fundusze_wlasne", "Fundusze własne razem"),
+        ("aktywa_wazone_ryzykiem", "Aktywa ważone ryzykiem (RWA)"),
+    ]),
+    ("Rachunek wyników", [
+        ("przychody_odsetkowe", "Przychody odsetkowe"),
+        ("wynik_odsetkowy", "Wynik z tytułu odsetek"),
+        ("zysk_netto", "Zysk netto"),
+    ]),
+]
+
+
+def strony_pol(o: Odczyt, plik: str = "") -> dict[str, str]:
+    """Pole modelu → miejsce w sprawozdaniu, z którego je odczytano („str. 47").
+
+    Bez wskazania strony biegły nie ma jak zweryfikować liczby w oryginale, a opinia
+    dowodowa musi być sprawdzalna. Pierwsze trafienie wygrywa — tak samo jak
+    w `zbuduj_pozycje`, żeby wskazana strona odpowiadała wziętej wartości.
+
+    `plik` dopisujemy, gdy okresy pochodzą z KILKU sprawozdań: sam numer strony
+    byłby wtedy dwuznaczny, bo „str. 47" jest w każdym z nich.
+    """
+    out: dict[str, str] = {}
+    for k in o.kandydaci:
+        out.setdefault(k.pole, f"{plik}, str. {k.strona}" if plik else f"str. {k.strona}")
+    return out
+
+
+def _fmt_kwota(v: float) -> str:
+    s = f"{v:,.0f}".replace(",", " ") if abs(v) >= 1000 else f"{v:,.2f}".replace(",", " ")
+    return s.replace(".", ",")
+
+
+def zestawienie(poz: list[Pozycje], strony: dict[str, str] | None = None) -> dict:
+    """Tabela kwot ze sprawozdań: wiersz na pozycję, kolumna na dzień bilansowy.
+
+    ⚠️ JEDNOSTKA JEST TAKA, JAK W SPRAWOZDANIU — silnik czyta liczby z tabeli i nie
+    wie, czy są w tysiącach czy w milionach ani w jakiej walucie; sprawozdania podają
+    to w nagłówku, którego ekstrakcja nie zachowuje. Przeliczanie „na wszelki wypadek"
+    dałoby w opinii kwotę fałszywą, więc podajemy odczyt surowy i mówimy to wprost.
+
+    Zmiana liczona jest od PIERWSZEGO do OSTATNIEGO okresu, w którym pozycja
+    występuje — pozycje nieobecne w części okresów mają puste komórki i widać,
+    czego zmiana dotyczy.
+    """
+    okresy = sorted({p.dzien for p in poz})
+    wg_dnia = {p.dzien: p for p in sorted(poz, key=lambda x: x.dzien)}
+    strony = strony or {}
+
+    rows: list[list[str]] = []
+    findings: list[str] = []
+    for tytul_grupy, pola in GRUPY:
+        wiersze_grupy: list[list[str]] = []
+        for pole, etykieta in pola:
+            wartosci = [getattr(wg_dnia[d], pole, None) if d in wg_dnia else None for d in okresy]
+            if all(v is None for v in wartosci):
+                continue  # pozycji nie odczytano w żadnym okresie — nie ma czego pokazać
+            obecne = [(d, v) for d, v in zip(okresy, wartosci) if v is not None]
+            zmiana = "—"
+            if len(obecne) >= 2 and obecne[0][1]:
+                p_od, p_do = obecne[0], obecne[-1]
+                pct = 100.0 * (p_do[1] - p_od[1]) / abs(p_od[1])
+                zmiana = f"{pct:+.1f}%"
+                if abs(pct) >= 20.0:
+                    findings.append(
+                        f"{etykieta}: {_fmt_kwota(p_od[1])} ({p_od[0]}) → {_fmt_kwota(p_do[1])} "
+                        f"({p_do[0]}), zmiana {pct:+.1f}%."
+                    )
+            wiersze_grupy.append([
+                etykieta,
+                *[(_fmt_kwota(v) if v is not None else "—") for v in wartosci],
+                zmiana,
+                strony.get(pole, "—"),
+            ])
+        if wiersze_grupy:
+            # Nagłówek grupy jako wiersz — tabela w opinii nie ma podtytułów sekcji.
+            rows.append([tytul_grupy] + [""] * (len(okresy) + 2))
+            rows += wiersze_grupy
+
+    return {
+        "caption": "Tabela. Pozycje sprawozdań finansowych kontrahenta w jednostce i walucie sprawozdania "
+                   "(odczyt surowy — bez przeliczeń)",
+        "head": ["Pozycja"] + okresy + ["Zmiana", "Źródło"],
+        "rows": rows,
+        "findings": findings,
+        "okresy": okresy,
+    }
+
+
+def _kw(v: float) -> str:
+    """Kwota w tresci uwagi — ten sam zapis co w tabeli. Osobna funkcja, bo
+    `.replace(",", …)` puszczone na cale zdanie zjadalo tez przecinki w tekscie
+    uwagi (wychodzilo „to niemozliwe  depozyty sa ich skladnikiem")."""
+    return _fmt_kwota(v)
+
+
+def sprawdz_bilans(poz: list[Pozycje]) -> list[str]:
+    """Kontrola wiarygodności odczytu pozycji bilansowych — per okres.
+
+    `sprawdz_spojnosc` pilnuje składników KAPITAŁU, bo współczynniki adekwatności
+    liczą się z noty kapitałowej, przypiętej do jednej strony. Pozycje bilansu i
+    wyniku takiego przypięcia nie mają — ekstrakcja bierze je z różnych stron i
+    z dwóch sprawozdań naraz, więc kolumna potrafi się rozjechać.
+
+    NA CZYM TO ZŁAPANO: w sprawie MBR kolumna 2007 dała aktywa 1 043 029 przy
+    zobowiązaniach 586 381 i kapitale 169 969 — bilans nie domykał się o 27,5%,
+    podczas gdy 2008 zgadzał się co do jednostki, a 2006 z dokładnością 0,1%.
+    Bez tej kontroli błędna kolumna weszłaby do opinii jako spadek sumy bilansowej
+    o połowę i wróciła z sądu jako zarzut.
+
+    Nie usuwamy okresu z odczytu — usunięcie danych jest gorsze niż ich oznaczenie.
+    Biegły sprawdza wskazaną stronę w oryginale i rozstrzyga.
+    """
+    uwagi: list[str] = []
+    for p in sorted(poz, key=lambda x: x.dzien):
+        a, z, kw = p.aktywa_ogolem, p.zobowiazania_ogolem, p.kapital_wlasny
+        if a and z is not None and kw is not None:
+            roznica = a - (z + kw)
+            if abs(roznica) > 0.01 * abs(a):
+                uwagi.append(
+                    f"{p.dzien}: bilans nie domyka się — aktywa {_kw(a)} wobec sumy zobowiązań "
+                    f"({_kw(z)}) i kapitału własnego ({_kw(kw)}) = {_kw(z + kw)}; różnica "
+                    f"{_kw(roznica)} ({100 * abs(roznica) / abs(a):.1f}%). Któraś z pozycji pochodzi "
+                    "z innego zakresu sprawozdania — zweryfikuj w oryginale przed użyciem w opinii."
+                )
+        if p.depozyty_klientow and z and p.depozyty_klientow > z:
+            uwagi.append(
+                f"{p.dzien}: depozyty klientów ({_kw(p.depozyty_klientow)}) przewyższają zobowiązania "
+                f"ogółem ({_kw(z)}) — to niemożliwe, depozyty są ich składnikiem."
+            )
+        if p.kredyty_zagrozone and p.kredyty_brutto and p.kredyty_zagrozone > p.kredyty_brutto:
+            uwagi.append(f"{p.dzien}: kredyty zagrożone przewyższają portfel kredytowy brutto.")
+        if p.wynik_odsetkowy and p.przychody_odsetkowe and p.wynik_odsetkowy > p.przychody_odsetkowe:
+            uwagi.append(f"{p.dzien}: wynik odsetkowy przewyższa przychody odsetkowe.")
+
+    # Ta sama kwota w dwóch kolejnych okresach to prawie zawsze skutek przepisania
+    # kolumny, a nie rzeczywistej stagnacji: pozycje sprawozdania idą w tysiącach
+    # i trafienie co do jednostki dwa lata z rzędu nie zdarza się.
+    okresy = sorted({p.dzien for p in poz})
+    wg = {p.dzien: p for p in poz}
+    for pole, etykieta in [(f, e) for _, pola in GRUPY for f, e in pola]:
+        for d1, d2 in zip(okresy, okresy[1:]):
+            v1, v2 = getattr(wg[d1], pole, None), getattr(wg[d2], pole, None)
+            if v1 is not None and v1 == v2 and abs(v1) >= 1000:
+                uwagi.append(
+                    f"{d1} i {d2}: pozycja „{etykieta}” ma identyczną wartość {_kw(v1)} w obu okresach — "
+                    "prawdopodobnie ta sama kolumna przypisana dwa razy."
+                )
+    return uwagi

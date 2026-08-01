@@ -138,12 +138,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!sub)
       return Response.json({ ok: false, reason: "Najpierw wykonaj Krok 3 lub 4 dla tego rozdziału." });
     type Tbl = { caption?: string; head?: string[]; rows?: string[][] };
-    const t = sub.data?.table as Tbl | undefined;
-    const tableText =
-      t?.head && t.rows?.length
-        ? `${t.caption ? t.caption + ":\n" : ""}${t.head.join(" | ")}\n` +
-          t.rows.slice(0, 120).map((r) => r.join(" | ")).join("\n")
-        : null;
+    // WSZYSTKIE tabele modułu, nie tylko pierwsza. Moduły zapisują ich kilka i druga
+    // bywa tą istotną: publikacje PO zdarzeniu oraz przepisy późniejsze mają w podpisie
+    // ostrzeżenie, że nie wolno ich użyć do oceny stanu z dnia decyzji. Branie samej
+    // pierwszej tabeli gubiło to ostrzeżenie i — przy kilku szeregach w module `makro` —
+    // większość danych.
+    const tabele = ((sub.data?.tables as Tbl[] | undefined)?.length
+      ? (sub.data?.tables as Tbl[])
+      : ([sub.data?.table as Tbl | undefined].filter(Boolean) as Tbl[])
+    ).filter((x) => x?.head?.length && x.rows?.length);
+    const MAX_W = 120;
+    const bloki = tabele.map((x) => {
+      const widoczne = (x.rows ?? []).slice(0, MAX_W);
+      // Ucięcie musi być WIDOCZNE w promptcie — milczące skrócenie tabeli czytałoby się
+      // jak komplet danych i model opisałby niepełny szereg jako pełny.
+      const ogon =
+        (x.rows?.length ?? 0) > MAX_W
+          ? `\n[…] pominięto ${(x.rows?.length ?? 0) - MAX_W} dalszych wierszy — omów zakres, nie każdy wiersz`
+          : "";
+      return `${x.caption ? x.caption + ":\n" : ""}${(x.head ?? []).join(" | ")}\n${widoczne
+        .map((r) => r.join(" | "))
+        .join("\n")}${ogon}`;
+    });
+    const tableText = bloki.length ? bloki.join("\n\n") : null;
     const { data: docsB } = await supabase.from("documents").select("doc_type").eq("case_id", id);
     const licz: Record<string, number> = {};
     for (const d of docsB ?? []) licz[d.doc_type as string] = (licz[d.doc_type as string] ?? 0) + 1;

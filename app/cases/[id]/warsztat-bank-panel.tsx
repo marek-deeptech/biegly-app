@@ -15,11 +15,16 @@ type Sub = { kind: string; data?: unknown };
 type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
 type DaneWarsztatu = {
   table?: Tabela;
+  /** Tabele dodatkowe — np. publikacje PO zdarzeniu, pokazywane osobno i z ostrzeżeniem. */
+  tables?: Tabela[];
   findings?: string[];
   przepisy?: string[];
   anachroniczne?: string[];
   bezOcr?: string[];
   zastapioneOcr?: number;
+  poZdarzeniu?: number;
+  uwagi?: string[];
+  bezDaty?: string[];
   dzienZdarzenia?: string | null;
 };
 
@@ -53,6 +58,55 @@ function Tabelka({ t }: { t?: Tabela }) {
   );
 }
 
+/** Blok jednego modułu warsztatu — ta sama rama dla wszystkich czterech rozdziałów. */
+function Blok({ tytul, d }: { tytul: string; d: DaneWarsztatu | null }) {
+  // Moduł bez tabel, ale z ustaleniami, MUSI się pokazać: „w aktach nie ma danych
+  // o skali sektora" jest ustaleniem opinii, a ukryty pusty blok wyglądałby tak
+  // samo jak moduł nieuruchomiony.
+  const tabele = d?.tables?.length ? d.tables : d?.table ? [d.table] : [];
+  if (!tabele.some((t) => t.rows?.length) && !d?.findings?.length) return null;
+  return (
+    <div className="border border-ink/60 bg-card p-4">
+      <h3 className="text-sm font-semibold">{tytul}</h3>
+      {tabele.map((t, i) =>
+        t.rows?.length ? (
+          <div key={i} className={i > 0 ? "mt-4 border-t border-ink/15 pt-3" : undefined}>
+            {i > 0 && t.caption ? <p className="text-xs font-medium text-inksoft">{t.caption}</p> : null}
+            <Tabelka t={t} />
+          </div>
+        ) : null,
+      )}
+      {d?.findings?.length ? (
+        <ul className="mt-3 space-y-1 border-t border-ink/15 pt-3 text-xs text-inksoft">
+          {d.findings.map((f, i) => (
+            <li key={i}>{f}</li>
+          ))}
+        </ul>
+      ) : null}
+      {d?.przepisy?.length ? (
+        <div className="mt-3 border-t border-ink/15 pt-3">
+          <p className="text-xs font-medium">Przepisy właściwe w dacie zdarzenia</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
+            {d.przepisy.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {d?.anachroniczne?.length ? (
+        <div className="mt-3 border-l-2 border-red-400 pl-3">
+          <p className="text-xs font-medium">Nie powoływać — przepisy późniejsze niż zdarzenie</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
+            {d.anachroniczne.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function WarsztatBankPanel({
   caseId,
   subanalyses,
@@ -67,6 +121,7 @@ export default function WarsztatBankPanel({
   const dane = (k: string) => (subanalyses.find((s) => s.kind === k)?.data ?? null) as DaneWarsztatu | null;
   const proc = dane("procedury");
   const lim = dane("limity");
+  const media = dane("media");
   const [dzien, setDzien] = useState(lim?.dzienZdarzenia ?? "");
 
   async function odtworz() {
@@ -95,8 +150,8 @@ export default function WarsztatBankPanel({
           <div>
             <h2 className="text-sm font-semibold">Warsztat dowodowy</h2>
             <p className="mt-0.5 text-xs text-inksoft">
-              Chronologia procesu decyzyjnego z protokołów i uchwał oraz metodyka limitów,
-              zestawione z przepisami obowiązującymi w dacie zdarzenia.
+              Proces decyzyjny, metodyka limitów, publikacje prasowe i skala sektora — zestawione
+              z przepisami obowiązującymi w dacie zdarzenia.
             </p>
           </div>
           <div className="flex items-end gap-2">
@@ -126,6 +181,18 @@ export default function WarsztatBankPanel({
             {proc.zastapioneOcr} skanów odczytano z wersji po OCR — oryginały pominięto jako duplikaty treści.
           </p>
         ) : null}
+        {proc?.uwagi?.length ? (
+          <p className="mt-2 border-l-2 border-amber-500 pl-3 text-xs text-inksoft">
+            <strong className="font-medium">Odczyt fragmentaryczny:</strong> {proc.uwagi[proc.uwagi.length - 1]}
+          </p>
+        ) : null}
+        {media?.poZdarzeniu ? (
+          <p className="mt-2 border-l-2 border-amber-500 pl-3 text-xs text-inksoft">
+            <strong className="font-medium">Uwaga na wnioskowanie wsteczne:</strong> {media.poZdarzeniu}{" "}
+            publikacji pochodzi z okresu PO ocenianym zdarzeniu. Opisują jego skutki, nie stan wiedzy
+            dostępnej w dniu decyzji — w osobnej tabeli poniżej.
+          </p>
+        ) : null}
         {proc?.bezOcr?.length ? (
           <p className="mt-2 border-l-2 border-red-500 pl-3 text-xs text-inksoft">
             <strong className="font-medium">Luka dowodowa:</strong> {proc.bezOcr.length} dokumentów jest
@@ -136,49 +203,11 @@ export default function WarsztatBankPanel({
         ) : null}
       </div>
 
-      {proc?.table?.rows?.length ? (
-        <div className="border border-ink/60 bg-card p-4">
-          <h3 className="text-sm font-semibold">Chronologia procesu decyzyjnego</h3>
-          <Tabelka t={proc.table} />
-          {proc.przepisy?.length ? (
-            <div className="mt-3 border-t border-ink/15 pt-3">
-              <p className="text-xs font-medium">Przepisy właściwe w dacie zdarzenia</p>
-              <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
-                {proc.przepisy.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {lim?.table?.rows?.length ? (
-        <div className="border border-ink/60 bg-card p-4">
-          <h3 className="text-sm font-semibold">Limity zaangażowania</h3>
-          <Tabelka t={lim.table} />
-          {lim.przepisy?.length ? (
-            <div className="mt-3 border-t border-ink/15 pt-3">
-              <p className="text-xs font-medium">Regulacja limitów obowiązująca w dacie zdarzenia</p>
-              <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
-                {lim.przepisy.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {lim.anachroniczne?.length ? (
-            <div className="mt-3 border-l-2 border-red-400 pl-3">
-              <p className="text-xs font-medium">Nie powoływać — przepisy późniejsze niż zdarzenie</p>
-              <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
-                {lim.anachroniczne.map((p, i) => (
-                  <li key={i}>{p}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <Blok tytul="Chronologia procesu decyzyjnego" d={proc} />
+      <Blok tytul="Limity zaangażowania" d={lim} />
+      <Blok tytul="Publikacje prasowe i komunikaty" d={media} />
+      <Blok tytul="Skala sektora bankowego wobec gospodarki" d={dane("ekspozycja_sektor")} />
+      <Blok tytul="Otoczenie prawne w dacie zdarzenia" d={dane("otoczenie_prawne")} />
     </section>
   );
 }

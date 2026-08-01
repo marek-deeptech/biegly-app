@@ -10,15 +10,17 @@ gdy katalog źródłowy uporządkowano.
 """
 import pytest
 
-from engine.bank import wskazniki
+from engine.bank import Pozycje, wskazniki
 from engine.sprawozdania import (
     _daty_kolumn,
     _liczba,
     _liczby,
     czytaj_tekst,
+    sprawdz_bilans,
     sprawdz_spojnosc,
     uzupelnij_z_tozsamosci,
     zbuduj_pozycje,
+    zestawienie,
 )
 
 STRONA_20 = """Notes to the Condensed Consolidated Interim Financial Statements
@@ -125,3 +127,84 @@ def test_spojnosc_wykrywa_rozjazd_skladnikow():
     poz[0].kapital_tier2 = 1.0  # symulacja błędu przepisania
     uwagi = sprawdz_spojnosc(o, poz)
     assert len(uwagi) == 1 and "fundusze własne" in uwagi[0]
+
+
+# ── Zestawienie kwot do rozdziału o sprawozdaniach ───────────────────────────
+
+def _trzy_okresy():
+    """Odczyt z akt MBR — kolumna 2007 jest w nim faktycznie rozjechana."""
+    return [
+        Pozycje(dzien="2006-12-31", aktywa_ogolem=2246340, zobowiazania_ogolem=2100221,
+                kapital_wlasny=144578, kredyty_brutto=1974907, zysk_netto=8636),
+        Pozycje(dzien="2007-12-31", aktywa_ogolem=1043029, zobowiazania_ogolem=586381,
+                kapital_wlasny=169969, depozyty_klientow=725349, kredyty_brutto=1974907, zysk_netto=16052),
+        Pozycje(dzien="2008-06-30", aktywa_ogolem=3862797, zobowiazania_ogolem=3662362,
+                kapital_wlasny=200435, depozyty_klientow=709584, zysk_netto=16052),
+    ]
+
+
+def test_zestawienie_pomija_pozycje_nieodczytane_zamiast_zerowac():
+    # Pozycja nieobecna we WSZYSTKICH okresach nie ma się pojawić jako wiersz zer —
+    # pusty wiersz w opinii sugerowałby, że bank nie miał kapitału Tier 2.
+    z = zestawienie([Pozycje(dzien="2008-06-30", aktywa_ogolem=100000)])
+    etykiety = [r[0] for r in z["rows"]]
+    assert "Aktywa ogółem" in etykiety
+    assert not any("Tier 2" in e for e in etykiety)
+
+
+def test_zestawienie_nie_liczy_zmiany_z_jednego_okresu():
+    z = zestawienie([Pozycje(dzien="2008-06-30", aktywa_ogolem=100000)])
+    wiersz = next(r for r in z["rows"] if r[0] == "Aktywa ogółem")
+    assert wiersz[-2] == "—"
+
+
+def test_zestawienie_pokazuje_brak_jako_myslnik_a_nie_zero():
+    z = zestawienie(_trzy_okresy())
+    dep = next(r for r in z["rows"] if r[0] == "Depozyty klientów")
+    assert dep[1] == "—"  # 2006 — pozycji nie odczytano
+    # Separator tysięcy jest spacją NIEŁAMLIWĄ: liczba w opinii nie ma prawa
+    # rozpaść się na dwa wiersze.
+    assert dep[2] == "725\u00a0349"
+
+
+def test_zestawienie_podaje_stron_zrodlowa():
+    # Bez wskazania strony biegły nie zweryfikuje liczby w oryginale.
+    z = zestawienie(_trzy_okresy(), {"aktywa_ogolem": "SF-2008.pdf, str. 11"})
+    assert next(r for r in z["rows"] if r[0] == "Aktywa ogółem")[-1] == "SF-2008.pdf, str. 11"
+
+
+def test_bilans_wykrywa_rozjechana_kolumne():
+    # Regresja z akt MBR: aktywa 2007 odczytane ze złego zakresu, bilans nie domyka
+    # się o 27,5%. Bez tej kontroli do opinii trafiłby spadek sumy bilansowej o połowę.
+    uwagi = sprawdz_bilans(_trzy_okresy())
+    assert any("2007-12-31" in u and "bilans nie domyka" in u for u in uwagi)
+    assert not any("2008-06-30" in u and "bilans nie domyka" in u for u in uwagi)
+
+
+def test_bilans_wykrywa_skladnik_wiekszy_od_calosci():
+    uwagi = sprawdz_bilans(_trzy_okresy())
+    assert any("depozyty klientów" in u and "przewyższają" in u for u in uwagi)
+
+
+def test_bilans_wykrywa_powielona_kolumne():
+    uwagi = sprawdz_bilans(_trzy_okresy())
+    assert any("Kredyty" in u and "identyczną wartość" in u for u in uwagi)
+    assert any("Zysk netto" in u and "identyczną wartość" in u for u in uwagi)
+
+
+def test_bilans_milczy_gdy_odczyt_jest_spojny():
+    uwagi = sprawdz_bilans([
+        Pozycje(dzien="2007-12-31", aktywa_ogolem=1000, zobowiazania_ogolem=900, kapital_wlasny=100),
+        Pozycje(dzien="2008-06-30", aktywa_ogolem=1200, zobowiazania_ogolem=1050, kapital_wlasny=150),
+    ])
+    assert uwagi == []
+
+
+def test_uwaga_zachowuje_przecinki_w_zdaniu():
+    # Formatowanie kwot podmieniało przecinki w CAŁYM zdaniu, więc uwaga brzmiała
+    # „to niemożliwe  depozyty są ich składnikiem".
+    uwagi = sprawdz_bilans([
+        Pozycje(dzien="2008-06-30", zobowiazania_ogolem=1000, depozyty_klientow=2000),
+    ])
+    assert any("niemożliwe, depozyty" in u for u in uwagi)
+    assert any("2\u00a0000" in u for u in uwagi)  # ten sam separator co w tabeli

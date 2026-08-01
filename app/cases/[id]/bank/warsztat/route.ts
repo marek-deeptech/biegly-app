@@ -2,7 +2,16 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { tekstZPliku } from "@/lib/intake/office";
-import { pdfText } from "@/lib/intake/pdf";
+import {
+  SYSTEM_MEDIA,
+  SYSTEM_SEKTOR,
+  type MiaraSektora,
+  type Publikacja,
+  zbudujMedia,
+  zbudujOtoczeniePrawne,
+  zbudujSektor,
+} from "@/lib/opinion/warsztat-bank";
+import { keywordWindows, pdfText } from "@/lib/intake/pdf";
 import { createClient } from "@/lib/supabase/server";
 
 // KROK 4 DZIEDZINY BANKOWEJ — warsztat dowodowy.
@@ -25,7 +34,24 @@ export const maxDuration = 300;
 
 const TYPY_PROCEDURY = ["PROTOKOL_KOMITETU", "UCHWALA_WEWNETRZNA", "AUDYT_WEWNETRZNY", "KORESPONDENCJA_WEWN"];
 const TYPY_LIMITY = ["METODYKA_LIMITOW"];
+const TYPY_MEDIA = ["PRASA"];
+// Skalę sektora czytamy WYŁĄCZNIE z raportów banku centralnego kraju kontrahenta.
+// Raporty KNF opisują sektor POLSKI — wzięte tutaj podstawiłyby cudzą gospodarkę
+// pod tezę o kraju kontrahenta, co jest błędem trudnym do wychwycenia w tekście.
+const TYPY_SEKTOR = ["RAPORT_BANK_CENTRALNY"];
 const MAX_ZN_DOK = 24000;
+// Ile tekstu w ogóle wyciągamy z pliku, zanim wybierzemy z niego fragmenty.
+const MAX_ZN_PLIK = 400_000;
+
+// Frazy, wokół których wycinamy okna w DŁUGICH dokumentach. Raport stabilności
+// finansowej banku centralnego ma ~297 000 znaków, a jego początek to spis treści —
+// wzięcie „pierwszych 24 000" dawało modelowi wyłącznie spis treści i moduł zwracał
+// pustkę, choć dane były w środku dokumentu.
+const FRAZY: Record<string, RegExp> = {
+  PROCEDURY: /uchwał|protok[oó]ł|posiedzeni|komitet|zarząd|audyt|ryzyk|zaangażowan/i,
+  LIMITY: /limit|zaangażowan|fundusz|krotnoś|ekspozycj/i,
+  SEKTOR: /GDP|PKB|banking sector|sektor bank|total assets|aktywa sektora|reserves|rezerw/i,
+};
 
 type Zdarzenie = { plik: string; data: string; organ: string; ustalenie: string; osoby?: string[] };
 type Limit = { plik: string; okres: string; podstawa: string; kwota: string; termin?: string };
@@ -106,7 +132,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // Oryginały skanów, których treść weszła do analizy przez wersję po OCR.
   const zastapioneOcr = istotne.length - bezOcr.length;
 
-  async function tekstyDla(typy: string[]): Promise<{ plik: string; tekst: string }[]> {
+  // Dokumenty, z których model dostał tylko WYCINEK — do jawnego zaraportowania.
+  const skrocone: string[] = [];
+
+  async function tekstyDla(typy: string[], frazy?: RegExp): Promise<{ plik: string; tekst: string }[]> {
     const wybrane = wszystkie.filter(
       (d) => typy.includes(d.doc_type) && d.storage_path && d.warstwa_tekstu !== "brak",
     );
@@ -118,8 +147,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const buf = await blob.arrayBuffer();
       // .docx i .xlsx to archiwa ZIP — `blob.text()` dawał na nich binarne śmieci.
       // Przez to wypadły KWOTY LIMITÓW: 254 i 272 mln zł są w arkuszu, nie w PDF.
-      const tekst = /\.pdf$/i.test(nazwa) ? await pdfText(buf) : await tekstZPliku(nazwa, buf);
-      if (tekst.trim().length > 200) out.push({ plik: nazwa, tekst: tekst.slice(0, MAX_ZN_DOK) });
+      //
+      // ⚠️ LIMIT PODAJEMY JAWNIE. Domyślny `pdfText(buf)` czyta 6 000 znaków — dwie
+      // strony. Trasa cięła dopiero na 24 000, więc wyglądało, że czyta cały plik,
+      // a naprawdę brała 2% raportu banku centralnego i jedną trzecią protokołów.
+      const pelny = /\.pdf$/i.test(nazwa)
+        ? await pdfText(buf, MAX_ZN_PLIK).catch(() => "")
+        : await tekstZPliku(nazwa, buf);
+      if (pelny.trim().length <= 200) continue;
+      // Dokument dłuższy niż budżet promptu: zamiast ucinać początek (w raportach
+      // to spis treści), wycinamy okna wokół fraz właściwych dla modułu.
+      let tekst = pelny;
+      if (pelny.length > MAX_ZN_DOK) {
+        tekst = frazy
+          ? keywordWindows(pelny, frazy, 700, MAX_ZN_DOK)
+          : pelny.slice(0, MAX_ZN_DOK);
+        skrocone.push(`${nazwa} (${pelny.length} zn. → ${tekst.length} zn.)`);
+      }
+      out.push({ plik: nazwa, tekst });
     }
     return out;
   }
@@ -150,10 +195,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
   }
 
-  const [dokProc, dokLim] = await Promise.all([tekstyDla(TYPY_PROCEDURY), tekstyDla(TYPY_LIMITY)]);
-  const [zdarzenia, limity] = await Promise.all([
+  const [dokProc, dokLim, dokMedia, dokSektor] = await Promise.all([
+    tekstyDla(TYPY_PROCEDURY, FRAZY.PROCEDURY),
+    tekstyDla(TYPY_LIMITY, FRAZY.LIMITY),
+    tekstyDla(TYPY_MEDIA),
+    tekstyDla(TYPY_SEKTOR, FRAZY.SEKTOR),
+  ]);
+  const [zdarzenia, limity, publikacje, miary] = await Promise.all([
     wyodrebnij<Zdarzenie>(SYSTEM_PROCEDURY, dokProc, "zdarzenia"),
     wyodrebnij<Limit>(SYSTEM_LIMITY, dokLim, "limity"),
+    wyodrebnij<Publikacja>(SYSTEM_MEDIA, dokMedia, "publikacje"),
+    wyodrebnij<MiaraSektora>(SYSTEM_SEKTOR, dokSektor, "miary"),
   ]);
   zdarzenia.sort((a, b) => String(a.data).localeCompare(String(b.data)));
 
@@ -162,8 +214,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const anachroniczne = dzien ? przepisyAnachroniczne(dzien) : [];
 
   const zapisz = async (kind: string, title: string, chapter_no: string, data: unknown, findings: string[]) => {
+    // Skrócenie dokumentu dopisujemy do UWAG każdego modułu, a nie tylko do odpowiedzi
+    // HTTP: `uwagi` idą do promptu redakcji, więc model dowie się, że opisuje wycinek,
+    // a nie całość. Milczące ucięcie czytałoby się jak komplet materiału.
+    const uwagi = [
+      ...(((data as { uwagi?: string[] }).uwagi ?? []) as string[]),
+      ...(skrocone.length
+        ? [
+            "Dokumenty dłuższe niż budżet analizy odczytano fragmentami — wybrano fragmenty wokół fraz " +
+              `właściwych dla modułu, nie początek pliku: ${skrocone.join("; ")}.`,
+          ]
+        : []),
+    ];
     await supabase.from("subanalyses").upsert(
-      { case_id: id, kind, title, chapter_no, status: "szkic", body_md: "", data: { ...(data as object), findings } },
+      {
+        case_id: id,
+        kind,
+        title,
+        chapter_no,
+        status: "szkic",
+        body_md: "",
+        data: { ...(data as object), findings, ...(uwagi.length ? { uwagi } : {}) },
+      },
       { onConflict: "case_id,kind" },
     );
   };
@@ -206,13 +278,41 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       : ["Nie odczytano limitów — brak czytelnej metodyki w aktach."],
   );
 
+  // Składanie rozdziałów jest w lib/opinion/warsztat-bank.ts — tam ma testy.
+  // Najważniejszy z nich (podział publikacji po dacie zdarzenia) rozstrzyga o tym,
+  // czy opinia nie popełni wnioskowania wstecznego, więc nie może siedzieć w trasie,
+  // której nie da się uruchomić bez serwera i zalogowania.
+  const media = zbudujMedia(publikacje, dzien);
+  const sektor = zbudujSektor(miary, dokSektor.length, dzien);
+  const prawne = zbudujOtoczeniePrawne(wlasciwe, anachroniczne, dzien);
+  await zapisz("media", "Publikacje prasowe i komunikaty", "V", media.data, media.findings);
+  await zapisz(
+    "ekspozycja_sektor",
+    "Skala sektora bankowego wobec gospodarki",
+    "V",
+    sektor.data,
+    sektor.findings,
+  );
+  await zapisz(
+    "otoczenie_prawne",
+    "Otoczenie prawne i standardy identyfikacji ryzyka",
+    "V",
+    prawne.data,
+    prawne.findings,
+  );
+
   return Response.json({
     ok: true,
     zdarzen: zdarzenia.length,
+    publikacji: (media.data.tables as { rows: string[][] }[])[0].rows.length,
+    publikacjiPoZdarzeniu: media.data.poZdarzeniu as number,
+    miarSektora: (sektor.data.table as { rows: string[][] }).rows.length,
+    przepisowWlasciwych: wlasciwe.length,
     limitow: limity.length,
     dokumentow: dokProc.length + dokLim.length,
     bezOcr,
     zastapioneOcr,
+    skrocone,
     przepisow: wlasciwe.length,
     anachronicznych: anachroniczne.length,
   });

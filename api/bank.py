@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.bank import szereg, wskazniki, zmiany  # noqa: E402
 from engine.sprawozdania import (  # noqa: E402
     czytaj_pdf,
+    sprawdz_bilans,
+    strony_pol,
+    zestawienie,
     sprawdz_spojnosc,
     uzupelnij_z_tozsamosci,
     zbuduj_pozycje,
@@ -84,6 +87,10 @@ def policz(case_id, paths=None):
                     return (403, {"ok": False, "error": "Plik nie należy do tej sprawy."})
 
             pozycje, uwagi, zrodla = [], [], []
+            # Miejsce odczytu każdej pozycji — do kolumny „Źródło" w rozdziale
+            # o sprawozdaniach. Nazwę pliku dopisujemy tylko przy wielu sprawozdaniach,
+            # bo inaczej „str. 47" nie wskazuje jednoznacznie żadnego dokumentu.
+            miejsca = {}
             for p in paths:
                 obj = f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(p)}"
                 _, data = _req("GET", obj)
@@ -103,6 +110,8 @@ def policz(case_id, paths=None):
                     continue
                 uwagi += uzupelnij_z_tozsamosci(odczyt, poz)
                 uwagi += sprawdz_spojnosc(odczyt, poz)
+                for pole, gdzie in strony_pol(odczyt, os.path.basename(p) if len(paths) > 1 else "").items():
+                    miejsca.setdefault(pole, gdzie)
                 strony = sorted({k.strona for k in odczyt.kandydaci})
                 zrodla.append({"plik": os.path.basename(p), "strony": strony[:12],
                                "okresy": [x.dzien for x in poz]})
@@ -192,7 +201,42 @@ def policz(case_id, paths=None):
                  {"Content-Type": "application/json",
                   "Prefer": "resolution=merge-duplicates,return=minimal"})
 
+            # ── Rozdział o sprawozdaniach: KWOTY, nie wskaźniki ──
+            # Wskaźnik jest ilorazem i ukrywa skalę — udział depozytów 22% nie mówi,
+            # czy bank urósł dwukrotnie, czy skurczył się o połowę. Ta sama lektura
+            # PDF-ów zasila oba rozdziały, więc nie kosztuje dodatkowego odczytu.
+            zest = zestawienie(unikalne, miejsca)
+            # Kontrola pozycji bilansowych — inna niż kontrola kapitału, bo bilans
+            # i wynik nie są przypięte do jednej strony i kolumna potrafi się rozjechać
+            # przy scalaniu dwóch sprawozdań. Uwagi idą do OBU rozdziałów: wskaźniki
+            # liczą się z tych samych odczytów.
+            uwagi_bilans = sprawdz_bilans(unikalne)
+            uwagi += uwagi_bilans
+            sub_spr = {
+                "case_id": case_id,
+                "kind": "sprawozdania",
+                "chapter_no": "V",
+                "title": "Analiza sprawozdań finansowych kontrahenta",
+                "status": "szkic",
+                "data": {
+                    "table": {k: zest[k] for k in ("caption", "head", "rows")},
+                    "okresy": zest["okresy"],
+                    "zrodla": zrodla,
+                    "uwagi": uwagi,
+                    "findings": zest["findings"] or [
+                        "Odczytano pozycje sprawozdań, ale żadna nie zmieniła się o więcej niż 20% "
+                        "między skrajnymi okresami."
+                    ],
+                },
+                "body_md": "",
+            }
+            _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
+                 json.dumps(sub_spr, ensure_ascii=False).encode(),
+                 {"Content-Type": "application/json",
+                  "Prefer": "resolution=merge-duplicates,return=minimal"})
+
             return (200, {"ok": True, "okresy": okresy, "wskaznikow": len(rows),
+                             "pozycji_sprawozdan": len([r for r in zest["rows"] if r[1]]),
                              "ponizej_progu": len(findings), "uwagi": uwagi, "zrodla": zrodla})
         except KeyError as e:
             return (400, {"ok": False, "error": f"Brak pola: {e}"})
