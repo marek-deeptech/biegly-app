@@ -19,7 +19,13 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from engine.bank import szereg, wskazniki, zmiany  # noqa: E402
+from dataclasses import fields as _pola_dataclass  # noqa: E402
+
+from engine.bank import Pozycje, szereg, wskazniki, zmiany  # noqa: E402
+
+# Nazwy pól scalanych między sprawozdaniami — z definicji dataclass, nie przepisane,
+# żeby dodanie pozycji do modelu nie wymagało pamiętania o tym miejscu.
+POLA_POZYCJI = [f.name for f in _pola_dataclass(Pozycje) if f.name not in ("dzien", "waluta")]
 from engine.sprawozdania import (  # noqa: E402
     czytaj_pdf,
     sprawdz_bilans,
@@ -112,7 +118,7 @@ def policz(case_id, paths=None):
                         os.remove(tmp)
                     except OSError:
                         pass
-                poz = zbuduj_pozycje(odczyt)
+                poz = zbuduj_pozycje(odczyt, uwagi=uwagi)
                 if not poz:
                     uwagi.append(f"{os.path.basename(p)}: nie rozpoznano kolumn dat — pominięto")
                     continue
@@ -132,14 +138,28 @@ def policz(case_id, paths=None):
                              "warstwę tekstową (skan wymaga OCR — patrz scripts/ocr_akta.py).",
                 })
 
-            # Duplikaty dat (ten sam okres w dwóch sprawozdaniach) — pierwszy wygrywa,
-            # bo sprawozdania są przetwarzane w kolejności podanej przez biegłego.
-            widziane, unikalne = set(), []
+            # Ten sam okres w dwóch sprawozdaniach — scalamy POLE PO POLU, a nie
+            # „pierwszy plik wygrywa".
+            #
+            # ⚠️ POWÓD: sprawozdanie za I półrocze 2008 podaje kolumnę porównawczą
+            # 31.12.2007, ale nie wszystkie pozycje da się z niej odczytać; pełne
+            # sprawozdanie roczne za 2007 ma je w tabeli głównej. Odrzucanie całego
+            # dnia jako „już widzianego" wyrzucało prawidłowe wartości: aktywa
+            # Glitnira na 31.12.2007 (2 948 910) były odczytane, po czym ginęły,
+            # a w tabeli zostawała liczba z tabeli kwartalnej.
+            # Pierwsze źródło nadal ma pierwszeństwo dla pola, które już wypełniło —
+            # scalanie tylko UZUPEŁNIA luki, nie nadpisuje odczytów.
+            wg_dnia: dict[str, Pozycje] = {}
             for p in pozycje:
-                if p.dzien in widziane:
+                cel = wg_dnia.get(p.dzien)
+                if cel is None:
+                    wg_dnia[p.dzien] = p
                     continue
-                widziane.add(p.dzien)
-                unikalne.append(p)
+                for pole in POLA_POZYCJI:
+                    if getattr(cel, pole, None) is None and getattr(p, pole, None) is not None:
+                        setattr(cel, pole, getattr(p, pole))
+            unikalne = [wg_dnia[d] for d in sorted(wg_dnia)]
+            widziane = set(wg_dnia)
 
             s = szereg(unikalne)
             okresy = sorted(widziane)

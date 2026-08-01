@@ -12,7 +12,10 @@ import pytest
 
 from engine.bank import Pozycje, wskazniki
 from engine.sprawozdania import (
+    Kandydat,
+    Odczyt,
     _daty_kolumn,
+    _dopasuj,
     _liczba,
     _liczby,
     czytaj_tekst,
@@ -208,3 +211,93 @@ def test_uwaga_zachowuje_przecinki_w_zdaniu():
     ])
     assert any("niemożliwe, depozyty" in u for u in uwagi)
     assert any("2\u00a0000" in u for u in uwagi)  # ten sam separator co w tabeli
+
+
+# ── Reguły odczytu kolumn (regresja z akt MBR) ───────────────────────────────
+
+@pytest.mark.parametrize("etykieta,oczekiwane", [
+    # Fraza kończy etykietę — to ta pozycja.
+    ("Net interest income", "wynik_odsetkowy"),
+    ("Profit for the period ......", "zysk_netto"),
+    ("Total Equity", "kapital_wlasny"),
+    ("Loans to customers..........", "kredyty_brutto"),
+    # Po frazie zostały LICZBY — etykieta wchłonęła dane wiersza, pozycja ta sama.
+    ("Total assets 869,724 1,961,522 35,944", "aktywa_ogolem"),
+    # Po frazie zostały SŁOWA — to INNA pozycja sprawozdania.
+    ("Net profit from sale of subsidiaries and assets", None),
+    ("Total equity and liabilities", None),
+    ("Total equity attributable to the equity holders", None),
+    ("Total assets on 30 June", None),
+])
+def test_fraza_musi_konczyc_etykiete(etykieta, oczekiwane):
+    # Samo `startswith` brało „Net profit from sale of subsidiaries" jako zysk netto
+    # i „Total equity and liabilities" jako kapitał własny. Obie mają sensowne liczby
+    # w sensownej liczbie kolumn, więc przechodziły wszystkie kontrole i trafiały
+    # do opinii jako pozycja, którą nie są.
+    assert _dopasuj(etykieta) == oczekiwane
+
+
+def _odczyt(*kandydaci, dni=("2008-06-30", "2007-12-31"), strona=1):
+    o = Odczyt(dni=list(dni), strony=[strona], dni_stron={strona: list(dni)})
+    o.kandydaci = list(kandydaci)
+    return o
+
+
+def test_wiersz_o_niezgodnej_liczbie_wartosci_nie_mapuje_sie_pozycyjnie():
+    # Wiersz pięciowartościowy w sprawozdaniu dwukolumnowym pochodzi z innej tabeli.
+    # W aktach MBR wstawiał do kolumny rocznej wartość kwartalną (1 043 029 zamiast
+    # 2 948 910) i bilans nie domykał się o 27,5%.
+    o = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [1246099, 1043029, 699929, 873740, 3862797], 12))
+    poz = zbuduj_pozycje(o)
+    assert poz[1].aktywa_ogolem != 1043029
+
+
+def test_ostatnia_wartosc_wiersza_segmentowego_jest_suma_okresu():
+    # Kolejne wiersze o tej samej etykiecie opisują kolejne okresy, a ostatnia liczba
+    # każdego z nich jest sumą. Sprawdzone na sześciu wierszach obu sprawozdań.
+    o = _odczyt(
+        Kandydat("aktywa_ogolem", "Total assets", [1246099, 1043029, 699929, 873740, 3862797], 12),
+        Kandydat("aktywa_ogolem", "Total assets", [936185, 797021, 479448, 736257, 2948910], 12),
+    )
+    poz = zbuduj_pozycje(o)
+    assert poz[0].aktywa_ogolem == 3862797
+    assert poz[1].aktywa_ogolem == 2948910
+
+
+def test_wiodacy_numer_noty_nie_psuje_odczytu_dokladnego():
+    # „Total Equity 59 169,969 146,119" — 59 to odsyłacz do noty. Bez jego odcięcia
+    # wiersz wyglądał na trzykolumnowy i szedł ścieżką domysłu, choć jest dokładny.
+    o = _odczyt(Kandydat("kapital_wlasny", "Total Equity", [59, 169969, 146119], 72),
+                dni=("2007-12-31", "2006-12-31"))
+    poz = zbuduj_pozycje(o)
+    assert (poz[0].kapital_wlasny, poz[1].kapital_wlasny) == (169969, 146119)
+
+
+def test_czysta_etykieta_wygrywa_z_etykieta_wchlaniajaca_liczby():
+    # Wiersz „Net interest income 13,521 23,198 ( 562) 2,9" daje [786, 39 082] i podstawia
+    # 786 pod rok 2007; czysty wiersz kilka stron dalej ma [39 082, 37 084].
+    o = _odczyt(
+        Kandydat("wynik_odsetkowy", "Net interest income 13,521 23,198 ( 562) 2,9", [786, 39082], 87),
+        Kandydat("wynik_odsetkowy", "Net interest income", [39082, 37084], 91),
+        dni=("2007-12-31", "2006-12-31"),
+    )
+    poz = zbuduj_pozycje(o)
+    assert (poz[0].wynik_odsetkowy, poz[1].wynik_odsetkowy) == (39082, 37084)
+
+
+def test_pozycje_wynikowe_tylko_z_odczytu_dokladnego():
+    # Kolumny rachunku wyników to OKRESY: sprawozdanie półroczne zestawia półrocze
+    # z półroczem, mimo że nagłówek nosi datę 31.12. Wnioskowanie z układu strony
+    # dałoby tu wynik półroczny podpisany jako roczny.
+    o = _odczyt(Kandydat("zysk_netto", "Profit for the period", [16052, 16052, 477, 16529], 7))
+    assert zbuduj_pozycje(o)[0].zysk_netto is None
+    # Ta sama sytuacja dla pozycji BILANSOWEJ jest dopuszczalna — bilans to stan na dzień.
+    o2 = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [1, 2, 3, 4, 3862797], 12))
+    assert zbuduj_pozycje(o2)[0].aktywa_ogolem == 3862797
+
+
+def test_odczyt_wywnioskowany_jest_odnotowany():
+    uwagi = []
+    o = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [1, 2, 3, 4, 3862797], 12))
+    zbuduj_pozycje(o, uwagi=uwagi)
+    assert any("wywnioskowana z układu strony" in u for u in uwagi)

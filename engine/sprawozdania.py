@@ -48,6 +48,13 @@ ETYKIETY: dict[str, list[str]] = {
     "przychody_odsetkowe": ["interest income", "przychody z tytułu odsetek", "przychody odsetkowe"],
 }
 
+# Pozycje RACHUNKU WYNIKÓW. Odnoszą się do OKRESU, nie do dnia bilansowego — a
+# sprawozdanie półroczne zestawia półrocze z półroczem, nie z pełnym rokiem, mimo że
+# nagłówek kolumny nosi datę „31.12.2007". Dlatego dla tych pól dopuszczamy wyłącznie
+# odczyt z wiersza o liczbie wartości równej liczbie kolumn i z czystą etykietą;
+# wnioskowanie z układu strony dawałoby tu wynik półroczny podpisany jako roczny.
+POLA_WYNIKOWE = {"zysk_netto", "wynik_odsetkowy", "przychody_odsetkowe"}
+
 # Tier 1 podajemy osobno: w sprawozdaniach bywa wierszem sumarycznym, a w modelu
 # `Pozycje` jest wyliczany z CET1 + AT1. Czytamy go, by MÓC SPRAWDZIĆ tę sumę.
 ETYKIETA_TIER1 = ["tier 1 capital", "total tier 1", "kapitał tier 1"]
@@ -186,17 +193,33 @@ def _daty_kolumn(tekst: str) -> list[str]:
     return []
 
 
+# Co wolno zostać po frazie, żeby etykieta wciąż znaczyła to samo: kropkowane
+# wypełnienie, interpunkcja i numer noty. Nie wolno — dalsze SŁOWA.
+_OGON = re.compile(r"^[^A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]*$")
+
+
 def _dopasuj(etykieta: str) -> str | None:
     """Pole modelu dla etykiety — dopasowanie od najdłuższej frazy, by uniknąć kolizji.
 
     „interest income" jest podciągiem „net interest income", więc bez sortowania po
     długości przychody odsetkowe zjadałyby wynik odsetkowy.
+
+    ⚠️ FRAZA MUSI KOŃCZYĆ ETYKIETĘ, nie tylko ją zaczynać.
+    Samo `startswith` łapało zupełnie inne pozycje sprawozdania:
+      „Net profit from sale of subsidiaries and assets" → brane jako zysk netto
+      „Total equity and liabilities"                    → brane jako kapitał własny
+      „Total assets on 30 June"                         → brane jako aktywa ogółem
+    Każda z nich ma sensowne liczby w sensownej liczbie kolumn, więc przechodziła
+    wszystkie kontrole i trafiała do opinii jako pozycja, którą nie jest.
+    Po frazie mogą zostać cyfry i interpunkcja — to numer noty albo wartości wchłonięte
+    z wiersza przez kropkowane wypełnienie. Nie mogą zostać LITERY: dalsze słowa znaczą,
+    że jest to inna pozycja sprawozdania.
     """
     e = etykieta.lower().strip(" .:·…")
     pary = [(f, pole) for pole, frazy in ETYKIETY.items() for f in frazy]
     pary += [(f, "_tier1") for f in ETYKIETA_TIER1]
     for fraza, pole in sorted(pary, key=lambda x: -len(x[0])):
-        if e.startswith(fraza) or e == fraza:
+        if e.startswith(fraza) and _OGON.match(e[len(fraza):]):
             return pole
     return None
 
@@ -282,12 +305,41 @@ def strona_kapitalowa(o: Odczyt) -> int | None:
     return max(licz, key=lambda s: len(licz[s]))
 
 
-def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None) -> list[Pozycje]:
+def _dlugosc_frazy(etykieta: str) -> int:
+    """Długość dopasowanej frazy słownika — do zbadania, co zostało w ogonie etykiety."""
+    e = etykieta.lower().strip(" .:·…")
+    pary = [(f, p) for p, frazy in ETYKIETY.items() for f in frazy] + [(f, "_tier1") for f in ETYKIETA_TIER1]
+    for fraza, _ in sorted(pary, key=lambda x: -len(x[0])):
+        if e.startswith(fraza) and _OGON.match(e[len(fraza):]):
+            return len(fraza)
+    return len(etykieta)
+
+
+def _uwaga(uwagi: list[str] | None, dzien: str, k: Kandydat, v: float, skad: str) -> None:
+    """Odnotowuje odczyt WYWNIOSKOWANY z układu strony — biegły ma wiedzieć, że to nie
+    jest odczyt kolumny, tylko wniosek z tego, jak tabela była złożona."""
+    if uwagi is None:
+        return
+    uwagi.append(
+        f"{dzien}: {k.pole} = {v:,.0f} — {skad} (str. {k.strona}); wartość wywnioskowana "
+        f"z układu strony, nie odczytana z kolumny.".replace(",", "\u00a0")
+    )
+
+
+def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None, uwagi: list[str] | None = None) -> list[Pozycje]:
     """Składa `Pozycje` per dzień z odczytanych kandydatów.
 
-    Kolejność kolumn odpowiada kolejności dat w nagłówku tabeli. Gdy kandydat ma
-    mniej wartości niż dat, przypisujemy tylko tyle, ile jest — brak wartości ma
-    zostać brakiem, nie zerem (patrz `wskazniki` w bank.py).
+    ⚠️ MAPOWANIE POZYCYJNE JEST UPRAWNIONE TYLKO PRZY ZGODNEJ LICZBIE WARTOŚCI.
+    Wiersz z pięcioma liczbami w sprawozdaniu o dwóch kolumnach dat NIE jest wierszem
+    dwukolumnowym — pochodzi z innej tabeli (segmentowej, kwartalnej, terminowej).
+    Wzięcie z niego wartości „po indeksie" wstawiało do kolumny rocznej liczbę kwartalną:
+    w aktach MBR aktywa Glitnira na 31.12.2007 wyszły 1 043 029 zamiast 2 948 910, przez co
+    bilans nie domykał się o 27,5%. Wiersz o niezgodnej liczbie wartości jest więc pomijany.
+
+    Wyjątek — wiersz z JEDNĄ wartością trafia wyłącznie do pierwszej kolumny. To skutek
+    kropkowanego wypełnienia: etykieta wchłania wartości segmentów i zostaje sama suma
+    („Total assets 869,724 1,961,522 ... 3,862,797" → odczyt [3 862 797]). Takie odczyty
+    oznaczamy w `uwagi`, bo są wnioskiem z układu strony, a nie odczytem kolumny.
 
     Pierwsze trafienie na pole wygrywa: sprawozdanie powtarza te same etykiety
     w notach segmentowych, a wiersz z tabeli głównej pojawia się wcześniej.
@@ -299,17 +351,68 @@ def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None) -> list[Pozycje]:
     if not kolumny:
         return []
     out = [Pozycje(dzien=d) for d in kolumny]
+
+    def przypisz(k: Kandydat, wartosci: list[float], od: int = 0) -> None:
+        for idx, v in enumerate(wartosci, start=od):
+            if idx < len(out) and getattr(out[idx], k.pole, None) is None:
+                setattr(out[idx], k.pole, v)
+
     # Pola kapitałowe bierzemy WYŁĄCZNIE ze strony noty o adekwatności — patrz
     # `strona_kapitalowa`. Pozostałe (bilans, wynik) mogą pochodzić z innych stron.
-    skap = strona_kapitalowa(o)
-    for k in o.kandydaci:
-        if k.pole in _POLA_KAPITALOWE and skap is not None and k.strona != skap:
+    wazne = [
+        k for k in o.kandydaci
+        if not k.pole.startswith("_")  # pola pomocnicze służą tylko kontroli i dopełnieniu
+        and not (k.pole in _POLA_KAPITALOWE and skap is not None and k.strona != skap)
+    ]
+    def bez_noty(w: list[float]) -> list[float]:
+        """Ucina wiodący NUMER NOTY, gdy to on psuje zgodność liczby wartości z kolumnami.
+
+        Sprawozdania podają przy pozycji odsyłacz do noty i ekstrakcja czyta go jako
+        pierwszą liczbę: „Total Equity 59 169,969 146,119" → [59, 169 969, 146 119].
+        Wiersz wygląda wtedy na trzykolumnowy w sprawozdaniu o dwóch kolumnach i cały
+        idzie ścieżką domysłu, choć jest odczytem dokładnym. Warunek jest ciasny:
+        dokładnie jedna wartość nadmiarowa, całkowita i mniejsza od 1000.
+        """
+        if len(w) == len(kolumny) + 1 and w[0] == int(w[0]) and 0 < w[0] < 1000:
+            return w[1:]
+        return w
+
+    czysta = lambda k: not re.search(r"\d", k.etykieta[_dlugosc_frazy(k.etykieta):])  # noqa: E731
+
+    # Przebieg 1 — wiersz o liczbie wartości równej liczbie kolumn i o CZYSTEJ etykiecie.
+    # Tylko tu układ wiersza odpowiada układowi nagłówka, więc tylko tu mapowanie
+    # po indeksie jest odczytem, a nie domysłem.
+    for k in wazne:
+        if len(bez_noty(k.wartosci)) == len(kolumny) and czysta(k):
+            przypisz(k, bez_noty(k.wartosci))
+    # Przebieg 2 — to samo, ale etykieta wchłonęła liczby (kropkowane wypełnienie).
+    # Po przebiegu 1, bo wiersz z czystą etykietą jest wiarygodniejszy: w aktach MBR
+    # „Net interest income 13,521 23,198 ( 562) 2,9" dawał [786, 39 082] i podstawiał
+    # 786 pod rok 2007, podczas gdy czysty wiersz kilka stron dalej miał [39 082, 37 084].
+    for k in wazne:
+        if len(bez_noty(k.wartosci)) == len(kolumny) and not czysta(k):
+            przypisz(k, bez_noty(k.wartosci))
+    # Dalsze przebiegi to WNIOSKOWANIE Z UKŁADU STRONY, nie odczyt kolumny — dla pozycji
+    # rachunku wyników niedopuszczalne (patrz POLA_WYNIKOWE).
+    reszta = [k for k in wazne if k.pole not in POLA_WYNIKOWE]
+    # Przebieg 3 — pojedyncza wartość do pierwszej kolumny.
+    for k in reszta:
+        if len(k.wartosci) == 1 and getattr(out[0], k.pole, None) is None:
+            przypisz(k, k.wartosci)
+            _uwaga(uwagi, kolumny[0], k, k.wartosci[0], "wiersz o jednej wartości")
+    # Przebieg 4 — tabela segmentowa/kwartalna: OSTATNIA liczba wiersza jest sumą okresu,
+    # a kolejne takie wiersze opisują kolejne okresy. Sprawdzone na sześciu wierszach
+    # z obu sprawozdań Glitnira; bilans policzony z tak odczytanych wartości domyka się
+    # co do jednostki, co jest niezależnym potwierdzeniem reguły.
+    licznik: dict[str, int] = {}
+    for k in reszta:
+        if len(bez_noty(k.wartosci)) <= len(kolumny):
             continue
-        if k.pole.startswith("_"):
-            continue  # pola pomocnicze (np. _tier1) służą tylko kontroli i dopełnieniu
-        for idx, v in enumerate(k.wartosci[: len(kolumny)]):
-            if getattr(out[idx], k.pole, None) is None:
-                setattr(out[idx], k.pole, v)
+        idx = licznik.get(k.pole, 0)
+        licznik[k.pole] = idx + 1
+        if idx < len(out) and getattr(out[idx], k.pole, None) is None:
+            setattr(out[idx], k.pole, k.wartosci[-1])
+            _uwaga(uwagi, kolumny[idx], k, k.wartosci[-1], "suma wiersza tabeli segmentowej")
     return out
 
 
