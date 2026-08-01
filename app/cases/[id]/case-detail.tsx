@@ -21,7 +21,10 @@ import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
 import Albin from "./albin";
 
-type CaseRow = { id: string; name: string; signature: string | null; typ?: string | null };
+// `typ` nie jest opcjonalny: po nim rozgałęziają się kroki procesu, builder opinii
+// i eksport. Opcjonalność sprawiała, że pominięcie pola nie było błędem kompilacji —
+// i tak właśnie trzy trasy eksportu cicho budowały opinię bankową wg szkieletu GPW.
+type CaseRow = { id: string; name: string; signature: string | null; typ: string | null };
 type Doc = {
   id: string;
   rel_path: string;

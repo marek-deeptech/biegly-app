@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { reviewOpinion } from "@/lib/opinion/review";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
+import { RUBRYKA_BANK, SYSTEM_AUDYT_BANK, type KryteriumRubryki } from "@/lib/opinion/audyt-bank";
 import { createClient } from "@/lib/supabase/server";
 
 // AGENT AUDYTORA OPINII — mierzalna kontrola jakości wyjścia.
@@ -31,7 +32,7 @@ type Kryterium = {
   uwaga: string;
 };
 
-const RUBRYKA = [
+const RUBRYKA_GPW = [
   { id: "pytania", waga: 25, opis: "Każde pytanie organu ma w rozdziale II wyraźną, wprost sformułowaną odpowiedź (a nie samo streszczenie ustaleń)." },
   { id: "pokrycie", waga: 25, opis: "Każda teza o wystąpieniu techniki manipulacji jest poparta konkretną liczbą (udział %, wolumen, liczba sesji) — a ta liczba występuje w WYKAZIE METRYK." },
   { id: "atrybucja", waga: 15, opis: "Ustalenia są przypisane imiennie: który podmiot, w której sesji, w jakiej wielkości — zamiast bezosobowego „Grupa działała…”." },
@@ -40,7 +41,7 @@ const RUBRYKA = [
   { id: "zrodla", waga: 10, opis: "Wskazano źródło danych (plik/akta) dla ustaleń liczbowych; braki oznaczono uczciwie zamiast je pomijać." },
 ] as const;
 
-const SYSTEM =
+const SYSTEM_GPW =
   "Jesteś audytorem opinii biegłego sądowego z zakresu manipulacji instrumentami finansowymi. " +
   "Twoim zadaniem NIE jest napisanie ani poprawienie opinii, lecz jej OCENA wobec rubryki. " +
   "ZASADY BEZWZGLĘDNE: " +
@@ -50,6 +51,14 @@ const SYSTEM =
   "(3) Nie chwal. Uwaga ma wskazywać KONKRETNY brak (rozdział + czego brakuje), inaczej jest bezużyteczna. " +
   "(4) Nie proponuj tez merytorycznych ani nie sugeruj, że manipulacja wystąpiła lub nie — to rola biegłego. " +
   "(5) Odpowiadasz WYŁĄCZNIE wywołaniem narzędzia oceń_opinie.";
+
+// Rubryka i prompt zależą od DZIEDZINY. Rubryka GPW ocenia pokrycie tez o technikach
+// manipulacji i wskazanie litery załącznika I do MAR — w opinii bankowej nie ma ani
+// technik, ani MAR, więc audytor wystawiałby „brak" za nieobecność rzeczy, których
+// w tej dziedzinie być nie może, a niska ocena czytałaby się jak wada opinii.
+const rubrykaDla = (typ: string | null) =>
+  typ === "ryzyko_bankowe" ? RUBRYKA_BANK : (RUBRYKA_GPW as readonly KryteriumRubryki[]);
+const systemDla = (typ: string | null) => (typ === "ryzyko_bankowe" ? SYSTEM_AUDYT_BANK : SYSTEM_GPW);
 
 const TOOL: Anthropic.Tool = {
   name: "ocen_opinie",
@@ -82,7 +91,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const { data: caseRow } = await supabase
     .from("cases")
-    .select("name,signature,group_roster")
+    .select("name,signature,group_roster,typ")
     .eq("id", id)
     .single();
   if (!caseRow) return Response.json({ ok: false, reason: "not found" }, { status: 404 });
@@ -97,6 +106,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const op = buildOpinionDla(caseRow as never, metrics ?? [], (documents ?? []) as never, (subanalyses ?? []) as never);
 
   // ── Warstwa 1: deterministyczna (istniejący recenzent) ──
+  // DZIEDZINA rozstrzyga rubrykę i prompt audytu.
+  const bankowa = caseRow.typ === "ryzyko_bankowe";
+  const RUBRYKA = rubrykaDla(caseRow.typ ?? null);
+  // Data zdarzenia z warsztatu (Krok 4) — audytor bez niej nie sprawdzi ani stanu
+  // prawnego, ani granicy wiedzy dostępnej w dniu decyzji.
+  const dzienZdarzenia =
+    ((subanalyses ?? []).find((s) => s.kind === "limity")?.data as { dzienZdarzenia?: string | null } | undefined)
+      ?.dzienZdarzenia ?? null;
+
   const det = reviewOpinion(op, (metrics ?? []) as never, (subanalyses ?? []) as never);
   const bledy = det.filter((f) => f.severity === "ERROR");
   const ostrzezenia = det.filter((f) => f.severity === "WARN");
@@ -136,6 +154,16 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     "",
     "RUBRYKA AUDYTU (oceń każde kryterium po jego `id`):",
     RUBRYKA.map((r) => `- ${r.id} (waga ${r.waga}): ${r.opis}`).join("\n"),
+    ...(bankowa
+      ? [
+          "",
+          dzienZdarzenia
+            ? `DATA OCENIANEGO ZDARZENIA: ${dzienZdarzenia}. Sprawdź wobec niej daty obowiązywania ` +
+              "każdego powołanego przepisu oraz każdej informacji użytej jako podstawa oceny."
+            : "DATA OCENIANEGO ZDARZENIA: nieustalona — oceń kryteria „stan_prawny” i „wsteczne” jako brak, " +
+              "bo bez daty nie da się sprawdzić ani stanu prawnego, ani granicy wiedzy.",
+        ]
+      : []),
     "",
     pytania.length
       ? `PYTANIA ORGANU, na które opinia MUSI odpowiedzieć (${pytania.length}):\n` +
@@ -156,7 +184,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 3000,
-      system: SYSTEM,
+      system: systemDla(caseRow.typ ?? null),
       tools: [TOOL],
       tool_choice: { type: "tool", name: "ocen_opinie" },
       messages: [{ role: "user", content: userPrompt }] });
