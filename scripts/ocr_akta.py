@@ -15,6 +15,7 @@ kompletnością i analizą** — inaczej wszystkie trzy kłamią.
 UŻYCIE
     python3 scripts/ocr_akta.py --dir ~/Downloads/AKTA           # raport, bez zapisu
     python3 scripts/ocr_akta.py --dir ~/Downloads/AKTA --wykonaj # OCR do <plik>.ocr.pdf
+    python3 scripts/ocr_akta.py --dir ~/Downloads/AKTA --oznacz MBR  # ustaw warstwa_tekstu w bazie
 
 ZASADA NIENARUSZALNOŚCI ORYGINAŁU
 Wynik trafia OBOK oryginału jako `<nazwa>.ocr.pdf`, nigdy w jego miejsce. `ocrmypdf`
@@ -45,18 +46,107 @@ def tekst_pdf(p: Path) -> tuple[int, int]:
         return 0, 0
 
 
+def _env() -> tuple[str, str]:
+    import re
+
+    out = {}
+    for line in (Path(__file__).resolve().parent.parent / ".env.local").read_text(encoding="utf8").splitlines():
+        m = re.match(r"^([A-Z_]+)=(.*)$", line.strip())
+        if m:
+            out[m.group(1)] = m.group(2).strip().strip("\"'")
+    return out["NEXT_PUBLIC_SUPABASE_URL"], out["SUPABASE_SERVICE_ROLE_KEY"]
+
+
+def oznacz_w_bazie(katalog: Path, sprawa: str) -> int:
+    """Ustawia `documents.warstwa_tekstu` dla dokumentów sprawy (migracja 0011).
+
+    Dopasowanie po NAZWIE PLIKU, nie po pełnej ścieżce: `rel_path` w bazie ma prefiks
+    nadany przy wgrywaniu i nie odpowiada układowi katalogu na dysku.
+
+    Formaty tekstowe (docx/xlsx/csv/txt) dostają 'jest' bez sprawdzania — treść jest
+    w nich z definicji. Obrazy dostają 'brak': to zwykle wykresy do opinii, więc nie
+    zaniża to kompletności akt, ale opisuje stan zgodnie z prawdą.
+    """
+    import json
+    import urllib.parse
+    import urllib.request
+
+    url, key = _env()
+
+    def req(sciezka: str, metoda="GET", dane=None):
+        h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
+             "Prefer": "return=minimal"}
+        r = urllib.request.Request(f"{url}/rest/v1/{sciezka}",
+                                   data=json.dumps(dane).encode() if dane else None, headers=h, method=metoda)
+        with urllib.request.urlopen(r, timeout=120) as resp:
+            b = resp.read()
+            return json.loads(b) if b else None
+
+    h = {"apikey": key, "Authorization": f"Bearer {key}"}
+    with urllib.request.urlopen(urllib.request.Request(
+            f"{url}/rest/v1/cases?name=eq.{urllib.parse.quote(sprawa)}&select=id", headers=h)) as r:
+        sprawy = json.loads(r.read())
+    if not sprawy:
+        print(f"✗ nie znaleziono sprawy o nazwie {sprawa}")
+        return 1
+    cid = sprawy[0]["id"]
+    with urllib.request.urlopen(urllib.request.Request(
+            f"{url}/rest/v1/documents?case_id=eq.{cid}&select=id,rel_path", headers=h)) as r:
+        docs = json.loads(r.read())
+
+    # nazwa pliku → stan warstwy, wyliczony z plików na dysku
+    stan: dict[str, str] = {}
+    for p in katalog.rglob("*"):
+        if not p.is_file():
+            continue
+        ext = p.suffix.lower()
+        if ext == ".pdf":
+            stron, znakow = tekst_pdf(p)
+            if not stron:
+                continue
+            ma = znakow / stron >= PROG_ZNAKOW_NA_STRONE
+            stan[p.name] = ("ocr" if p.name.endswith(".ocr.pdf") else "jest") if ma else "brak"
+        elif ext in (".docx", ".doc", ".xlsx", ".xls", ".csv", ".txt", ".rtf"):
+            stan[p.name] = "jest"
+        elif ext in (".jpg", ".jpeg", ".png", ".gif", ".tif", ".tiff"):
+            stan[p.name] = "brak"
+
+    licz = {"jest": 0, "brak": 0, "ocr": 0}
+    nieznane = 0
+    for d in docs:
+        nazwa = d["rel_path"].split("/")[-1]
+        w = stan.get(nazwa)
+        if not w:
+            nieznane += 1
+            continue
+        req(f"documents?id=eq.{d['id']}", "PATCH", {"warstwa_tekstu": w})
+        licz[w] += 1
+
+    print(f"\nOznaczono w sprawie {sprawa}:")
+    print(f"  jest (czytelne): {licz['jest']}")
+    print(f"  ocr  (po OCR):   {licz['ocr']}")
+    print(f"  brak (do OCR):   {licz['brak']}")
+    if nieznane:
+        print(f"  bez odpowiednika na dysku (pominięte): {nieznane}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True, help="katalog akt sprawy")
     ap.add_argument("--wykonaj", action="store_true", help="wykonaj OCR (domyślnie tylko raport)")
+    ap.add_argument("--oznacz", metavar="SPRAWA", help="ustaw warstwa_tekstu w bazie dla sprawy o tej nazwie")
     ap.add_argument("--jezyk", default="pol", help="języki tesseract, np. pol lub pol+eng")
     a = ap.parse_args()
 
-    if not shutil.which("ocrmypdf"):
+    if a.wykonaj and not shutil.which("ocrmypdf"):
         sys.exit("✗ brak ocrmypdf (brew install ocrmypdf)")
     katalog = Path(a.dir).expanduser()
     if not katalog.exists():
         sys.exit(f"✗ brak katalogu: {katalog}")
+
+    if a.oznacz:
+        return oznacz_w_bazie(katalog, a.oznacz)
 
     doOcr: list[tuple[Path, int]] = []
     maja_tekst = 0
