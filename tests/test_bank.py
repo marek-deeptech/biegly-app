@@ -164,3 +164,58 @@ def test_udzial_powyzej_100_procent_dostaje_ostrzezenie():
 def test_udzial_w_normie_nie_ostrzega():
     p = Pozycje(dzien="2007-12-31", depozyty_klientow=300, zobowiazania_ogolem=1_000)
     assert _kod(wskazniki(p), "udzial_depozytow").ostrzezenie is None
+
+
+# ── Szeregi czasowe (moduł „otoczenie makroekonomiczne") ─────────────────────
+
+from engine.szeregi import czytaj_csv, proba_miesieczna, statystyki  # noqa: E402
+
+# Fragment realnego pliku z akt PO III Ds 84.2020 (notowania indeksu ICEX),
+# w oryginalnym zapisie: separator średnik, przecinek dziesiętny, data DD.MM.RRRR.
+ICEX = (
+    b"Data,Otwarcie,Najwyzszy,Najnizszy,Zamkniecie;;;;;\n"
+    b"03.01.2006;5107,49;5218,87;5097,6;5212,62;\n"
+    b"18.07.2007;8100,00;8200,00;8050,00;8174,28;\n"
+    b"11.09.2008;3700,00;3720,00;3600,00;3634,60;\n"
+    b"30.09.2008;3200,00;3250,00;3150,00;3180,51;\n"
+)
+
+
+def test_szereg_czyta_zapis_polski():
+    s = czytaj_csv(ICEX, "ICEX")
+    assert s is not None
+    assert len(s.punkty) == 4
+    assert s.punkty[0].dzien == "2006-01-03"
+    assert s.punkty[0].wartosc == 5212.62  # kurs zamknięcia, nie otwarcia
+
+
+def test_wartosc_w_dniu_zdarzenia_nie_zaglada_w_przyszlosc():
+    """Ocena opiera się na stanie wiedzy z dnia decyzji.
+
+    Wzięcie notowania NAJBLIŻSZEGO w obie strony mogłoby wciągnąć kurs z dnia
+    po zdarzeniu — czyli informację, której oceniany nie mógł mieć.
+    """
+    st = statystyki(czytaj_csv(ICEX, "ICEX"), "2008-09-15")
+    assert st.w_dniu.dzien == "2008-09-11"  # nie 2008-09-30, choć jest bliżej wartością
+
+
+def test_statystyki_odtwarzaja_obraz_rynku_z_akt():
+    st = statystyki(czytaj_csv(ICEX, "ICEX"), "2008-09-11")
+    assert st.szczyt.dzien == "2007-07-18" and st.szczyt.wartosc == 8174.28
+    assert st.w_dniu.wartosc == 3634.60
+    # Spadek o ponad połowę od szczytu — sygnał publicznie dostępny w dniu decyzji.
+    od_szczytu = 100 * (st.w_dniu.wartosc - st.szczyt.wartosc) / st.szczyt.wartosc
+    assert od_szczytu == pytest.approx(-55.5, abs=0.1)
+
+
+def test_proba_miesieczna_bierze_ostatnie_notowanie_miesiaca():
+    """Szereg dzienny (682 notowania) jest w tabeli opinii nieczytelny."""
+    m = proba_miesieczna(czytaj_csv(ICEX, "ICEX"))
+    assert [p.dzien for p in m] == ["2006-01-03", "2007-07-18", "2008-09-30"]
+    assert m[-1].wartosc == 3180.51  # 30.09, nie 11.09
+
+
+def test_plik_ktory_nie_jest_szeregiem_odrzucony():
+    # „^icex_d.csv" w aktach MBR to wbrew nazwie tabela limitów, nie notowania.
+    limity = b";Limity na II kw. 2008 r.;Limity na III kw. 2008 r.\nFundusze wlasne;101,8 mln zl;108,9 mln zl\n"
+    assert czytaj_csv(limity, "limity") is None

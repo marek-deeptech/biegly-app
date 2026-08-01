@@ -12,7 +12,13 @@ export function storageKey(path: string): string {
   let s = path.replace(/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/g, (c) => PL[c] ?? c);
   s = s.normalize("NFKD").replace(/[̀-ͯ]/g, ""); // pozostałe diakrytyki
   s = s.replace(/[^\x20-\x7E]/g, "_"); // cokolwiek jeszcze spoza ASCII → „_”
-  return s;
+  // ASCII NIE WYSTARCZY. Storage odrzuca też część znaków drukowalnych — plik
+  // „^icex_d (1).csv" (notowania indeksu ICEX, 682 obserwacje) nie wgrał się
+  // w ogóle, a wiersz w bazie powstał, więc akta liczyły go jako obecny.
+  // Zostawiamy zbiór bezpieczny: litery, cyfry, spacja i . _ - ( ) /
+  s = s.replace(/[^A-Za-z0-9 ._\-()/]/g, "_");
+  // Wiodące kropki i ukośniki psują ścieżkę obiektu.
+  return s.replace(/(^|\/)[.]+/g, "$1_").replace(/\/{2,}/g, "/");
 }
 
 // Upload wznawialny (TUS) do Supabase Storage — niezawodny dla dużych plików

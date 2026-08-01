@@ -17,6 +17,10 @@
     "api/bank.py": {
       "includeFiles": "engine/**",
       "maxDuration": 300
+    },
+    "api/makro.py": {
+      "includeFiles": "engine/**",
+      "maxDuration": 120
     }
   }
 }
