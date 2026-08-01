@@ -182,9 +182,15 @@ def main() -> int:
         print(f"  [{i}/{len(doOcr)}] {p.name[:56]} ({stron} s.) …", flush=True)
         try:
             # --force-ocr: skany bywają mają szczątkową warstwę (numer strony), przez
-            # którą ocrmypdf domyślnie odmawia pracy. --optimize 0: nie ruszamy obrazu.
+            # którą ocrmypdf domyślnie odmawia pracy.
+            #
+            # --optimize 3, NIE 0. Pierwsza wersja miała 0 („nie ruszamy obrazu") i dała
+            # 16-krotny przyrost objętości: 99 MB akt spuchło do 1,57 GB, a podręcznik
+            # 46 MB do 1,29 GB. Bezstratne przekodowanie skanu jest gorsze niż brak
+            # kompresji w oryginale. Poziom 3 (jbig2 + pngquant) daje pliki ~2× większe
+            # od oryginału, co jest kosztem samej warstwy tekstowej i jest do przyjęcia.
             subprocess.run(
-                ["ocrmypdf", "-l", a.jezyk, "--force-ocr", "--optimize", "0", "--quiet", str(p), str(cel)],
+                ["ocrmypdf", "-l", a.jezyk, "--force-ocr", "--optimize", "3", "--quiet", str(p), str(cel)],
                 check=True,
                 capture_output=True,
                 timeout=1800,
