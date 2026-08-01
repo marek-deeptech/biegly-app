@@ -122,6 +122,10 @@ class Wskaznik:
     podstawa_progu: str | None = None
     spelniony: bool | None = None
     skladniki: dict[str, float] = field(default_factory=dict)
+    # Sygnał, że wartość jest arytmetycznie poprawna, ale merytorycznie niemożliwa —
+    # np. udział przekraczający 100%. Oznacza, że licznik i mianownik pochodzą
+    # z różnych zakresów (skonsolidowany vs jednostkowy, grupa vs bank).
+    ostrzezenie: str | None = None
 
 
 def _pct(licznik: float | None, mianownik: float | None) -> float | None:
@@ -152,9 +156,18 @@ def wskazniki(p: Pozycje) -> list[Wskaznik]:
     t1, laczne = _fundusze(p)
     rwa = p.aktywa_wazone_ryzykiem
 
+    # Wskaźniki będące UDZIAŁEM w całości nie mogą przekroczyć 100%. Przekroczenie
+    # znaczy, że licznik i mianownik pochodzą z różnych zakresów sprawozdania —
+    # wartość jest wtedy bezużyteczna i nie wolno jej wpuścić do opinii bez uwagi.
+    UDZIALY = {"udzial_depozytow", "udzial_hurtu", "npl", "cet1", "tier1", "tcr"}
+
     def dodaj(kod: str, nazwa: str, wartosc: float | None, jednostka: str, skladniki: dict[str, float]) -> None:
         if wartosc is None:
             return
+        ostrz = None
+        if kod in UDZIALY and wartosc > 100.0:
+            ostrz = (f"Wartość {wartosc:.1f}% przekracza 100% — licznik i mianownik pochodzą "
+                     f"prawdopodobnie z różnych zakresów sprawozdania. Zweryfikuj w oryginale.")
         prog = prog_na_dzien(kod, p.dzien)
         out.append(
             Wskaznik(
@@ -167,6 +180,7 @@ def wskazniki(p: Pozycje) -> list[Wskaznik]:
                 podstawa_progu=prog.podstawa if prog else None,
                 spelniony=(wartosc >= prog.minimum) if prog else None,
                 skladniki={k: v for k, v in skladniki.items() if v is not None},
+                ostrzezenie=ostrz,
             )
         )
 

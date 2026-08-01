@@ -145,3 +145,22 @@ def test_prog_lcr_dochodzi_do_100_procent_etapami():
     assert prog_na_dzien("lcr", "2016-06-30").minimum == 60.0
     assert prog_na_dzien("lcr", "2018-06-30").minimum == 80.0
     assert prog_na_dzien("lcr", "2024-06-30").minimum == 100.0
+
+
+def test_udzial_powyzej_100_procent_dostaje_ostrzezenie():
+    """Udział nie może przekroczyć całości — to znak, że licznik i mianownik
+    pochodzą z różnych zakresów sprawozdania (skonsolidowany vs jednostkowy).
+
+    Na realnych danych Glitnira wyszło 123,7% udziału depozytów w zobowiązaniach.
+    Arytmetyka była poprawna, dane nie — i taka liczba nie może trafić do opinii
+    bez uwagi.
+    """
+    p = Pozycje(dzien="2007-12-31", depozyty_klientow=1_237, zobowiazania_ogolem=1_000)
+    w = _kod(wskazniki(p), "udzial_depozytow")
+    assert w.wartosc == 123.7
+    assert w.ostrzezenie and "przekracza 100%" in w.ostrzezenie
+
+
+def test_udzial_w_normie_nie_ostrzega():
+    p = Pozycje(dzien="2007-12-31", depozyty_klientow=300, zobowiazania_ogolem=1_000)
+    assert _kod(wskazniki(p), "udzial_depozytow").ostrzezenie is None

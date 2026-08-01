@@ -44,27 +44,28 @@ def _fmt(v):
     return s[:-3] if s.endswith(",00") else s
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
+def policz(case_id, paths=None):
+    """Rdzeń analizy — wspólny dla trasy HTTP i uruchomienia z konsoli.
+
+    Wydzielony, bo funkcja serverless jest nietestowalna: żeby sprawdzić liczby,
+    trzeba by postawić serwer. Zwraca (kod_http, payload) — handler tylko to opakowuje.
+    """
+    if True:
         try:
-            length = int(self.headers.get("content-length", 0))
-            body = json.loads(self.rfile.read(length) or b"{}")
-            case_id = body["caseId"]
+            body = {"caseId": case_id, "storagePaths": paths or []}
 
             # DZIEDZINA — twarda bramka. Ta trasa liczy adekwatność kapitałową;
             # w sprawie o manipulację instrumentem finansowym nie ma czego liczyć.
             _, cb = _req("GET", f"{BASE}/rest/v1/cases?id=eq.{case_id}&select=name,typ")
             arr = json.loads(cb or b"[]")
             if not arr:
-                self._json(404, {"ok": False, "error": "Nie znaleziono sprawy."})
-                return
+                return (404, {"ok": False, "error": "Nie znaleziono sprawy."})
             if (arr[0].get("typ") or "") != "ryzyko_bankowe":
-                self._json(409, {
+                return (409, {
                     "ok": False,
                     "error": "Ta analiza dotyczy wyłącznie spraw o ryzyko bankowe. "
                              "Sprawa ma inną dziedzinę — wskaźniki adekwatności byłyby liczbą bez przedmiotu.",
                 })
-                return
 
             # Sprawozdania: z body albo wszystkie z akt (szereg czasowy wymaga min. dwóch okresów).
             paths = body.get("storagePaths") or []
@@ -75,14 +76,12 @@ class handler(BaseHTTPRequestHandler):
                 paths = [d["storage_path"] for d in docs
                          if d.get("storage_path") and str(d.get("rel_path", "")).lower().endswith(".pdf")]
             if not paths:
-                self._json(400, {"ok": False, "error": "Brak sprawozdań finansowych (SPRAWOZDANIE_BANK) w aktach."})
-                return
+                return (400, {"ok": False, "error": "Brak sprawozdań finansowych (SPRAWOZDANIE_BANK) w aktach."})
 
             # Izolacja spraw — plik musi należeć do TEJ sprawy.
             for p in paths:
                 if not str(p).startswith(f"{case_id}/"):
-                    self._json(403, {"ok": False, "error": "Plik nie należy do tej sprawy."})
-                    return
+                    return (403, {"ok": False, "error": "Plik nie należy do tej sprawy."})
 
             pozycje, uwagi, zrodla = [], [], []
             for p in paths:
@@ -110,12 +109,11 @@ class handler(BaseHTTPRequestHandler):
                 pozycje += poz
 
             if not pozycje:
-                self._json(422, {
+                return (422, {
                     "ok": False,
                     "error": "Ze sprawozdań nie udało się odczytać pozycji. Sprawdź, czy PDF-y mają "
                              "warstwę tekstową (skan wymaga OCR — patrz scripts/ocr_akta.py).",
                 })
-                return
 
             # Duplikaty dat (ten sam okres w dwóch sprawozdaniach) — pierwszy wygrywa,
             # bo sprawozdania są przetwarzane w kolejności podanej przez biegłego.
@@ -150,6 +148,13 @@ class handler(BaseHTTPRequestHandler):
                         "value": w.wartosc, "unit": w.jednostka, "target": w.prog,
                         "session_day": w.dzien,
                     })
+
+            # Ostrzeżenia arytmetyczne (udział > 100%) trafiają do uwag razem z uwagami
+            # odczytu — biegły ma je zobaczyć w tym samym miejscu.
+            for pz in unikalne:
+                for w in wskazniki(pz):
+                    if w.ostrzezenie:
+                        uwagi.append(f"{w.dzien}: {w.nazwa} — {w.ostrzezenie}")
 
             ponizej = [w for p in unikalne for w in wskazniki(p) if w.spelniony is False]
             findings = [
@@ -187,12 +192,21 @@ class handler(BaseHTTPRequestHandler):
                  {"Content-Type": "application/json",
                   "Prefer": "resolution=merge-duplicates,return=minimal"})
 
-            self._json(200, {"ok": True, "okresy": okresy, "wskaznikow": len(rows),
+            return (200, {"ok": True, "okresy": okresy, "wskaznikow": len(rows),
                              "ponizej_progu": len(findings), "uwagi": uwagi, "zrodla": zrodla})
         except KeyError as e:
-            self._json(400, {"ok": False, "error": f"Brak pola: {e}"})
+            return (400, {"ok": False, "error": f"Brak pola: {e}"})
         except Exception as e:  # noqa: BLE001
-            self._json(500, {"ok": False, "error": str(e)})
+            return (500, {"ok": False, "error": str(e)})
+
+
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("content-length", 0))
+        b = json.loads(self.rfile.read(length) or b"{}")
+        kod, payload = policz(b.get("caseId"), b.get("storagePaths"))
+        self._json(kod, payload)
+
 
     def _json(self, code, payload):
         b = json.dumps(payload, ensure_ascii=False).encode()
@@ -201,3 +215,9 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)
+
+
+if __name__ == "__main__":
+    # Uruchomienie z konsoli: python3 api/bank.py <case_id>
+    kod, payload = policz(sys.argv[1] if len(sys.argv) > 1 else "")
+    print(kod, json.dumps(payload, ensure_ascii=False, indent=1))

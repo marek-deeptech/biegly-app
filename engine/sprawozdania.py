@@ -68,8 +68,13 @@ class Odczyt:
     """Wynik odczytu jednego sprawozdania — do zatwierdzenia przez biegłego."""
 
     kandydaci: list[Kandydat] = field(default_factory=list)
-    dni: list[str] = field(default_factory=list)  # ISO, w kolejności kolumn
+    dni: list[str] = field(default_factory=list)  # ISO, w kolejności kolumn (pierwsza rozpoznana strona)
     strony: list[int] = field(default_factory=list)
+    # Daty kolumn PER STRONA. Kolejność kolumn bywa różna na różnych stronach tego
+    # samego sprawozdania: nota o adekwatności podaje [2007, 2006], a zestawienie
+    # pięcioletnie [2006, 2007]. Wzięcie dat z pierwszej rozpoznanej strony i wartości
+    # z innej przestawiało cały szereg — Tier 1 wychodził zamieniony między latami.
+    dni_stron: dict[int, list[str]] = field(default_factory=dict)
 
 
 # Liczba BEZ spacji wewnatrz — spacja rozdziela KOLUMNY. Zapis polski (2 537 072)
@@ -157,10 +162,27 @@ def _daty_kolumn(tekst: str) -> list[str]:
                     out.append(iso)
         return out
 
+    def koniec_miesiaca(iso: str) -> bool:
+        """Dzień bilansowy to KONIEC okresu, nigdy jego początek.
+
+        Sprawozdania obok nagłówka kolumn zawierają frazy „za okres od 1.04.2007
+        do 1.07.2007" — dwie daty w jednym wierszu, czyli dokładnie to, czego szuka
+        heurystyka nagłówka. Bez tego filtru do szeregu wchodziły kolumny 2007-04-01
+        i 2007-12-01, których w bilansie nie ma.
+        """
+        r, m, d = (int(x) for x in iso.split("-"))
+        dni = [31, 29 if (r % 4 == 0 and (r % 100 != 0 or r % 400 == 0)) else 28,
+               31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+        return d == dni
+
     for linia in tekst.split("\n"):
         d = z_linii(linia)
-        if len(d) >= 2:
-            return d
+        if len(d) < 2:
+            continue
+        bilansowe = [x for x in d if koniec_miesiaca(x)]
+        # Wiersz z samymi datami początkowymi to opis okresu, nie nagłówek kolumn.
+        if bilansowe:
+            return bilansowe
     return []
 
 
@@ -190,7 +212,10 @@ def czytaj_tekst(tekst: str, strona: int = 1, o: Odczyt | None = None) -> Odczyt
     o = o or Odczyt()
     if not tekst.strip():
         return o
-    for d in _daty_kolumn(tekst):
+    daty = _daty_kolumn(tekst)
+    if daty:
+        o.dni_stron[strona] = daty
+    for d in daty:
         if d not in o.dni:
             o.dni.append(d)
     for linia in tekst.split("\n"):
@@ -233,6 +258,30 @@ def czytaj_pdf(sciezka: str, max_stron: int = 200) -> Odczyt:
     return o
 
 
+# Pola noty o adekwatności kapitałowej — po ich współwystępowaniu rozpoznajemy,
+# która strona jest TĄ tabelą, a nie notą segmentową o podobnych etykietach.
+_POLA_KAPITALOWE = {"kapital_cet1", "kapital_at1", "kapital_tier2", "fundusze_wlasne",
+                    "aktywa_wazone_ryzykiem", "_tier1"}
+
+
+def strona_kapitalowa(o: Odczyt) -> int | None:
+    """Strona z notą o adekwatności — ta, na której zebrało się najwięcej pól kapitałowych.
+
+    Sprawozdanie roczne (129 stron) zawiera kilka tabel z podobnymi etykietami:
+    skonsolidowaną, jednostkową i noty segmentowe. Bez wskazania jednej strony
+    kandydaci mieszali się między nimi, a kolumny wypadały w innej kolejności —
+    Tier 1 dla 2007 i 2006 wychodził zamieniony miejscami. Kontrola spójności to
+    wykrywała, ale lepiej nie wyprodukować rozjazdu, niż go potem zgłaszać.
+    """
+    licz: dict[int, set[str]] = {}
+    for k in o.kandydaci:
+        if k.pole in _POLA_KAPITALOWE:
+            licz.setdefault(k.strona, set()).add(k.pole)
+    if not licz:
+        return None
+    return max(licz, key=lambda s: len(licz[s]))
+
+
 def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None) -> list[Pozycje]:
     """Składa `Pozycje` per dzień z odczytanych kandydatów.
 
@@ -243,11 +292,19 @@ def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None) -> list[Pozycje]:
     Pierwsze trafienie na pole wygrywa: sprawozdanie powtarza te same etykiety
     w notach segmentowych, a wiersz z tabeli głównej pojawia się wcześniej.
     """
-    kolumny = dni or o.dni
+    # Daty bierzemy ze STRONY NOTY KAPITAŁOWEJ, nie z pierwszej napotkanej — to
+    # z niej pochodzą wartości, więc tylko jej porządek kolumn jest właściwy.
+    skap = strona_kapitalowa(o)
+    kolumny = dni or (o.dni_stron.get(skap) if skap is not None else None) or o.dni
     if not kolumny:
         return []
     out = [Pozycje(dzien=d) for d in kolumny]
+    # Pola kapitałowe bierzemy WYŁĄCZNIE ze strony noty o adekwatności — patrz
+    # `strona_kapitalowa`. Pozostałe (bilans, wynik) mogą pochodzić z innych stron.
+    skap = strona_kapitalowa(o)
     for k in o.kandydaci:
+        if k.pole in _POLA_KAPITALOWE and skap is not None and k.strona != skap:
+            continue
         if k.pole.startswith("_"):
             continue  # pola pomocnicze (np. _tier1) służą tylko kontroli i dopełnieniu
         for idx, v in enumerate(k.wartosci[: len(kolumny)]):
@@ -269,7 +326,11 @@ def uzupelnij_z_tozsamosci(o: Odczyt, poz: list[Pozycje]) -> list[str]:
     To odtworzenie z odczytanych sum, nie oszacowanie — ale i tak jest RAPORTOWANE,
     żeby biegły widział, która liczba pochodzi z wiersza, a która z odejmowania.
     """
-    tier1 = next((k.wartosci for k in o.kandydaci if k.pole == "_tier1"), [])
+    skap = strona_kapitalowa(o)
+    tier1 = next(
+        (k.wartosci for k in o.kandydaci if k.pole == "_tier1" and (skap is None or k.strona == skap)),
+        [],
+    )
     uwagi: list[str] = []
     for idx, p in enumerate(poz):
         if idx >= len(tier1):
@@ -293,16 +354,21 @@ def sprawdz_spojnosc(o: Odczyt, poz: list[Pozycje]) -> list[str]:
     Tolerancja 1 jednostka — sprawozdania bywają zaokrąglane do pełnych milionów.
     """
     uwagi: list[str] = []
-    tier1_z_pliku = {
-        i: k.wartosci for k in o.kandydaci if k.pole == "_tier1" for i in [0]
-    }
+    # Tier 1 WYŁĄCZNIE ze strony noty kapitałowej. Wcześniej brany był ostatni
+    # kandydat w dokumencie, czyli w sprawozdaniu rocznym tabela z zestawienia
+    # pięcioletniego — a ta ma kolumny w odwrotnej kolejności lat. Kontrola
+    # spójności zgłaszała wtedy rozjazd, którego w dokumencie nie ma.
+    skap = strona_kapitalowa(o)
+    tier1_seria = next(
+        (k.wartosci for k in o.kandydaci if k.pole == "_tier1" and (skap is None or k.strona == skap)),
+        [],
+    )
     for idx, p in enumerate(poz):
         if p.kapital_cet1 is not None and p.kapital_at1 is not None:
             suma = p.kapital_cet1 + p.kapital_at1
-            zrodlo = tier1_z_pliku.get(0, [])
-            if idx < len(zrodlo) and abs(zrodlo[idx] - suma) > 1:
+            if idx < len(tier1_seria) and abs(tier1_seria[idx] - suma) > 1:
                 uwagi.append(
-                    f"{p.dzien}: Tier 1 ze sprawozdania ({zrodlo[idx]:,.0f}) ≠ CET1 + AT1 ({suma:,.0f})"
+                    f"{p.dzien}: Tier 1 ze sprawozdania ({tier1_seria[idx]:,.0f}) ≠ CET1 + AT1 ({suma:,.0f})"
                 )
         if p.fundusze_wlasne is not None and p.kapital_cet1 is not None:
             skladniki = p.kapital_cet1 + (p.kapital_at1 or 0) + (p.kapital_tier2 or 0)
