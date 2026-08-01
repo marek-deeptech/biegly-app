@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""OCR akt sprawy — KROK ZEROWY, przed jakąkolwiek analizą.
+
+DLACZEGO TO JEST KROK ZEROWY, A NIE OPCJA
+Skan bez warstwy tekstowej jest dla aplikacji plikiem pustym. W sprawie MBR
+(PO III Ds 84.2020) wgrano 81 dokumentów, z czego DZIEWIĘĆ kluczowych — postanowienie
+o powołaniu biegłego, zawiadomienie, protokoły komitetu, metodyka limitów, audyt
+wewnętrzny, BION, uchwały — miało ZERO znaków tekstu na 125 stronach. Aplikacja nie
+znalazła pytań organu ani podmiotów nie dlatego, że ich nie było, tylko dlatego, że
+patrzyła na obrazki. Kompletność akt pokazywała komplet, choć treść była niedostępna.
+
+Wniosek ogólny: **jeśli w sprawie są skany, OCR robi się PRZED klasyfikacją,
+kompletnością i analizą** — inaczej wszystkie trzy kłamią.
+
+UŻYCIE
+    python3 scripts/ocr_akta.py --dir ~/Downloads/AKTA           # raport, bez zapisu
+    python3 scripts/ocr_akta.py --dir ~/Downloads/AKTA --wykonaj # OCR do <plik>.ocr.pdf
+
+ZASADA NIENARUSZALNOŚCI ORYGINAŁU
+Wynik trafia OBOK oryginału jako `<nazwa>.ocr.pdf`, nigdy w jego miejsce. `ocrmypdf`
+zachowuje obraz strony i dokłada niewidoczną warstwę tekstową, więc dokument pozostaje
+wiernym odwzorowaniem skanu — ale plik dowodowy w aktach ma zostać bitowo nietknięty.
+"""
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Poniżej tylu znaków na stronę uznajemy, że warstwy tekstowej faktycznie nie ma.
+# Skany bywają „podpisane" stopką generatora (kilkanaście znaków) — to nie treść.
+PROG_ZNAKOW_NA_STRONE = 80
+
+
+def tekst_pdf(p: Path) -> tuple[int, int]:
+    """(liczba stron, liczba znaków tekstu) — bez rzucania wyjątkiem na uszkodzonym pliku."""
+    try:
+        from pypdf import PdfReader
+
+        r = PdfReader(str(p))
+        return len(r.pages), sum(len((s.extract_text() or "").strip()) for s in r.pages)
+    except Exception:  # noqa: BLE001 — plik nieczytelny to informacja, nie awaria przebiegu
+        return 0, 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dir", required=True, help="katalog akt sprawy")
+    ap.add_argument("--wykonaj", action="store_true", help="wykonaj OCR (domyślnie tylko raport)")
+    ap.add_argument("--jezyk", default="pol", help="języki tesseract, np. pol lub pol+eng")
+    a = ap.parse_args()
+
+    if not shutil.which("ocrmypdf"):
+        sys.exit("✗ brak ocrmypdf (brew install ocrmypdf)")
+    katalog = Path(a.dir).expanduser()
+    if not katalog.exists():
+        sys.exit(f"✗ brak katalogu: {katalog}")
+
+    doOcr: list[tuple[Path, int]] = []
+    maja_tekst = 0
+    for p in sorted(katalog.rglob("*.pdf")):
+        if p.name.endswith(".ocr.pdf"):
+            continue
+        stron, znakow = tekst_pdf(p)
+        if not stron:
+            continue
+        if znakow / stron < PROG_ZNAKOW_NA_STRONE:
+            doOcr.append((p, stron))
+        else:
+            maja_tekst += 1
+
+    print(f"PDF-ów z warstwą tekstową: {maja_tekst}")
+    print(f"PDF-ów do OCR: {len(doOcr)} ({sum(s for _, s in doOcr)} stron)\n")
+    for p, stron in doOcr:
+        print(f"  {stron:4d} s.  {p.relative_to(katalog)}")
+    if not doOcr:
+        print("\n✓ wszystkie PDF-y mają tekst — OCR niepotrzebny")
+        return 0
+    if not a.wykonaj:
+        print("\n  tryb raportu — uruchom z --wykonaj, by wykonać OCR")
+        return 0
+
+    print()
+    zrobione, bledy = 0, 0
+    for i, (p, stron) in enumerate(doOcr, 1):
+        cel = p.with_suffix(".ocr.pdf")
+        if cel.exists():
+            print(f"  [{i}/{len(doOcr)}] ⊘ {p.name[:56]} — plik .ocr.pdf już istnieje")
+            continue
+        print(f"  [{i}/{len(doOcr)}] {p.name[:56]} ({stron} s.) …", flush=True)
+        try:
+            # --force-ocr: skany bywają mają szczątkową warstwę (numer strony), przez
+            # którą ocrmypdf domyślnie odmawia pracy. --optimize 0: nie ruszamy obrazu.
+            subprocess.run(
+                ["ocrmypdf", "-l", a.jezyk, "--force-ocr", "--optimize", "0", "--quiet", str(p), str(cel)],
+                check=True,
+                capture_output=True,
+                timeout=1800,
+            )
+            _, zn = tekst_pdf(cel)
+            print(f"           ✓ {zn} znaków → {cel.name}")
+            zrobione += 1
+        except subprocess.CalledProcessError as e:
+            print(f"           ✗ {e.stderr.decode('utf8', 'replace')[:160]}")
+            bledy += 1
+        except subprocess.TimeoutExpired:
+            print("           ✗ przekroczony czas (30 min)")
+            bledy += 1
+
+    print(f"\n✓ zOCR-owano {zrobione}, błędów {bledy}")
+    print("  Pliki .ocr.pdf leżą OBOK oryginałów — oryginały nietknięte.")
+    print("  Wgraj je do sprawy, żeby aplikacja zobaczyła treść skanów.")
+    return 1 if bledy else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

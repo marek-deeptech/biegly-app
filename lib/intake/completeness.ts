@@ -12,7 +12,12 @@
 
 import { WYMOGI_BANK } from "@/lib/domain/taxonomy-bank";
 
-export type DocLite = { rel_path: string; doc_type: string };
+export type DocLite = {
+  rel_path: string;
+  doc_type: string;
+  /** 'jest' | 'ocr' = treść czytelna maszynowo; 'brak' = skan bez OCR (migracja 0011). */
+  warstwa_tekstu?: string | null;
+};
 
 export type Wymog = {
   id: string;
@@ -179,6 +184,8 @@ export type WymogStatus = {
   /** Przykładowe pliki potwierdzające (do pokazania biegłemu). */
   przyklady: string[];
   liczba: number;
+  /** Pliki, które wymóg by spełniły, gdyby nie brak warstwy tekstowej — do OCR. */
+  bezOcr: string[];
 };
 
 export type TechnikaStatus = {
@@ -213,14 +220,21 @@ export function buildCompleteness(documents: DocLite[], typ?: string | null): Ra
       ? documents.filter((d) => (w.namePatterns ?? []).some((re) => re.test(basename(d.rel_path))))
       : [];
 
-    const trafienia = poTypie.length ? poTypie : poNazwie;
+    const wszystkie = poTypie.length ? poTypie : poNazwie;
+    // SKAN BEZ OCR NIE SPEŁNIA WYMOGU. Dokument bez warstwy tekstowej jest dla
+    // analizy plikiem pustym — w sprawie MBR raport pokazywał 10/10, choć dziewięć
+    // kluczowych dokumentów miało zero znaków na 125 stronach. Obecność pliku
+    // w aktach to nie to samo co dostęp do jego treści.
+    const trafienia = wszystkie.filter((d) => d.warstwa_tekstu !== "brak");
     const via: "typ" | "nazwa" | null = poTypie.length ? "typ" : poNazwie.length ? "nazwa" : null;
     // Dedup po nazwie pliku — te same pliki leżą w wielu TOM-ach akt.
     const nazwy = [...new Set(trafienia.map((d) => basename(d.rel_path)))];
 
+    const bezOcr = [...new Set(wszystkie.filter((d) => d.warstwa_tekstu === "brak").map((d) => basename(d.rel_path)))];
     return {
       wymog: w,
       spelniony: nazwy.length > 0,
+      bezOcr,
       via,
       przyklady: nazwy.slice(0, 3),
       liczba: nazwy.length,

@@ -75,6 +75,29 @@ describe("raport kompletności", () => {
     expect(r.braki_krytyczne.join(" ")).toContain("Sprawozdania");
   });
 
+  it("skan bez warstwy tekstowej NIE spełnia wymogu", () => {
+    // Najgroźniejszy błąd, jaki ta aplikacja może popełnić: w sprawie MBR raport
+    // pokazał 10/10, a dziewięć kluczowych dokumentów miało zero znaków na 125
+    // stronach. Obecność pliku w aktach to nie to samo co dostęp do jego treści.
+    const skan = [{ rel_path: "postanowienie o powołaniu biegłego.pdf", doc_type: "POSTANOWIENIE", warstwa_tekstu: "brak" }];
+    const r = buildCompleteness(skan, "ryzyko_bankowe");
+    const w = r.wymogi.find((x) => x.wymog.id === "postanowienie")!;
+    expect(w.spelniony).toBe(false);
+    expect(w.bezOcr).toContain("postanowienie o powołaniu biegłego.pdf");
+  });
+
+  it("ten sam skan po OCR spełnia wymóg", () => {
+    const poOcr = [{ rel_path: "postanowienie o powołaniu biegłego.pdf", doc_type: "POSTANOWIENIE", warstwa_tekstu: "ocr" }];
+    const w = buildCompleteness(poOcr, "ryzyko_bankowe").wymogi.find((x) => x.wymog.id === "postanowienie")!;
+    expect(w.spelniony).toBe(true);
+    expect(w.bezOcr).toEqual([]);
+  });
+
+  it("dokumenty sprzed migracji 0011 (bez informacji) liczą się jak dotąd", () => {
+    const stare = [{ rel_path: "postanowienie.pdf", doc_type: "POSTANOWIENIE" }];
+    expect(buildCompleteness(stare, "ryzyko_bankowe").wymogi.find((x) => x.wymog.id === "postanowienie")!.spelniony).toBe(true);
+  });
+
   it("sprawa bez typu zachowuje raport GPW", () => {
     const r = buildCompleteness([{ rel_path: "x.xlsx", doc_type: "DANE_UTP" }]);
     expect(r.techniki.map((t) => t.kind)).toContain("wash");
