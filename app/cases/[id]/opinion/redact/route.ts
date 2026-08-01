@@ -13,6 +13,8 @@ import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opin
 import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
 import { buildWiedzaBlock } from "@/lib/opinion/wiedza";
+import { BANK_REDACT_KINDS, buildBankRedactPrompt, modulDla, type BankRedactKind } from "@/lib/opinion/redact-bank";
+import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -48,13 +50,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     /* puste ciało */
   }
   const chapter = (body.chapter || "") as string;
-  const isIv = (IV_REDACT_KINDS as readonly string[]).includes(chapter);
-  const isWnioski = chapter === "wnioski";
-  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isWnioski))
-    return Response.json({ ok: false, reason: "Nieznany rozdział." }, { status: 400 });
 
+  // Sprawę pobieramy PRZED walidacją rozdziału: zbiór dopuszczalnych rodzajów
+  // zależy od dziedziny. Rozdział „limity" jest poprawny w sprawie bankowej
+  // i błędny w sprawie o manipulację — i odwrotnie dla „layering".
   const { data: caseRow } = await supabase.from("cases").select("name,signature,typ").eq("id", id).single();
   if (!caseRow) return Response.json({ ok: false, reason: "not found" }, { status: 404 });
+  const bankowa = caseRow.typ === "ryzyko_bankowe";
+
+  const isIv = !bankowa && (IV_REDACT_KINDS as readonly string[]).includes(chapter);
+  const isBank = bankowa && (BANK_REDACT_KINDS as readonly string[]).includes(chapter);
+  const isWnioski = chapter === "wnioski";
+  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isBank && !isWnioski))
+    return Response.json({ ok: false, reason: "Nieznany rozdział w tej dziedzinie." }, { status: 400 });
 
   const metricsData = await fetchAllMetrics(supabase, id);
   const { data: subs } = await supabase
@@ -124,6 +132,48 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     system = p.system;
     userPrompt = p.user;
     meta = { kind: "wnioski" };
+  } else if (isBank) {
+    // ── Rozdział analizy dziedziny bankowej ──
+    const sub = (subs ?? []).find((s) => s.kind === chapter);
+    if (!sub)
+      return Response.json({ ok: false, reason: "Najpierw wykonaj Krok 3 lub 4 dla tego rozdziału." });
+    type Tbl = { caption?: string; head?: string[]; rows?: string[][] };
+    const t = sub.data?.table as Tbl | undefined;
+    const tableText =
+      t?.head && t.rows?.length
+        ? `${t.caption ? t.caption + ":\n" : ""}${t.head.join(" | ")}\n` +
+          t.rows.slice(0, 120).map((r) => r.join(" | ")).join("\n")
+        : null;
+    const { data: docsB } = await supabase.from("documents").select("doc_type").eq("case_id", id);
+    const licz: Record<string, number> = {};
+    for (const d of docsB ?? []) licz[d.doc_type as string] = (licz[d.doc_type as string] ?? 0) + 1;
+    // Data zdarzenia z warsztatu (Krok 4) — wyznacza stan prawny rozdziału.
+    const dzien =
+      ((subs ?? []).find((s) => s.kind === "limity")?.data as { dzienZdarzenia?: string | null } | undefined)
+        ?.dzienZdarzenia ?? null;
+    const modul = modulDla(chapter as BankRedactKind);
+    const p = buildBankRedactPrompt({
+      kind: chapter as BankRedactKind,
+      title: sub.title,
+      caseName: caseRow.name,
+      signature: caseRow.signature,
+      dzienZdarzenia: dzien,
+      tableText,
+      findings: (sub.data?.findings ?? []) as string[],
+      inventory: Object.entries(licz)
+        .filter(([k]) => !["UNKNOWN", "GRAFIKA"].includes(k))
+        .map(([k, v]) => `${v} × ${k}`),
+      przepisy: dzien ? przepisyNaDzien(dzien, modul as never).map((x) => `${x.ref} — ${x.zakres}`) : [],
+      anachroniczne: dzien
+        ? przepisyAnachroniczne(dzien)
+            .filter((x) => x.moduly.includes(modul as never))
+            .map((x) => `${x.ref} (obowiązuje od ${x.od})`)
+        : [],
+      uwagi: (sub.data as { uwagi?: string[] } | null)?.uwagi ?? [],
+    });
+    system = p.system;
+    userPrompt = p.user;
+    meta = { kind: chapter };
   } else if (isIv) {
     const sub = (subs ?? []).find((s) => s.kind === chapter);
     if (!sub)
@@ -299,6 +349,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       max_tokens:
         isWnioski ? 6500
         : chapter === "layering" || chapter === "aktywnosc" ? 9000
+        // Rozdziały bankowe: 6–12 akapitów gęstej analizy z omówieniem tabeli
+        // okres po okresie — domyślne 2500 ucinałoby je w połowie.
+        : isBank ? 5500
         : isIv ? 5500
         : chapter === "III" ? 8000
         : 2500,

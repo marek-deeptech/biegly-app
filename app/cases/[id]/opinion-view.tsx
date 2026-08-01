@@ -20,6 +20,9 @@ import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 // fixing, concentration i reversal, więc techniki wykryte przez silnik nie dawały się
 // rozwinąć prozą — przycisk po prostu nie istniał.
 import { IV_REDACT_KINDS } from "@/lib/opinion/redact";
+// Przycisk „Rozwiń prozą" musi znać rodzaje OBU dziedzin — trasa i tak odrzuci
+// rodzaj niewłaściwy dla typu sprawy, więc lista jest tu tylko filtrem widoku.
+import { BANK_REDACT_KINDS } from "@/lib/opinion/redact-bank";
 import { zapiszKorekte } from "@/lib/opinion/korekty";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 
@@ -654,7 +657,7 @@ export default function OpinionView({
                           {s.kind === "wnioski" ? "Odśwież z subanaliz" : "Odśwież z danych"}
                         </button>
                       )}
-                      {(IV_REDACT_KINDS as readonly string[]).includes(s.kind) && (
+                      {[...(IV_REDACT_KINDS as readonly string[]), ...(BANK_REDACT_KINDS as readonly string[])].includes(s.kind) && (
                         <button
                           onClick={() => expandChapter(s.kind)}
                           disabled={busy !== null}
