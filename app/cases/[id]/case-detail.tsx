@@ -6,6 +6,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 
 import { Button, ProgressBar } from "@/components/ui";
 import { classify } from "@/lib/intake/classify";
+import { wykryjWarstwe } from "@/lib/intake/warstwa";
 import { AUTHORS, DOC_TYPES } from "@/lib/intake/taxonomy";
 import { cmpMainUtp, isMainUtp, utpVariantLabel } from "@/lib/intake/utp";
 import { createClient } from "@/lib/supabase/client";
@@ -298,6 +299,7 @@ export default function CaseDetail({
       source: string | null;
       provenance: string;
       storage_path: string | null;
+      warstwa_tekstu: string;
     }> = [];
     let sentBase = 0;
 
@@ -324,6 +326,10 @@ export default function CaseDetail({
       // Klasyfikacja MUSI znać dziedzinę — bez tego akta bankowe byłyby czytane
       // regułami GPW i metodyka limitów trafiałaby do UNKNOWN.
       const { code, source, provenance } = classify(rel, caseRow.typ);
+      // WYKRYCIE WARSTWY TEKSTOWEJ przy wgrywaniu, nie przy analizie. Skan bez
+      // warstwy jest dla analizy plikiem pustym; sprawdzenie tutaj sprawia, że
+      // biegły widzi to od razu, a nie po kilku krokach pracy nad sprawą.
+      const warstwa = await wykryjWarstwe(rel, f);
       rows.push({
         case_id: caseRow.id,
         rel_path: rel,
@@ -332,6 +338,7 @@ export default function CaseDetail({
         source,
         provenance,
         storage_path: uploaded ? storagePath : null,
+        warstwa_tekstu: warstwa,
       });
       setUp({ done: i + 1, total: toUpload.length, pct: Math.round((sentBase / totalBytes) * 100) });
     }

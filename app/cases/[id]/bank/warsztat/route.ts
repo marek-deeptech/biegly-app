@@ -88,11 +88,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .eq("case_id", id);
   const wszystkie = docs ?? [];
 
-  // Skan bez OCR jest pustym plikiem — mówimy o tym wprost, zamiast wyprodukować
-  // pusty warsztat i pozwolić biegłemu myśleć, że w aktach nic nie ma.
-  const bezOcr = wszystkie
-    .filter((d) => [...TYPY_PROCEDURY, ...TYPY_LIMITY].includes(d.doc_type) && d.warstwa_tekstu === "brak")
-    .map((d) => d.rel_path.split("/").pop() ?? d.rel_path);
+  // Skan bez OCR jest pustym plikiem. Ale ORYGINAŁ skanu, którego wersja po OCR
+  // jest już w aktach, NIE jest luką — jego treść została odczytana z bliźniaka.
+  // Mieszanie tych dwóch przypadków w jednym komunikacie sugerowało utratę treści,
+  // której nie było; biegły musi wiedzieć, co realnie wypadło z analizy.
+  const nazwaPliku = (rp: string) => (rp.split("/").pop() ?? rp).normalize("NFC");
+  const poOcr = new Set(
+    wszystkie.filter((d) => d.warstwa_tekstu === "ocr").map((d) => nazwaPliku(d.rel_path)),
+  );
+  const istotne = wszystkie.filter(
+    (d) => [...TYPY_PROCEDURY, ...TYPY_LIMITY].includes(d.doc_type) && d.warstwa_tekstu === "brak",
+  );
+  // Nieczytelne i BEZ odpowiednika po OCR — to jest prawdziwa luka dowodowa.
+  const bezOcr = istotne
+    .filter((d) => !poOcr.has(nazwaPliku(d.rel_path).replace(/\.pdf$/i, ".ocr.pdf")))
+    .map((d) => nazwaPliku(d.rel_path));
+  // Oryginały skanów, których treść weszła do analizy przez wersję po OCR.
+  const zastapioneOcr = istotne.length - bezOcr.length;
 
   async function tekstyDla(typy: string[]): Promise<{ plik: string; tekst: string }[]> {
     const wybrane = wszystkie.filter(
@@ -167,6 +179,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         rows: zdarzenia.map((z) => [z.data, z.organ, z.ustalenie, (z.osoby ?? []).join(", "), z.plik]),
       },
       bezOcr,
+      zastapioneOcr,
       przepisy: wlasciwe.filter((p) => p.moduly.includes("procedury")).map((p) => `${p.ref} — ${p.zakres}`),
     },
     zdarzenia.length
@@ -199,6 +212,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     limitow: limity.length,
     dokumentow: dokProc.length + dokLim.length,
     bezOcr,
+    zastapioneOcr,
     przepisow: wlasciwe.length,
     anachronicznych: anachroniczne.length,
   });

@@ -29,6 +29,19 @@ export default function CompletenessPanel({
   const raport = useMemo(() => buildCompleteness(documents, typ), [documents, typ]);
   const pismo = useMemo(() => pismoDoOrganu(raport, caseName, signature), [raport, caseName, signature]);
 
+  // Pliki nieczytelne, dla których NIE ma wersji po OCR. Oryginał skanu, którego
+  // bliźniak `.ocr.pdf` jest w aktach, luką nie jest — jego treść weszła do analizy.
+  const nazwa = (rp: string) => (rp.split("/").pop() ?? rp).normalize("NFC");
+  const poOcr = new Set(
+    documents.filter((d) => d.warstwa_tekstu === "ocr").map((d) => nazwa(d.rel_path)),
+  );
+  const doOcr = documents.filter(
+    (d) =>
+      d.warstwa_tekstu === "brak" &&
+      /\.pdf$/i.test(nazwa(d.rel_path)) &&
+      !poOcr.has(nazwa(d.rel_path).replace(/\.pdf$/i, ".ocr.pdf")),
+  );
+
   const dostepne = raport.techniki.filter((t) => t.dostepna);
   const zablokowane = raport.techniki.filter((t) => !t.dostepna);
 
@@ -44,6 +57,27 @@ export default function CompletenessPanel({
 
   return (
     <section className="border border-ink/60 bg-card p-4">
+      {doOcr.length > 0 && (
+        <div className="mb-4 border border-red-300 bg-red-50 p-3">
+          <p className="text-xs font-medium text-red-900">
+            {doOcr.length} {doOcr.length === 1 ? "dokument jest nieczytelny" : "dokumentów jest nieczytelnych"} —
+            skany bez warstwy tekstowej
+          </p>
+          <p className="mt-1 text-xs text-red-800">
+            Dla analizy to pliki puste: ich treść nie wejdzie do żadnego kroku, a raport kompletności
+            nie uzna ich za spełniające wymóg. Domknij OCR jednym poleceniem:
+          </p>
+          <code className="mt-2 block overflow-x-auto bg-white/70 px-2 py-1 font-mono text-[11px] text-red-900">
+            python3 scripts/ocr_akta.py --domknij {caseName} --wykonaj
+          </code>
+          <ul className="mt-2 space-y-0.5 text-[11px] text-red-800">
+            {doOcr.slice(0, 6).map((d) => (
+              <li key={d.rel_path}>{nazwa(d.rel_path)}</li>
+            ))}
+            {doOcr.length > 6 && <li>…i {doOcr.length - 6} więcej</li>}
+          </ul>
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">
           Kompletność materiału dowodowego

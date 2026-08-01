@@ -19,6 +19,7 @@ type DaneWarsztatu = {
   przepisy?: string[];
   anachroniczne?: string[];
   bezOcr?: string[];
+  zastapioneOcr?: number;
   dzienZdarzenia?: string | null;
 };
 
@@ -120,9 +121,15 @@ export default function WarsztatBankPanel({
           </p>
         )}
         {blad && <p className="mt-3 border border-red-300 bg-red-50 p-2 text-xs text-red-800">{blad}</p>}
+        {proc?.zastapioneOcr ? (
+          <p className="mt-3 text-xs text-inksoft">
+            {proc.zastapioneOcr} skanów odczytano z wersji po OCR — oryginały pominięto jako duplikaty treści.
+          </p>
+        ) : null}
         {proc?.bezOcr?.length ? (
-          <p className="mt-3 border-l-2 border-amber-500 pl-3 text-xs text-inksoft">
-            Pominięto {proc.bezOcr.length} dokumentów bez warstwy tekstowej — to skany wymagające OCR:{" "}
+          <p className="mt-2 border-l-2 border-red-500 pl-3 text-xs text-inksoft">
+            <strong className="font-medium">Luka dowodowa:</strong> {proc.bezOcr.length} dokumentów jest
+            nieczytelnych i NIE ma wersji po OCR — ich treść nie weszła do analizy:{" "}
             {proc.bezOcr.slice(0, 3).join(", ")}
             {proc.bezOcr.length > 3 && " …"}
           </p>
