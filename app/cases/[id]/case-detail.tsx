@@ -14,6 +14,7 @@ import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
 import KrokDziedzinowy from "./krok-dziedzinowy";
+import WskaznikiBankPanel from "./wskazniki-bank-panel";
 import PytaniaPanel from "./pytania-panel";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
@@ -1013,7 +1014,12 @@ export default function CaseDetail({
           i technikami MAR. W sprawie bankowej nie mają sensu, więc się ich nie
           renderuje — zamiast tego opis, co ten krok obejmuje w tej dziedzinie. */}
       {tab === "analysis" && dziedzinaBankowa && (
-        <KrokDziedzinowy pakiet={pakiet} klucz="analysis" />
+        <WskaznikiBankPanel
+          caseId={caseRow.id}
+          documents={documents}
+          subanalyses={subanalyses}
+          onDone={() => router.refresh()}
+        />
       )}
       {tab === "warsztat" && dziedzinaBankowa && (
         <KrokDziedzinowy pakiet={pakiet} klucz="warsztat" />
