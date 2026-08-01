@@ -4,6 +4,7 @@ import { packDla, wymaganeTypy, WSZYSTKIE_PAKIETY } from "@/lib/domain";
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { classifyPath } from "@/lib/intake/classify";
 import { buildCompleteness } from "@/lib/intake/completeness";
+import { buildOpinionBank } from "@/lib/opinion/build-bank";
 
 // Nazwy plików pochodzą z realnych akt PO III Ds 84.2020. Są WBUDOWANE, nie czytane
 // z dysku: golden testy silnika padły już raz, gdy katalog źródłowy uporządkowano.
@@ -175,5 +176,45 @@ describe("rejestr pakietów dziedzinowych", () => {
     expect(required).toContain("SPRAWOZDANIE_BANK");
     expect(required).toContain("METODYKA_LIMITOW");
     expect(required).not.toContain("DANE_UTP");
+  });
+});
+
+describe("builder opinii bankowej", () => {
+  const doc = { rel_path: "akta/postanowienie.pdf", provenance: "wejście" as const, doc_type: "POSTANOWIENIE" };
+  const sub = (kind: string, title: string) => ({
+    kind, title, chapter_no: "V", status: "szkic" as const, body_md: "treść rozdziału",
+    data: { table: { caption: `Tabela ${kind}`, head: ["a"], rows: [["1"]] } },
+  });
+
+  it("składa szkielet I–VIII, nie I–VI", () => {
+    const op = buildOpinionBank({ name: "MBR", signature: "PO III Ds 84.2020" }, [], [doc], []);
+    expect(op.chapters.filter((c) => !c.no.includes(".") && c.no !== "—").map((c) => c.no))
+      .toEqual(["I", "II", "III", "IV", "V", "VI", "VII", "VIII"]);
+    // Rozdział „Uwaga techniczna" pojawia się TYLKO przy rozjeździe ze szkieletem pakietu.
+    expect(op.chapters.some((c) => c.no === "—")).toBe(false);
+  });
+
+  it("podstawa prawna wynika z DATY ZDARZENIA, nie z dnia pisania opinii", () => {
+    const z2008 = buildOpinionBank({ name: "MBR", signature: null }, [], [doc], [], "2008-09-11");
+    expect(z2008.legalBasis.join(" ")).toContain("Uchwała nr 5/2007 KNB");
+    expect(z2008.legalBasis.join(" ")).not.toContain("CRR");
+
+    const z2020 = buildOpinionBank({ name: "X", signature: null }, [], [doc], [], "2020-06-01");
+    expect(z2020.legalBasis.join(" ")).toContain("CRR");
+  });
+
+  it("bez daty zdarzenia NIE zgaduje stanu prawnego", () => {
+    const op = buildOpinionBank({ name: "MBR", signature: null }, [], [doc], []);
+    const ii = op.chapters.find((c) => c.no === "II")!;
+    expect(ii.status).toBe("todo");
+    expect(ii.paras[0].text).toContain("datę ocenianego zdarzenia");
+  });
+
+  it("moduły rozdziału V numeruje literami bez luk", () => {
+    // W aktach są tylko trzy z dziewięciu modułów — numeracja ma być A, B, C.
+    const op = buildOpinionBank({ name: "MBR", signature: null }, [], [doc], [
+      sub("wskazniki_bank", "Wskaźniki"), sub("limity", "Limity"), sub("procedury", "Procedury"),
+    ]);
+    expect(op.chapters.filter((c) => c.no.startsWith("V.")).map((c) => c.no)).toEqual(["V.A", "V.B", "V.C"]);
   });
 });

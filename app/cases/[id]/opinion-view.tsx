@@ -7,15 +7,14 @@ import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import {
   buildIVChapter,
-  buildOpinion,
   buildWnioskiSubanaliza,
   type Chapter,
   type Conf,
   type Para,
   type QuoteDyn,
   type StoredSub,
-  type SubResult,
-} from "@/lib/opinion/build";
+  type SubResult } from "@/lib/opinion/build";
+import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
 // Listy rozdziałów wyprowadzone z katalogu, nie przepisane: zaszyte kopie pomijały
 // fixing, concentration i reversal, więc techniki wykryte przez silnik nie dawały się
@@ -61,19 +60,16 @@ const KIND_LABEL: Record<string, string> = {
   wnioski: "Wnioski (synteza)",
   proza_i: "Rozdział I (model)",
   proza_iii: "Rozdział III — ujęcie teoretyczne (model)",
-  proza_v: "Rozdział V (model)",
-};
+  proza_v: "Rozdział V (model)" };
 
 const STATUS: Record<Chapter["status"], { label: string; cls: string }> = {
   ready: { label: "gotowe", cls: "bg-emerald-100 text-emerald-800" },
   draft: { label: "szkic", cls: "bg-amber-100 text-amber-800" },
-  todo: { label: "do wygenerowania", cls: "bg-ink/10 text-inksoft" },
-};
+  todo: { label: "do wygenerowania", cls: "bg-ink/10 text-inksoft" } };
 const CONF: Record<Conf, string> = {
   grounded: "border-emerald-400",
   review: "border-amber-400",
-  todo: "border-ink/20",
-};
+  todo: "border-ink/20" };
 
 export default function OpinionView({
   caseId,
@@ -81,8 +77,7 @@ export default function OpinionView({
   metrics,
   documents,
   subanalyses,
-  onOpenFiles,
-}: {
+  onOpenFiles }: {
   caseId: string;
   caseRow: { name: string; signature: string | null };
   metrics: Metric[];
@@ -110,7 +105,7 @@ export default function OpinionView({
 
   const stored = subanalyses as unknown as StoredSub[];
   const opinion = useMemo(
-    () => buildOpinion(caseRow, metrics, documents, stored),
+    () => buildOpinionDla(caseRow, metrics, documents, stored),
     [caseRow, metrics, documents, stored],
   );
   const ready = opinion.chapters.filter((c) => c.status === "ready").length;
@@ -158,8 +153,7 @@ export default function OpinionView({
         title: result.title,
         body_md: result.bodyMd,
         data: result.data,
-        ...(overwrite ? { status: "szkic", approved_at: null } : {}),
-      },
+        ...(overwrite ? { status: "szkic", approved_at: null } : {}) },
       { onConflict: "case_id,kind" },
     );
     setBusy(null);
@@ -217,8 +211,7 @@ export default function OpinionView({
       const r = await fetch(`/cases/${caseId}/opinion/redact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapter }),
-      });
+        body: JSON.stringify({ chapter }) });
       if (!r.ok) {
         setBusy(null);
         setMsg(
@@ -244,8 +237,7 @@ export default function OpinionView({
           body_md: j.text,
           data: { table: null, findings: [], legalRefs: [] },
           status: "szkic",
-          approved_at: null,
-        },
+          approved_at: null },
         { onConflict: "case_id,kind" },
       );
       setBusy(null);
@@ -275,8 +267,7 @@ export default function OpinionView({
       const r = await fetch(`/cases/${caseId}/opinion/redact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapter: kind }),
-      });
+        body: JSON.stringify({ chapter: kind }) });
       if (!r.ok) {
         setBusy(null);
         setMsg(
@@ -331,8 +322,7 @@ export default function OpinionView({
             e.type || "—",
             (e.subject || "—").slice(0, 70),
             e.session || "—",
-          ]),
-        });
+          ]) });
       if (kind === "krs" && Array.isArray(j.persons))
         setExTable({
           caption: "Osoby w organach / reprezentanci (wyciąg z KRS)",
@@ -341,8 +331,7 @@ export default function OpinionView({
             p.entity || "—",
             p.name || "—",
             p.role || "—",
-          ]),
-        });
+          ]) });
       if (kind === "fin" && Array.isArray(j.items))
         setExTable({
           caption: "Dane finansowe emitenta (wyciąg ze sprawozdań)",
@@ -352,8 +341,7 @@ export default function OpinionView({
             i.period || "—",
             i.value || "—",
             i.unit || "—",
-          ]),
-        });
+          ]) });
       router.refresh();
     } catch {
       setExMsg("Błąd sieci przy wyciąganiu.");
@@ -459,8 +447,7 @@ export default function OpinionView({
       kind: p.kind,
       gen: () => void genIV(p.kind),
       busyKey: "gen-" + p.kind,
-      locked: false,
-    })),
+      locked: false })),
     {
       no: "II",
       label: "Wnioski",
@@ -468,8 +455,7 @@ export default function OpinionView({
       gen: () => void genWnioski(),
       busyKey: "gen-wnioski",
       locked: !ivAllApproved,
-      lockReason: "Najpierw zatwierdź wszystkie rozdziały IV",
-    },
+      lockReason: "Najpierw zatwierdź wszystkie rozdziały IV" },
     {
       no: "III",
       label: "Wstęp — ujęcie teoretyczne",
@@ -478,8 +464,7 @@ export default function OpinionView({
       busyKey: "redact-III",
       locked: !wnioskiApproved,
       lockReason: "Najpierw zatwierdź Wnioski",
-      note: "III powstaje też automatycznie z biblioteki prawnej — regeneracja modelem jest opcjonalna.",
-    },
+      note: "III powstaje też automatycznie z biblioteki prawnej — regeneracja modelem jest opcjonalna." },
     {
       no: "V",
       label: "Podsumowanie",
@@ -487,8 +472,7 @@ export default function OpinionView({
       gen: () => void redact("V"),
       busyKey: "redact-V",
       locked: !wnioskiApproved,
-      lockReason: "Najpierw zatwierdź Wnioski",
-    },
+      lockReason: "Najpierw zatwierdź Wnioski" },
   ];
   const stepsApproved = steps.filter((s) => isApproved(s.kind)).length;
 
@@ -499,20 +483,17 @@ export default function OpinionView({
       key: "montaz",
       label: "2 · Montaż",
       badge: `${ready}/${opinion.chapters.length}`,
-      badgeCls: ready === opinion.chapters.length ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
-    },
+      badgeCls: ready === opinion.chapters.length ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800" },
     {
       key: "recenzent",
       label: "3 · Recenzent",
       badge: revIssues ? String(revIssues) : undefined,
-      badgeCls: reviewErrors ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800",
-    },
+      badgeCls: reviewErrors ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800" },
     {
       key: "opinia",
       label: "4 · Generuj opinię",
       badge: reviewErrors ? "!" : ready === opinion.chapters.length ? "✓" : undefined,
-      badgeCls: reviewErrors ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800",
-    },
+      badgeCls: reviewErrors ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800" },
   ];
 
   return (
@@ -1289,8 +1270,7 @@ function NavBtn({
   onClick,
   label,
   badge,
-  badgeCls,
-}: {
+  badgeCls }: {
   active: boolean;
   onClick: () => void;
   label: string;

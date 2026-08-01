@@ -1,6 +1,7 @@
 import { Packer } from "docx";
 
-import { buildOpinion } from "@/lib/opinion/build";
+
+import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { renderOpinionDocx } from "@/lib/opinion/docx";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -13,8 +14,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const final = new URL(req.url).searchParams.get("final") === "1";
   const supabase = await createClient();
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
   const { data: caseRow } = await supabase
@@ -34,7 +34,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .select("kind,chapter_no,title,status,body_md,data")
     .eq("case_id", id);
 
-  const op = buildOpinion(caseRow, metrics ?? [], documents ?? [], subanalyses ?? []);
+  const op = buildOpinionDla(caseRow, metrics ?? [], documents ?? [], subanalyses ?? []);
   const buf = await Packer.toBuffer(renderOpinionDocx(op, { final }));
 
   const safe = (caseRow.name || "sprawa").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 60);
@@ -44,7 +44,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "Content-Disposition": `attachment; filename="${fname}"`,
-      "Cache-Control": "no-store",
-    },
-  });
+      "Cache-Control": "no-store" } });
 }

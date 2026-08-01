@@ -80,13 +80,13 @@ export type StoredSub = {
   data: { table?: OpTable | null; tables?: OpTable[]; findings?: string[]; legalRefs?: string[] } | null;
 };
 
-type Metric = {
+export type Metric = {
   key: string;
   value: number | null;
   unit: string | null;
   session_day: string | null;
 };
-type Doc = { rel_path: string; provenance: string | null; doc_type?: string | null };
+export type Doc = { rel_path: string; provenance: string | null; doc_type?: string | null };
 
 // Dynamika kursu z notowania-engine (lib/quotes/parse.ts).
 export type QuoteDyn = {
@@ -1835,7 +1835,7 @@ const SUB_LABEL: Record<string, string> = {
 };
 
 // Rozdział opinii z zapisanej subanalizy (zatwierdzona → grounded/ready).
-function chapterFromStored(s: StoredSub, noOverride?: string, titleOverride?: string): Chapter {
+export function chapterFromStored(s: StoredSub, noOverride?: string, titleOverride?: string): Chapter {
   const conf: Conf = s.status === "zatwierdzona" ? "grounded" : "review";
   return {
     no: noOverride ?? s.chapter_no,

@@ -1,4 +1,5 @@
-import { buildOpinion } from "@/lib/opinion/build";
+
+import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { renderOpinionPdf } from "@/lib/opinion/pdf";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -14,8 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const final = new URL(req.url).searchParams.get("final") === "1";
   const supabase = await createClient();
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
   const { data: caseRow } = await supabase.from("cases").select("name,signature,group_roster").eq("id", id).single();
@@ -28,7 +28,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .select("kind,chapter_no,title,status,body_md,data")
     .eq("case_id", id);
 
-  const op = buildOpinion(caseRow, metrics ?? [], documents ?? [], subanalyses ?? []);
+  const op = buildOpinionDla(caseRow, metrics ?? [], documents ?? [], subanalyses ?? []);
   const buf = await renderOpinionPdf(op, { final });
 
   const safe = (caseRow.name || "sprawa").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 60);
@@ -37,7 +37,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="${fname}"`,
-      "Cache-Control": "no-store",
-    },
-  });
+      "Cache-Control": "no-store" } });
 }

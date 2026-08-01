@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { buildOpinion } from "@/lib/opinion/build";
+
+import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { reviewOpinion } from "@/lib/opinion/review";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { createClient } from "@/lib/supabase/server";
@@ -63,16 +64,10 @@ const TOOL: Anthropic.Tool = {
           properties: {
             id: { type: "string", description: "identyfikator kryterium z rubryki" },
             status: { type: "string", enum: ["spelnione", "czesciowo", "brak"] },
-            uwaga: { type: "string", description: "konkretny brak: rozdział + czego brakuje (do 40 słów)" },
-          },
-          required: ["id", "status", "uwaga"],
-        },
-      },
-      podsumowanie: { type: "string", description: "2–3 zdania: co najpilniej poprawić przed złożeniem opinii" },
-    },
-    required: ["kryteria", "podsumowanie"],
-  },
-};
+            uwaga: { type: "string", description: "konkretny brak: rozdział + czego brakuje (do 40 słów)" } },
+          required: ["id", "status", "uwaga"] } },
+      podsumowanie: { type: "string", description: "2–3 zdania: co najpilniej poprawić przed złożeniem opinii" } },
+    required: ["kryteria", "podsumowanie"] } };
 
 const MAX_ZN_ROZDZIALU = 6000;
 
@@ -80,8 +75,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const supabase = await createClient();
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { user } } = await supabase.auth.getUser();
   if (!user) return Response.json({ ok: false, reason: "unauthorized" }, { status: 401 });
   if (!process.env.ANTHROPIC_API_KEY)
     return Response.json({ ok: false, reason: "Brak ANTHROPIC_API_KEY w zmiennych środowiskowych." });
@@ -100,7 +94,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .select("kind,chapter_no,title,status,body_md,data")
     .eq("case_id", id);
 
-  const op = buildOpinion(caseRow as never, metrics ?? [], (documents ?? []) as never, (subanalyses ?? []) as never);
+  const op = buildOpinionDla(caseRow as never, metrics ?? [], (documents ?? []) as never, (subanalyses ?? []) as never);
 
   // ── Warstwa 1: deterministyczna (istniejący recenzent) ──
   const det = reviewOpinion(op, (metrics ?? []) as never, (subanalyses ?? []) as never);
@@ -165,8 +159,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       system: SYSTEM,
       tools: [TOOL],
       tool_choice: { type: "tool", name: "ocen_opinie" },
-      messages: [{ role: "user", content: userPrompt }],
-    });
+      messages: [{ role: "user", content: userPrompt }] });
     const use = msg.content.find((c): c is Anthropic.ToolUseBlock => c.type === "tool_use");
     const parsed = (use?.input ?? {}) as {
       kryteria?: { id?: string; status?: string; uwaga?: string }[];
@@ -193,8 +186,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         status: f.severity === "ERROR" ? "brak" : f.severity === "WARN" ? "czesciowo" : "spelnione",
         waga: 0,
         uwaga: "kontrola deterministyczna",
-        zrodlo: "silnik",
-      })),
+        zrodlo: "silnik" })),
     ];
 
     const podsumowanie = String(parsed.podsumowanie ?? "").trim();
@@ -209,8 +201,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         max_wynik: 100,
         ustalenia,
         podsumowanie,
-        model: "claude-opus-4-8",
-      });
+        model: "claude-opus-4-8" });
       if (error) zapisano = false;
     } catch {
       zapisano = false;
@@ -226,8 +217,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       message:
         `Audyt: ${wynik}/100 (rubryka ${Math.round(punktyRubryki)} − kary ${kara}). ` +
         `Błędy: ${bledy.length}, ostrzeżenia: ${ostrzezenia.length}.` +
-        (zapisano ? "" : " Wynik NIE zapisany — uruchom migrację 0007_korekty_audyty.sql."),
-    });
+        (zapisano ? "" : " Wynik NIE zapisany — uruchom migrację 0007_korekty_audyty.sql.") });
   } catch (e) {
     return Response.json({ ok: false, reason: "Błąd modelu: " + (e as Error).message });
   }
