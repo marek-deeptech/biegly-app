@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
+import { tekstZPliku } from "@/lib/intake/office";
 import { pdfText } from "@/lib/intake/pdf";
 import { createClient } from "@/lib/supabase/server";
 
@@ -102,7 +103,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       const { data: blob } = await supabase.storage.from("case-files").download(d.storage_path!);
       if (!blob) continue;
       const nazwa = d.rel_path.split("/").pop() ?? d.rel_path;
-      const tekst = /\.pdf$/i.test(nazwa) ? await pdfText(await blob.arrayBuffer()) : await blob.text();
+      const buf = await blob.arrayBuffer();
+      // .docx i .xlsx to archiwa ZIP — `blob.text()` dawał na nich binarne śmieci.
+      // Przez to wypadły KWOTY LIMITÓW: 254 i 272 mln zł są w arkuszu, nie w PDF.
+      const tekst = /\.pdf$/i.test(nazwa) ? await pdfText(buf) : await tekstZPliku(nazwa, buf);
       if (tekst.trim().length > 200) out.push({ plik: nazwa, tekst: tekst.slice(0, MAX_ZN_DOK) });
     }
     return out;
