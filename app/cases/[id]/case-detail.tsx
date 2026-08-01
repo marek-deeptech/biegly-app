@@ -13,8 +13,8 @@ import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
-import KrokDziedzinowy from "./krok-dziedzinowy";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
+import WarsztatBankPanel from "./warsztat-bank-panel";
 import PytaniaPanel from "./pytania-panel";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
@@ -1010,9 +1010,10 @@ export default function CaseDetail({
       {tab === "overview" && <PytaniaPanel caseId={caseRow.id} />}
       {tab === "overview" && <RosterPanel caseId={caseRow.id} />}
 
-      {/* Panele kroków 3 i 4 są GPW-specyficzne: operują arkuszem zleceń UTP
-          i technikami MAR. W sprawie bankowej nie mają sensu, więc się ich nie
-          renderuje — zamiast tego opis, co ten krok obejmuje w tej dziedzinie. */}
+      {/* Kroki 3 i 4 mają WŁASNE panele per dziedzina. Panele GPW operują arkuszem
+          zleceń UTP i technikami MAR — w sprawie bankowej nie są renderowane w ogóle,
+          bo pokazanie przycisku „Policz wskaźniki manipulacji" sugerowałoby, że jest
+          co liczyć. */}
       {tab === "analysis" && dziedzinaBankowa && (
         <WskaznikiBankPanel
           caseId={caseRow.id}
@@ -1022,7 +1023,7 @@ export default function CaseDetail({
         />
       )}
       {tab === "warsztat" && dziedzinaBankowa && (
-        <KrokDziedzinowy pakiet={pakiet} klucz="warsztat" />
+        <WarsztatBankPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
       )}
 
       {tab === "analysis" && !dziedzinaBankowa && (
