@@ -149,6 +149,27 @@ describe("rejestr pakietów dziedzinowych", () => {
     }
   });
 
+  it("kroki 3-5 są ROZDZIELNE między dziedzinami", () => {
+    // Wymóg twardy: zmiana w jednej dziedzinie nie ma prawa dotknąć drugiej.
+    const gpw = packDla("manipulacja_gpw").kroki;
+    const bank = packDla("ryzyko_bankowe").kroki;
+    // ten sam szkielet pięciu kroków…
+    expect(gpw.map((k) => k.klucz)).toEqual(bank.map((k) => k.klucz));
+    // …ale inne etykiety i warunki ukończenia dla kroków 3 i 4
+    expect(gpw[2].label).not.toBe(bank[2].label);
+    const stan = {
+      dokumentow: 5, metryk: 0, zatwierdzone: 0, checklistOk: true,
+      subanalizy: ["techniki", "powiazania_dane"],
+    };
+    // subanalizy GPW kończą krok 4 w manipulacjach, ale NIE w sprawie bankowej
+    expect(gpw[3].gotowy(stan)).toBe(true);
+    expect(bank[3].gotowy(stan)).toBe(false);
+    // i odwrotnie
+    const stanBank = { ...stan, subanalizy: ["procedury", "limity"] };
+    expect(bank[3].gotowy(stanBank)).toBe(true);
+    expect(gpw[3].gotowy(stanBank)).toBe(false);
+  });
+
   it("wymagane typy dziedziny bankowej wywodzą się z wymogów krytycznych", () => {
     const { required } = wymaganeTypy("ryzyko_bankowe");
     expect(required).toContain("SPRAWOZDANIE_BANK");

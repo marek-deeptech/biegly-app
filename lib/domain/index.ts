@@ -39,6 +39,62 @@ export type RolaRozdzialu = "proza_i" | "proza_iii" | "proza_v" | "wnioski" | "a
 
 export type ModulAnalizy = { id: string; tytul: string; opis: string };
 
+/** Stan sprawy, na podstawie którego oceniamy ukończenie kroku. */
+export type StanSprawy = {
+  dokumentow: number;
+  metryk: number;
+  /** Rodzaje istniejących subanaliz. */
+  subanalizy: string[];
+  zatwierdzone: number;
+  checklistOk: boolean;
+};
+
+export type Krok = {
+  klucz: "overview" | "files" | "analysis" | "warsztat" | "opinion";
+  label: string;
+  /** Jednozdaniowy opis, co ten krok robi W TEJ dziedzinie. */
+  opis: string;
+  gotowy: (s: StanSprawy) => boolean;
+};
+
+/**
+ * Kroki 3–5 różnią się między dziedzinami CO DO ISTOTY, nie tylko etykietą:
+ * w manipulacjach krok 3 liczy wskaźniki z arkusza zleceń, a krok 4 rozstrzyga
+ * techniki MAR. W sprawach bankowych krok 3 liczy współczynniki kapitałowe
+ * ze sprawozdań, a krok 4 odtwarza proces decyzyjny i zestawia go z przepisami
+ * obowiązującymi w DACIE ZDARZENIA — o technikach manipulacji nie ma tam mowy.
+ *
+ * Definicje są ROZDZIELNE, a nie sparametryzowane wspólną strukturą: zmiana
+ * warunku ukończenia w jednej dziedzinie nie ma prawa dotknąć drugiej.
+ */
+const KROKI_GPW: Krok[] = [
+  { klucz: "overview", label: "Sprawa", opis: "Pytania organu, roster Grupy, kompletność akt",
+    gotowy: (s) => s.dokumentow > 0 && s.checklistOk },
+  { klucz: "files", label: "Pliki", opis: "Wgranie i klasyfikacja akt",
+    gotowy: (s) => s.dokumentow > 0 },
+  { klucz: "analysis", label: "Analiza liczbowa", opis: "Wskaźniki manipulacji z arkusza zleceń i transakcji UTP",
+    gotowy: (s) => s.metryk > 0 },
+  { klucz: "warsztat", label: "Warsztat dowodowy", opis: "Techniki MAR, powiązania podmiotów, korelacja IP",
+    gotowy: (s) => s.subanalizy.includes("techniki") && s.subanalizy.includes("powiazania_dane") },
+  { klucz: "opinion", label: "Opinia", opis: "Rozdziały I–VI wg szkieletu opinii o manipulacji",
+    gotowy: (s) => s.zatwierdzone > 0 },
+];
+
+const KROKI_BANK: Krok[] = [
+  { klucz: "overview", label: "Sprawa", opis: "Pytania organu, podmioty i osoby, kompletność akt",
+    gotowy: (s) => s.dokumentow > 0 && s.checklistOk },
+  { klucz: "files", label: "Pliki", opis: "Wgranie i klasyfikacja akt (skany wymagają OCR)",
+    gotowy: (s) => s.dokumentow > 0 },
+  { klucz: "analysis", label: "Wskaźniki finansowe",
+    opis: "Współczynniki kapitałowe w czasie, struktura finansowania, rentowność i jakość portfela — z progami z daty zdarzenia",
+    gotowy: (s) => s.metryk > 0 || s.subanalizy.includes("wskazniki_bank") },
+  { klucz: "warsztat", label: "Warsztat dowodowy",
+    opis: "Proces decyzyjny, metodyka limitów, sygnały rynkowe i zestawienie z przepisami obowiązującymi w dacie zdarzenia",
+    gotowy: (s) => s.subanalizy.includes("procedury") && s.subanalizy.includes("limity") },
+  { klucz: "opinion", label: "Opinia", opis: "Rozdziały I–VIII wg szkieletu opinii bankowej",
+    gotowy: (s) => s.zatwierdzone > 0 },
+];
+
 export type DomainPack = {
   id: CaseType;
   label: string;
@@ -50,6 +106,8 @@ export type DomainPack = {
   typyDokumentow: string[];
   /** Czy dziedzina ma deterministyczny silnik liczbowy. */
   silnik: "gpw_utp" | "bank_wskazniki" | null;
+  /** Kroki procesu — etykiety, opisy i warunki ukończenia właściwe dla dziedziny. */
+  kroki: Krok[];
 };
 
 // ── Dziedzina 1: manipulacja instrumentami finansowymi ───────────────────────
@@ -69,6 +127,7 @@ const GPW: DomainPack = {
   moduly: (CATALOG_KINDS as IVKind[]).map((k) => ({ id: k, tytul: k, opis: "" })),
   typyDokumentow: ["DANE_UTP", "DANE_TREM", "DANE_BROKERSKIE", "STOR", "RAPORT_ESPI_EBI", "SPEC_TECHNICZNA"],
   silnik: "gpw_utp",
+  kroki: KROKI_GPW,
 };
 
 // ── Dziedzina 2: ryzyko bankowe (sprawy karne) ───────────────────────────────
@@ -147,6 +206,7 @@ const BANK: DomainPack = {
     "PRASA",
   ],
   silnik: "bank_wskazniki",
+  kroki: KROKI_BANK,
 };
 
 const PAKIETY: Record<CaseType, DomainPack> = {

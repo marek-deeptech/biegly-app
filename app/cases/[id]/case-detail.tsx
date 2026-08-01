@@ -12,6 +12,8 @@ import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
+import { packDla } from "@/lib/domain";
+import KrokDziedzinowy from "./krok-dziedzinowy";
 import PytaniaPanel from "./pytania-panel";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
@@ -147,19 +149,24 @@ export default function CaseDetail({
 
   const checklistOk = checklist.every((c) => c.present);
   // Kroki procesu = główna nawigacja (stepper): Sprawa → Pliki → Analiza → Opinia.
-  const steps = [
-    { key: "overview" as const, label: "Sprawa", done: documents.length > 0 && checklistOk },
-    { key: "files" as const, label: `Pliki · ${documents.length}`, done: documents.length > 0 },
-    { key: "analysis" as const, label: "Analiza liczbowa", done: metrics.length > 0 },
-    {
-      key: "warsztat" as const,
-      label: "Warsztat dowodowy",
-      done:
-        subanalyses.some((s) => s.kind === "techniki") &&
-        subanalyses.some((s) => s.kind === "powiazania_dane"),
-    },
-    { key: "opinion" as const, label: "Opinia", done: subanalyses.some((s) => s.status === "zatwierdzona") },
-  ];
+  // Kroki pochodzą z PAKIETU DZIEDZINOWEGO, nie są zaszyte tutaj. Warunki ukończenia
+  // różnią się co do istoty: w manipulacjach krok 4 wymaga subanaliz `techniki`
+  // i `powiazania_dane`, w sprawach bankowych — `procedury` i `limity`. Zaszycie
+  // ich w komponencie oznaczało, że sprawa bankowa nigdy nie mogła ukończyć kroku 4.
+  const pakiet = packDla(caseRow.typ);
+  const steps = pakiet.kroki.map((k) => ({
+    key: k.klucz,
+    label: k.klucz === "files" ? `${k.label} · ${documents.length}` : k.label,
+    opis: k.opis,
+    done: k.gotowy({
+      dokumentow: documents.length,
+      metryk: metrics.length,
+      subanalizy: subanalyses.map((s) => s.kind),
+      zatwierdzone: subanalyses.filter((s) => s.status === "zatwierdzona").length,
+      checklistOk,
+    }),
+  }));
+  const dziedzinaBankowa = pakiet.id === "ryzyko_bankowe";
 
   const utpDocs = useMemo(
     () =>
@@ -625,6 +632,7 @@ export default function CaseDetail({
                 onClick={() => setTab(s.key)}
                 className="group flex items-center gap-2 pr-3 focus-visible:outline-none sm:pr-0"
                 aria-current={active ? "step" : undefined}
+                title={s.opis}
               >
                 <span
                   className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors ${
@@ -1001,7 +1009,17 @@ export default function CaseDetail({
       {tab === "overview" && <PytaniaPanel caseId={caseRow.id} />}
       {tab === "overview" && <RosterPanel caseId={caseRow.id} />}
 
-      {tab === "analysis" && (
+      {/* Panele kroków 3 i 4 są GPW-specyficzne: operują arkuszem zleceń UTP
+          i technikami MAR. W sprawie bankowej nie mają sensu, więc się ich nie
+          renderuje — zamiast tego opis, co ten krok obejmuje w tej dziedzinie. */}
+      {tab === "analysis" && dziedzinaBankowa && (
+        <KrokDziedzinowy pakiet={pakiet} klucz="analysis" />
+      )}
+      {tab === "warsztat" && dziedzinaBankowa && (
+        <KrokDziedzinowy pakiet={pakiet} klucz="warsztat" />
+      )}
+
+      {tab === "analysis" && !dziedzinaBankowa && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa (silnik faktów)</h2>
@@ -1069,7 +1087,7 @@ export default function CaseDetail({
       </section>
       )}
 
-      {tab === "warsztat" && (
+      {tab === "warsztat" && !dziedzinaBankowa && (
         <WarsztatView
           caseId={caseRow.id}
           metrics={metrics}

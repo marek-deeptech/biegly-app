@@ -134,6 +134,24 @@ function wybierz<T extends { techniki: string[]; tresc?: string; wiedza_zrodla: 
   return wybrane;
 }
 
+/**
+ * Skrót aktu prawnego do przypisu. Akty nie mają autora, więc bez tego przypis
+ * brzmiał „Dyrektywa 2013/36/UE w sprawie warunków 2013, s. 1–2" — obcięty tytuł
+ * skleja się z rokiem w bełkot. Opinia sądowa powołuje akt skrótem zwyczajowym.
+ */
+function skrotAktu(tytul: string): string {
+  // Skrót zwyczajowy podany w nawiasie na końcu tytułu: „… (CRR)", „… (CRD IV)".
+  const wNawiasie = tytul.match(/\(([A-Z][A-Za-z0-9\s]{1,12})\)\s*$/);
+  if (wNawiasie) return wNawiasie[1].trim();
+  // Ustawa z myślnikiem: „Ustawa z dnia … — Prawo bankowe" → „Prawo bankowe".
+  const poMyslniku = tytul.match(/[—–-]\s*([^—–]+)$/);
+  if (poMyslniku && poMyslniku[1].length < 40) return poMyslniku[1].trim();
+  // Ustawa opisowa: „Ustawa … o funkcjonowaniu banków spółdzielczych …" → „ustawa o …".
+  const oCzym = tytul.match(/\bo\s+([^,]{6,44})/);
+  if (/^ustawa/i.test(tytul) && oCzym) return `ustawa o ${oCzym[1].trim()}`;
+  return tytul.slice(0, 40);
+}
+
 /** „Martysz 2015, s. 120–121" — postać, w jakiej przypis ma trafić do opinii. */
 function cytat(f: Fragment): string {
   const z = f.wiedza_zrodla;
@@ -144,8 +162,11 @@ function cytat(f: Fragment): string {
   const nazwisko =
     czlony.length === 2 ? czlony[1]
     : czlony.length ? czlony.join(" ")
-    : z?.tytul?.slice(0, 40) ?? "źródło";
-  const rok = z?.rok ? ` ${z.rok}` : "";
+    : z?.tytul ? skrotAktu(z.tytul)
+    : "źródło";
+  // Akt prawny bez autora — rok publikacji pierwotnej w przypisie tylko myli
+  // (CRR z 2013 w wersji z 2024). Skrót aktu wystarcza do jednoznacznego wskazania.
+  const rok = z?.rok && czlony.length ? ` ${z.rok}` : "";
   const s =
     f.strona_od == null ? ""
     : f.strona_do && f.strona_do !== f.strona_od ? `, s. ${f.strona_od}–${f.strona_do}`
