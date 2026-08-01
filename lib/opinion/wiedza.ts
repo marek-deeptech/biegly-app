@@ -56,12 +56,43 @@ const PROFIL: Record<RodzajRozdzialu, string[]> = {
   infomanip: ["infomanip", "ogolne"],
 };
 
+/**
+ * PROFIL DOKTRYNY DZIEDZINY BANKOWEJ — OSOBNA mapa, nie dopisek do PROFIL.
+ *
+ * Rozdzielenie jest celowe i twarde: gdyby profile dzieliły jedną strukturę,
+ * dopisanie tagu dla modułu bankowego mogłoby zmienić dobór materiału w sprawach
+ * o manipulację. Zmiana w jednej dziedzinie ma NIE MÓC wpłynąć na drugą.
+ *
+ * Tagi odpowiadają modułom pakietu `ryzyko_bankowe` (lib/domain).
+ */
+const PROFIL_BANK: Record<string, string[]> = {
+  proza_i: ["ogolne_bank"],
+  proza_iii: ["ogolne_bank", "ryzyko_kredytowe", "adekwatnosc", "nadzor"],
+  proza_v: ["ogolne_bank"],
+  wnioski: ["ogolne_bank", "ryzyko_kredytowe"],
+  makro: ["makro", "ogolne_bank"],
+  sygnaly_rynkowe: ["ryzyko_kredytowe", "rating", "ogolne_bank"],
+  media: ["ogolne_bank"],
+  ekspozycja_sektor: ["nadzor", "ogolne_bank"],
+  sprawozdania: ["sprawozdawczosc", "adekwatnosc", "ogolne_bank"],
+  adekwatnosc: ["adekwatnosc", "fundusze_wlasne", "ogolne_bank"],
+  limity: ["limity", "ryzyko_kredytowe", "ogolne_bank"],
+  procedury: ["zarzadzanie_ryzykiem", "nadzor", "ogolne_bank"],
+  otoczenie_prawne: ["nadzor", "zarzadzanie_ryzykiem", "ogolne_bank"],
+};
+
 type Fragment = {
   tresc: string;
   strona_od: number | null;
   strona_do: number | null;
   techniki: string[];
-  wiedza_zrodla: { tytul: string; autor: string | null; rok: number | null; ranga: number } | null;
+  wiedza_zrodla: {
+    tytul: string;
+    autor: string | null;
+    rok: number | null;
+    ranga: number;
+    dziedzina?: string | null;
+  } | null;
 };
 
 /**
@@ -135,9 +166,18 @@ function cytat(f: Fragment): string {
 export async function buildWiedzaBlock(
   supabase: SupabaseClient,
   rodzaj: string,
+  typSprawy?: string | null,
 ): Promise<string | null> {
-  const tagi = PROFIL[rodzaj as RodzajRozdzialu] ?? [rodzaj, "ogolne"];
-  const kolumny = "tresc,strona_od,strona_do,techniki,wiedza_zrodla(tytul,autor,rok,ranga)";
+  const bankowa = typSprawy === "ryzyko_bankowe";
+  const tagi = bankowa
+    ? PROFIL_BANK[rodzaj] ?? [rodzaj, "ogolne_bank"]
+    : PROFIL[rodzaj as RodzajRozdzialu] ?? [rodzaj, "ogolne"];
+  const kolumny = "tresc,strona_od,strona_do,techniki,wiedza_zrodla!inner(tytul,autor,rok,ranga,dziedzina)";
+  // SEPARACJA DZIEDZIN — filtr, nie sortowanie. Fragment Prawa bankowego otagowany
+  // `ogolne` trafiłby bez tego do rozdziału teoretycznego opinii o manipulacji na
+  // GPW, a fragment o wash trades — do opinii o ryzyku kredytowym banku. Dopuszczamy
+  // wyłącznie dziedzinę sprawy plus materiały jawnie ponaddziedzinowe.
+  const dziedziny = [bankowa ? "ryzyko_bankowe" : "manipulacja_gpw", "wspolna"];
   let rows: Fragment[] = [];
 
   // DWA PRZEBIEGI, nie jeden z limitem. Pojedyncze zapytanie z `.limit(N)` ucina wynik
@@ -149,8 +189,9 @@ export async function buildWiedzaBlock(
   try {
     const { data, error } = await supabase
       .from("wiedza")
-      .select("id,techniki,wiedza_zrodla(tytul,ranga)")
+      .select("id,techniki,wiedza_zrodla!inner(tytul,ranga,dziedzina)")
       .overlaps("techniki", tagi)
+      .in("wiedza_zrodla.dziedzina", dziedziny)
       .eq("aktywny", true);
     if (error) return null; // brak migracji 0009 — cicho, bez wywracania redakcji
     const meta = (data ?? []) as unknown as (Fragment & { id: string })[];
@@ -162,6 +203,7 @@ export async function buildWiedzaBlock(
     const { data: pelne, error: e2 } = await supabase
       .from("wiedza")
       .select(kolumny)
+      .in("wiedza_zrodla.dziedzina", dziedziny)
       .in("id", idy);
     if (e2) return null;
     rows = (pelne ?? []) as unknown as Fragment[];

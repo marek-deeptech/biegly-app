@@ -6,9 +6,15 @@ nie pochodzi z akt jednej sprawy — pochodzi z doktryny i przepisów. Ten skryp
 wprowadza ją raz i na stałe, dla wszystkich spraw, także przyszłych.
 
 UŻYCIE:
-    python3 scripts/ingest_wiedza.py                 # raport, bez zapisu
-    python3 scripts/ingest_wiedza.py --zapisz        # zapis do bazy + Storage
-    python3 scripts/ingest_wiedza.py --dir ŚCIEŻKA   # inny katalog źródeł
+    python3 scripts/ingest_wiedza.py                        # manipulacje, raport
+    python3 scripts/ingest_wiedza.py --zapisz               # manipulacje, zapis
+    python3 scripts/ingest_wiedza.py --dziedzina bank --dir X --zapisz   # dziedzina bankowa
+
+SEPARACJA DZIEDZIN (migracja 0012):
+Każde źródło ma `dziedzina`, a dobór do promptu po niej filtruje. Bez tego fragment
+Prawa bankowego otagowany ogólnie trafiłby do rozdziału teoretycznego opinii
+o manipulacji na GPW. Słowniki tagów są ROZDZIELNE — zmiana w jednym nie może
+przestawić doboru materiału w drugim.
 
 ZASADY:
 * Fragment ZAWSZE nosi numer strony — opinia sądowa cytuje doktrynę ze stroną,
@@ -64,6 +70,61 @@ ZRODLA = {
         uwagi="Dwie strony zachowane jako zrzuty ekranu (OCR) — s. 29 i s. 47; pełny tekst nie został pozyskany",
     ),
 }
+# ── Źródła dziedziny bankowej ────────────────────────────────────────────────
+# Ranga 5 dla aktów prawnych: przy rozbieżności z doktryną pierwszeństwo ma przepis.
+# Sygnatury podane, bo opinia sądowa powołuje akt z miejscem publikacji.
+ZRODLA_BANK = {
+    "CELEX_02013R0575-20240709.pdf": dict(
+        tytul="Rozporządzenie (UE) nr 575/2013 w sprawie wymogów ostrożnościowych dla instytucji kredytowych (CRR)",
+        autor=None, rok=2013, wydawca="Parlament Europejski i Rada UE",
+        rodzaj="akt_prawny", ranga=5, sygnatura="CELEX 02013R0575, wersja skonsolidowana 09.07.2024",
+        uwagi="Stosowane od 01.01.2014 — do zdarzeń wcześniejszych NIE ma zastosowania",
+    ),
+    "CELEX_02013L0036-20240109.pdf": dict(
+        tytul="Dyrektywa 2013/36/UE w sprawie warunków dopuszczenia instytucji kredytowych do działalności (CRD IV)",
+        autor=None, rok=2013, wydawca="Parlament Europejski i Rada UE",
+        rodzaj="akt_prawny", ranga=5, sygnatura="CELEX 02013L0036, wersja skonsolidowana 09.01.2024",
+        uwagi="Stosowana od 01.01.2014",
+    ),
+    "prawo_bankowe.pdf": dict(
+        tytul="Ustawa z dnia 29 sierpnia 1997 r. — Prawo bankowe",
+        autor=None, rok=2026, wydawca="Sejm RP",
+        rodzaj="akt_prawny", ranga=5, sygnatura="Dz.U. 2026 poz. 38 — tekst jednolity z 10.12.2025",
+        uwagi="Tekst jednolity; do zdarzeń historycznych sprawdzić brzmienie z daty zdarzenia",
+    ),
+    "banki_spoldzielcze.pdf": dict(
+        tytul="Ustawa z dnia 7 grudnia 2000 r. o funkcjonowaniu banków spółdzielczych, ich zrzeszaniu się i bankach zrzeszających",
+        autor=None, rok=2026, wydawca="Sejm RP",
+        rodzaj="akt_prawny", ranga=5, sygnatura="Dz.U. 2026 poz. 618 — tekst jednolity z 30.04.2026",
+        uwagi="Tekst jednolity",
+    ),
+    # Literatura z akt sprawy MBR (po OCR) — materiał referencyjny biegłego.
+    "Bankowosc, podrecznik akademicki - W.Jaworski.ocr.pdf": dict(
+        tytul="Bankowość. Podręcznik akademicki", autor="Władysław Leopold Jaworski", rok=None,
+        wydawca="Poltext", rodzaj="monografia", ranga=3, uwagi="OCR ze skanu w aktach MBR",
+    ),
+    "zarz ryzykiem gwizdala.ocr.pdf": dict(
+        tytul="Zarządzanie ryzykiem kredytowym w banku", autor="Anna Gwizdała", rok=None,
+        wydawca=None, rodzaj="monografia", ranga=3, uwagi="OCR ze skanu w aktach MBR",
+    ),
+    "Wójcik-Mazur A, Zarządzanie ryzykiem kredytowym w banku komercyjnym.ocr.pdf": dict(
+        tytul="Zarządzanie ryzykiem kredytowym w banku komercyjnym", autor="Agnieszka Wójcik-Mazur",
+        rok=None, wydawca=None, rodzaj="monografia", ranga=3, uwagi="OCR ze skanu w aktach MBR",
+    ),
+    "kredytowe inst. pochodne cz. I.ocr.pdf": dict(
+        tytul="Kredytowe instrumenty pochodne, cz. I", autor=None, rok=None, wydawca=None,
+        rodzaj="artykul", ranga=2, uwagi="OCR ze skanu w aktach MBR",
+    ),
+    "kredytowe inst. pochodne cz. II.ocr.pdf": dict(
+        tytul="Kredytowe instrumenty pochodne, cz. II", autor=None, rok=None, wydawca=None,
+        rodzaj="artykul", ranga=2, uwagi="OCR ze skanu w aktach MBR",
+    ),
+    "Decyzje finansowe w przedsiebiorstwie bankowym-rozdzial-5.ocr.pdf": dict(
+        tytul="Decyzje finansowe w przedsiębiorstwie bankowym, rozdział 5", autor=None, rok=None,
+        wydawca=None, rodzaj="monografia", ranga=3, uwagi="OCR ze skanu w aktach MBR",
+    ),
+}
+
 # Zrzuty tej samej publikacji łączone w jedno źródło; wartość = numer strony z oryginału.
 ZRZUTY_KORN = {
     "255060681_235240252005065_5358491077102242122_n.jpg": 29,
@@ -122,6 +183,35 @@ WZORCE_PRAWNE = [
     (r"\bzał[ąa]cznik(?:u|a)?\s+I\b", lambda m: "załącznik I MAR"),
     (r"\bu\.o\.i\.f\.", lambda m: "ustawa o obrocie instr. fin."),
 ]
+
+# ── Tagi dziedziny bankowej ──────────────────────────────────────────────────
+# Wyprowadzone z pomiaru na korpusie 3,34 mln znaków (CRR, CRD, Prawo bankowe,
+# ustawa o bankach spółdzielczych), nie zgadnięte. Stąd „Tier I"/„Tier II"
+# cyframi RZYMSKIMI — tak pisze polska wersja CRR (152 wystąpienia); wariant
+# arabski, który wydawał się oczywisty, w tych aktach nie występuje.
+# Celowo NIE używamy samego „ekspozycj" (2763 trafienia) — otagowałoby pół CRR.
+TECHNIKI_BANK = {
+    "ryzyko_kredytowe": ["ryzyko kredytow", "ryzyka kredytow", "zdolność kredytow",
+                         "niewykonanie zobowiązania", "utrata wartości", "ekspozycji zagrożon"],
+    "adekwatnosc": ["adekwatnoś", "współczynnik kapitałow", "współczynników kapitałow",
+                    "aktywa ważone ryzykiem", "łączna kwota ekspozycji na ryzyko",
+                    "wskaźnik dźwigni", "pokrycia wypływów", "wymóg w zakresie funduszy"],
+    "fundusze_wlasne": ["fundusze własne", "funduszy własnych", "kapitał podstawowy",
+                        "tier i", "tier ii", "kapitał dodatkow"],
+    "limity": ["duże ekspozycje", "dużych ekspozycji", "limit koncentracji", "limitu koncentracji",
+               "limit zaangażowania", "limitu zaangażowania"],
+    "zarzadzanie_ryzykiem": ["zarządzania ryzykiem", "system zarządzania", "kontroli wewnętrznej",
+                             "kontrola wewnętrzna", "zarząd banku", "rada nadzorcza banku",
+                             "procedury wewnętrzn"],
+    "nadzor": ["komisja nadzoru", "organ nadzoru", "badanie i ocena nadzorcza", "bion",
+               "zalecenia nadzorcze", "środki nadzorcze", "makroostrożnoś", "sankcj"],
+    "sprawozdawczosc": ["sprawozdawczoś", "sprawozdanie finansowe", "sprawozdań finansowych",
+                        "rachunkowoś", "badanie sprawozdania"],
+    "rating": ["rating", "agencj ratingow", "ecai", "zewnętrznej instytucji oceny wiarygodności"],
+    "makro": ["inflacj", "stopy procentow", "kurs walut", "polityki pieniężnej"],
+    "spoldzielcze": ["bank spółdzielczy", "banku spółdzielczego", "bank zrzeszający", "zrzeszeni",
+                     "system ochrony instytucjonalnej"],
+}
 
 MIN_ZN, CEL_ZN, MAX_ZN = 400, 2500, 4200
 
@@ -184,10 +274,12 @@ def sprzataj(t: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", t).strip()
 
 
-def tagi(t: str) -> list[str]:
+def tagi(t: str, dziedzina: str = "manipulacja_gpw") -> list[str]:
     low = t.lower()
-    out = [k for k, frazy in TECHNIKI.items() if any(f in low for f in frazy)]
-    return out or ["ogolne"]
+    slownik = TECHNIKI_BANK if dziedzina == "ryzyko_bankowe" else TECHNIKI
+    domyslny = "ogolne_bank" if dziedzina == "ryzyko_bankowe" else "ogolne"
+    out = [k for k, frazy in slownik.items() if any(f in low for f in frazy)]
+    return out or [domyslny]
 
 
 def prawne(t: str) -> list[str]:
@@ -239,7 +331,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=str(DOMYSLNY_KATALOG))
     ap.add_argument("--zapisz", action="store_true")
+    ap.add_argument("--dziedzina", choices=["manipulacja_gpw", "ryzyko_bankowe", "wspolna"],
+                    default="manipulacja_gpw", help="dziedzina, do której należą wgrywane źródła")
     a = ap.parse_args()
+    KATALOG_ZRODEL = ZRODLA_BANK if a.dziedzina == "ryzyko_bankowe" else ZRODLA
     katalog = Path(a.dir)
     if not katalog.exists():
         sys.exit(f"✗ brak katalogu: {katalog}")
@@ -267,7 +362,7 @@ def main() -> int:
             if tekst:
                 korn_strony.append((ZRZUTY_KORN[nazwa], tekst))
             continue
-        meta = ZRODLA.get(nazwa)
+        meta = KATALOG_ZRODEL.get(nazwa)
         if not meta:
             print(f"  ? {nazwa}: brak metadanych w ZRODLA — pomijam (dopisz pozycję do skryptu)")
             continue
@@ -282,7 +377,7 @@ def main() -> int:
     for p, meta, strony in plan:
         frs = fragmenty(strony)
         for f in frs:
-            f["techniki"] = tagi(f["tresc"])
+            f["techniki"] = tagi(f["tresc"], a.dziedzina)
             f["pojecia"] = prawne(f["tresc"])
         rozklad: dict[str, int] = {}
         for f in frs:
@@ -299,7 +394,7 @@ def main() -> int:
             continue
 
         # 1. kopia źródła do Storage — repozytorium ma przetrwać utratę plików lokalnych
-        sp = f"wiedza/{klucz_storage(nazwa)}"
+        sp = f"wiedza/{a.dziedzina}/{klucz_storage(nazwa)}"
         try:
             req(f"{url}/storage/v1/object/{BUCKET}/{urllib.parse.quote(sp)}", key, "POST",
                 p.read_bytes(), {"Content-Type": "application/octet-stream", "x-upsert": "true"})
@@ -308,7 +403,7 @@ def main() -> int:
 
         # 2. źródło
         wiersz = {k: v for k, v in meta.items() if k != "sha256"}
-        wiersz.update(storage_path=sp, sha256=meta.get("sha256"), stron=len(strony))
+        wiersz.update(storage_path=sp, sha256=meta.get("sha256"), stron=len(strony), dziedzina=a.dziedzina)
         try:
             odp = req(f"{url}/rest/v1/wiedza_zrodla?on_conflict=tytul", key, "POST",
                       json.dumps(wiersz, ensure_ascii=False).encode(),

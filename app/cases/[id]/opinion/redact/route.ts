@@ -53,7 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isWnioski))
     return Response.json({ ok: false, reason: "Nieznany rozdział." }, { status: 400 });
 
-  const { data: caseRow } = await supabase.from("cases").select("name,signature").eq("id", id).single();
+  const { data: caseRow } = await supabase.from("cases").select("name,signature,typ").eq("id", id).single();
   if (!caseRow) return Response.json({ ok: false, reason: "not found" }, { status: 404 });
 
   const metricsData = await fetchAllMetrics(supabase, id);
@@ -285,7 +285,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // że leżał w bazie. Sprawdzone zapytaniem: rodzaj=III → 0 wzorców, proza_iii → 2.
   const rodzaj = isWnioski ? "wnioski" : (REDACT_META[chapter as RedactChapter]?.kind ?? chapter);
   const [wiedza, wzorzec, styl] = await Promise.all([
-    buildWiedzaBlock(supabase, rodzaj),
+    buildWiedzaBlock(supabase, rodzaj, caseRow.typ),
     buildWzorzecBlock(supabase, rodzaj),
     buildStyleCorpus(supabase, rodzaj),
   ]);
