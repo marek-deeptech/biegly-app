@@ -30,6 +30,12 @@ export type ChartSpec = {
   znacznik?: { dzien: string; label: string };
 };
 
+/** Etykieta serii w legendzie. Bez jednostki NIE dopisujemy pustego nawiasu —
+ *  „Aktywa ważone ryzykiem (RWA) ()" wygląda w opinii sądowej jak usterka pliku. */
+function etykietaSerii(s: ChartSeries): string {
+  return s.unit ? `${s.label} (${s.unit})` : s.label;
+}
+
 const W = 1000;
 const H = 420;
 const ML = 86; // margines lewy (etykiety osi)
@@ -196,14 +202,14 @@ export function chartSvg(spec: ChartSpec): string {
   // Legenda (prawy górny róg).
   const legend: { label: string; color: string; bar: boolean }[] = [
     {
-      label: `${spec.left.label} (${spec.left.unit})`,
+      label: etykietaSerii(spec.left),
       color: grouped ? LEFT_COLOR : spec.left.kind === "bars" ? RIGHT_BAR : LEFT_COLOR,
       bar: spec.left.kind === "bars",
     },
   ];
   if (spec.right)
     legend.push({
-      label: `${spec.right.label} (${spec.right.unit})`,
+      label: etykietaSerii(spec.right),
       color: spec.right.kind === "bars" ? RIGHT_BAR : RIGHT_LINE,
       bar: spec.right.kind === "bars",
     });

@@ -112,6 +112,10 @@ export function wykresyBankowe(
     if (w) out.push({ kind: "wskazniki_bank", name: `adekwatnosc_${out.length + 1}`, spec: w });
   }
 
+  const spr = dane("sprawozdania") as { table?: Tabela; zastrzezenia?: string[] } | undefined;
+  for (const w of wykresyPozycji(spr?.table, spr?.zastrzezenia ?? []))
+    out.push({ kind: "sprawozdania", name: w.name, spec: w.spec });
+
   const syg = dane("sygnaly_rynkowe");
   for (const [i, t] of (syg?.tables ?? []).entries()) {
     // Tabela parametrów obliczenia nie jest szeregiem — nie rysujemy jej.
@@ -121,5 +125,80 @@ export function wykresyBankowe(
     if (w) out.push({ kind: "sygnaly_rynkowe", name: `sygnal_${i + 1}`, spec: w });
   }
 
+  return out;
+}
+
+/**
+ * Wykresy kwotowe z rozdziału o sprawozdaniach — słupki, nie linie.
+ *
+ * Trzy punkty roczne to nie szereg czasowy; linia sugerowałaby ciągłość między
+ * datami bilansowymi, której nie ma. Zestawienia są PAROWANE, bo dopiero relacja
+ * dwóch wielkości coś mówi: sama suma bilansowa rośnie w każdym banku, ale
+ * fundusze własne rosnące wolniej niż aktywa ważone ryzykiem to już ustalenie.
+ */
+const PARY: { tytul: string; a: string; b: string }[] = [
+  {
+    tytul: "Fundusze własne a aktywa ważone ryzykiem",
+    a: "Fundusze własne razem",
+    b: "Aktywa ważone ryzykiem (RWA)",
+  },
+  {
+    tytul: "Baza depozytowa a zobowiązania ogółem",
+    a: "Depozyty klientów",
+    b: "Zobowiązania ogółem",
+  },
+  {
+    tytul: "Suma bilansowa a portfel kredytowy",
+    a: "Aktywa ogółem",
+    b: "Kredyty i pożyczki udzielone klientom",
+  },
+];
+
+/** Okresy wymienione w zastrzeżeniach — po dacie na początku komunikatu silnika. */
+function okresyPodejrzane(zastrzezenia: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const z of zastrzezenia) for (const m of z.matchAll(/\d{4}-\d{2}-\d{2}/g)) out.add(m[0]);
+  return out;
+}
+
+export function wykresyPozycji(
+  t: Tabela | undefined,
+  zastrzezenia: string[] = [],
+): { name: string; spec: ChartSpec }[] {
+  const head = t?.head ?? [];
+  const rows = t?.rows ?? [];
+  const idx = head.map((h, i) => ({ h, i })).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.h));
+  if (idx.length < 2 || !rows.length) return [];
+  const okresy = idx.map((x) => head[x.i]);
+  const podejrzane = okresyPodejrzane(zastrzezenia);
+
+  const seria = (etykieta: string): (number | null)[] | null => {
+    const w = rows.find((r) => (r[0] ?? "").toLowerCase() === etykieta.toLowerCase());
+    if (!w) return null;
+    // ⚠️ Okres objęty zastrzeżeniem NIE JEST rysowany. Wykres jest podsumowaniem,
+    // którego czytelnik nie zweryfikuje — poprowadzenie słupka przez wartość
+    // oznaczoną jako niewiarygodna publikuje błąd w formie najtrudniejszej
+    // do wychwycenia. Zastrzeżenie zostaje wypisane w tytule.
+    const v = idx.map((x) => (podejrzane.has(head[x.i]) ? null : liczba(w[x.i])));
+    return v.some((x) => x !== null) ? v : null;
+  };
+
+  const out: { name: string; spec: ChartSpec }[] = [];
+  for (const p of PARY) {
+    const a = seria(p.a);
+    const b = seria(p.b);
+    if (!a || !b) continue;
+    if (a.filter((x) => x !== null).length < 2) continue;
+    const pominiete = okresy.filter((d) => podejrzane.has(d));
+    out.push({
+      name: `pozycje_${out.length + 1}`,
+      spec: {
+        title: p.tytul + (pominiete.length ? ` (bez okresu ${pominiete.join(", ")} — odczyt wymaga weryfikacji)` : ""),
+        days: okresy,
+        left: { label: p.a, unit: "", kind: "bars", values: a },
+        right: { label: p.b, unit: "", kind: "bars", values: b },
+      },
+    });
+  }
   return out;
 }
