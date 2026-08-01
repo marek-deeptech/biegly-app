@@ -46,7 +46,8 @@ const CEL: Record<BankRedactKind, string> = {
     "zysk netto, struktura finansowania (depozyty wobec finansowania hurtowego), jakość portfela. " +
     "Wskaż, co dało się odczytać ze sprawozdań DOSTĘPNYCH W DNIU DECYZJI.",
   wskazniki_bank:
-    "Współczynniki kapitałowe w szeregu czasowym wraz z progami obowiązującymi W DANYM OKRESIE. " +
+    "Współczynniki kapitałowe KONTRAHENTA w szeregu czasowym wraz z progami obowiązującymi W DANYM "
+    + "OKRESIE. " +
     "Omów zarówno poziom, jak i TENDENCJĘ — spadek bufora przy formalnie spełnionym progu jest ustaleniem " +
     "istotnym. Gdy dla wskaźnika w danym okresie progu nie było, powiedz to wprost zamiast milczeć.",
   limity:
@@ -79,6 +80,17 @@ export type BankRedactInput = {
   uwagi?: string[];
   /** Odczyt niewiarygodny — na takiej wartości nie wolno budować oceny. */
   zastrzezenia?: string[];
+  /**
+   * Pliki, z których policzono wartości — WYMAGANE przy modułach liczbowych.
+   *
+   * ⚠️ POWÓD: bez nich model nie wie, CZYJE są te liczby, i przypisuje je bankowi
+   * z nazwy sprawy. W sprawie MBR wygenerowana proza mówiła o „współczynnikach
+   * kapitałowych banku MBR” i stosowała do nich Uchwałę nr 1/2007 KNB — a były to
+   * współczynniki Glitnira, odczytane z jego sprawozdań. Opinia przypisywałaby
+   * pozycję kapitałową islandzkiego kontrahenta oskarżonemu polskiemu bankowi
+   * i osądzała ją polskim prawem.
+   */
+  zrodla?: string[];
 };
 
 const SYSTEM =
@@ -114,6 +126,24 @@ export function buildBankRedactPrompt(inp: BankRedactInput): { system: string; u
         inp.anachroniczne.map((p) => "- " + p).join("\n"),
     );
 
+  // CZYJE SĄ TE LICZBY — przed tabelą, bo to warunek poprawnego odczytania tabeli.
+  if (inp.zrodla?.length)
+    parts.push(
+      "PODMIOT, KTÓREGO DOTYCZĄ WARTOŚCI. Wartości w tabeli policzono ze sprawozdań:\n" +
+        inp.zrodla.map((z) => "- " + z).join("\n") +
+        "\nPodmiotem, którego dotyczą, jest WYSTAWCA tych sprawozdań. NIE zakładaj, że jest nim bank " +
+        "wskazany w nazwie sprawy: nazwa sprawy oznacza POSTĘPOWANIE, a w sprawach o ryzyko kredytowe " +
+        "analizowane sprawozdania należą z reguły do KONTRAHENTA, którego kondycję bank miał ocenić. " +
+        "Nazywaj podmiot tak, jak wynika ze wskazanych plików, a gdy nie da się tego ustalić — pisz " +
+        "„kontrahent” zamiast zgadywać.",
+    );
+  if (inp.przepisy.length && inp.zrodla?.length)
+    parts.push(
+      "PRÓG REGULACYJNY A PODMIOT ZAGRANICZNY. Podane progi wynikają z prawa polskiego i wiążą bank " +
+        "polski. Jeżeli analizowane sprawozdania należą do podmiotu zagranicznego, odnoś jego wskaźniki " +
+        "do progu jako do MIARY PORÓWNAWCZEJ, a nie jako do normy, której ten podmiot podlegał — " +
+        "napisanie, że kontrahent zagraniczny „spełniał” albo „naruszał” polski próg, byłoby błędem.",
+    );
   if (inp.tableText)
     parts.push(
       "Dane z deterministycznego silnika. Przepisz wartości DOKŁADNIE i omów tabelę pozycja po pozycji — " +

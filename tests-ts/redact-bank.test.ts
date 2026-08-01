@@ -70,3 +70,38 @@ describe("prompt redakcji rozdziałów bankowych", () => {
     expect(modulDla("limity")).toBe("limity");
   });
 });
+
+describe("atrybucja podmiotowa liczb", () => {
+  // REGRESJA Z REALNEGO PRZEBIEGU: prompt nie mówił, CZYJE są liczby, więc model
+  // przypisał je bankowi z nazwy sprawy. Wygenerowana proza mówiła o „współczynnikach
+  // kapitałowych banku MBR" i stosowała do nich Uchwałę nr 1/2007 KNB — a były to
+  // współczynniki Glitnira z jego sprawozdań. Opinia przypisywałaby pozycję kapitałową
+  // islandzkiego kontrahenta oskarżonemu polskiemu bankowi i osądzała ją polskim prawem.
+  const zZrodlami = () =>
+    buildBankRedactPrompt({
+      ...bazowe, kind: "wskazniki_bank", dzienZdarzenia: "2008-09-11",
+      przepisy: ["Uchwała nr 1/2007 KNB — wymogi kapitałowe"],
+      zrodla: ["ZALACZNIK 5 - SF-GLITNIR-2008-2q.pdf"],
+    }).user;
+
+  it("podaje pliki źródłowe i zakazuje utożsamiania podmiotu z nazwą sprawy", () => {
+    const u = zZrodlami();
+    expect(u).toContain("SF-GLITNIR-2008-2q.pdf");
+    expect(u).toContain("NIE zakładaj, że jest nim bank");
+    expect(u).toContain("nazwa sprawy oznacza POSTĘPOWANIE");
+  });
+
+  it("każe traktować polski próg jako miarę porównawczą dla podmiotu zagranicznego", () => {
+    expect(zZrodlami()).toContain("MIARY PORÓWNAWCZEJ");
+  });
+
+  it("nie dokleja bloku o podmiocie tam, gdzie liczb ze sprawozdań nie ma", () => {
+    // Moduł `procedury` odtwarza chronologię z dokumentów wewnętrznych banku —
+    // ostrzeżenie o wystawcy sprawozdań byłoby tam mylące.
+    const { user } = buildBankRedactPrompt({
+      ...bazowe, kind: "procedury", dzienZdarzenia: "2008-09-11", przepisy: ["art. 9 Prawa bankowego — system"],
+    });
+    expect(user).not.toContain("PODMIOT, KTÓREGO DOTYCZĄ WARTOŚCI");
+    expect(user).not.toContain("MIARY PORÓWNAWCZEJ");
+  });
+});

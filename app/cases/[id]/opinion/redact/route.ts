@@ -221,6 +221,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         : [],
       uwagi: (sub.data as { uwagi?: string[] } | null)?.uwagi ?? [],
       zastrzezenia: (sub.data as { zastrzezenia?: string[] } | null)?.zastrzezenia ?? [],
+      // Pliki źródłowe → z nich model ustala, CZYJE są liczby. Bez tego przypisywał
+      // sprawozdania kontrahenta bankowi z nazwy sprawy.
+      zrodla: ((sub.data as { zrodla?: { plik?: string }[] } | null)?.zrodla ?? [])
+        .map((z) => String(z?.plik ?? ""))
+        .filter(Boolean),
     });
     system = p.system;
     userPrompt = p.user;
@@ -384,7 +389,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // `proza_i` / `proza_iii` / `proza_v` (tak nazywa je REDACT_META.kind), a pytanie szło
   // wcześniej o „I"/„III"/„V" — wzorzec stylu dla tych trzech NIGDY nie trafiał, mimo
   // że leżał w bazie. Sprawdzone zapytaniem: rodzaj=III → 0 wzorców, proza_iii → 2.
-  const rodzaj = isWnioski ? "wnioski" : (REDACT_META[chapter as RedactChapter]?.kind ?? chapter);
+  // Obie ścieżki wniosków (GPW i bankowa) sięgają po ten sam korpus `wnioski` —
+  // wzorce stylu są zapisane wg ROLI rozdziału, nie wg dziedziny, i to jest cały
+  // powód, dla którego dziedziny dzielą jedną aplikację zamiast być klonami.
+  const rodzaj = isWnioski || isWnioskiBank ? "wnioski" : (REDACT_META[chapter as RedactChapter]?.kind ?? chapter);
   const [wiedza, wzorzec, styl] = await Promise.all([
     buildWiedzaBlock(supabase, rodzaj, caseRow.typ),
     buildWzorzecBlock(supabase, rodzaj),
@@ -398,7 +406,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       model: "claude-opus-4-8",
       // Rozdziały z rozbiciem per sesja (akapit na każdą sesję) potrzebują zapasu.
       max_tokens:
-        isWnioski ? 6500
+        isWnioski || isWnioskiBank ? 6500
         : chapter === "layering" || chapter === "aktywnosc" ? 9000
         // Rozdziały bankowe: 6–12 akapitów gęstej analizy z omówieniem tabeli
         // okres po okresie — domyślne 2500 ucinałoby je w połowie.
