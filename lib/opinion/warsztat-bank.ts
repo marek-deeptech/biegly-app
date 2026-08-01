@@ -42,6 +42,7 @@ export const SYSTEM_SEKTOR =
   "(3) nie wyciągaj wniosków o zdolności państwa do wsparcia banków — podajesz wyłącznie miary. " +
   '(4) Zwróć WYŁĄCZNIE JSON: {"miary":[{"plik":"","miara":"","wartosc":"","naDzien":"","kraj":"","strona":""}]}';
 
+export type Zdarzenie = { plik: string; data: string; organ: string; ustalenie: string; osoby?: string[] };
 export type Tabela = { caption: string; head: string[]; rows: string[][] };
 export type Subanaliza = { data: Record<string, unknown>; findings: string[] };
 
@@ -268,4 +269,65 @@ export function zbudujOtoczeniePrawne(
     },
     findings,
   };
+}
+
+const GLOWA_PROC = ["Data", "Organ", "Ustalenie", "Osoby", "Źródło"];
+
+/**
+ * Rozdział „Proces decyzyjny" — z podziałem po dacie zdarzenia, jak publikacje prasowe.
+ *
+ * ⚠️ TU RYZYKO JEST WIĘKSZE NIŻ PRZY PRASIE, nie mniejsze.
+ * Chronologia czyta się jak JEDEN ciągły proces decyzyjny, więc zdarzenie z 2012 r.
+ * — spór z syndykiem kontrahenta, ustalenia audytu spisane cztery lata później —
+ * wygląda w tabeli tak samo jak uchwała sprzed decyzji. W aktach MBR takich zdarzeń
+ * jest 17 z 36. Wnioskowanie z nich o tym, co bank wiedział 11.09.2008, jest
+ * wnioskowaniem wstecznym.
+ *
+ * Zdarzeń późniejszych NIE usuwamy: dokumentują, co bank zrobił, gdy się dowiedział,
+ * i to jest istotne dla oceny procesu. Idą do osobnej tabeli, której podpis wyznacza
+ * granicę dopuszczalnego użycia.
+ */
+export function zbudujProcedury(
+  zdarzenia: Zdarzenie[],
+  dzien: string,
+  dodatkowe: Record<string, unknown> = {},
+): Subanaliza {
+  const posortowane = [...zdarzenia].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  const wiersze = (xs: Zdarzenie[]) =>
+    xs.map((z) => [z.data, z.organ, z.ustalenie, (z.osoby ?? []).join(", "), z.plik]);
+  const przed = dzien ? posortowane.filter((z) => z.data && z.data <= dzien) : posortowane;
+  const po = dzien ? posortowane.filter((z) => z.data && z.data > dzien) : [];
+
+  const glowna: Tabela = {
+    caption: dzien
+      ? `Tabela. Chronologia procesu decyzyjnego do dnia ${dzien}`
+      : "Tabela. Chronologia procesu decyzyjnego",
+    head: GLOWA_PROC,
+    rows: wiersze(przed),
+  };
+  const tables: Tabela[] = [glowna];
+  if (po.length)
+    tables.push({
+      caption:
+        `Tabela. Zdarzenia PO dniu ${dzien} — dokumentują przebieg zdarzeń po ocenianej decyzji ` +
+        "i nie stanowią podstawy oceny stanu wiedzy z dnia jej podjęcia",
+      head: GLOWA_PROC,
+      rows: wiersze(po),
+    });
+
+  const findings: string[] = [];
+  if (przed.length)
+    findings.push(
+      `Odtworzono ${przed.length} datowanych zdarzeń procesu decyzyjnego poprzedzających ` +
+        `${dzien || "oceniane zdarzenie"}.`,
+    );
+  else
+    findings.push("Nie odtworzono zdarzeń — brak czytelnych dokumentów wewnętrznych w aktach.");
+  if (po.length)
+    findings.push(
+      `${po.length} zdarzeń pochodzi z okresu PO ocenianej decyzji — opisują jej następstwa ` +
+        "i reakcję banku, ale nie stan wiedzy z dnia jej podjęcia.",
+    );
+
+  return { data: { table: glowna, tables, dzienZdarzenia: dzien || null, poZdarzeniu: po.length, ...dodatkowe }, findings };
 }

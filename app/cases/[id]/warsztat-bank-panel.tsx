@@ -24,6 +24,7 @@ type DaneWarsztatu = {
   zastapioneOcr?: number;
   poZdarzeniu?: number;
   uwagi?: string[];
+  awarie?: string[];
   bezDaty?: string[];
   dzienZdarzenia?: string | null;
 };
@@ -181,16 +182,29 @@ export default function WarsztatBankPanel({
             {proc.zastapioneOcr} skanów odczytano z wersji po OCR — oryginały pominięto jako duplikaty treści.
           </p>
         ) : null}
+        {proc?.awarie?.length ? (
+          <p className="mt-2 border-l-2 border-red-500 pl-3 text-xs text-inksoft">
+            <strong className="font-medium">Ekstrakcja nie doszła do skutku:</strong>{" "}
+            {proc.awarie.join(" ")} Puste tabele NIE oznaczają, że tych danych nie ma w aktach —
+            uruchom krok ponownie.
+          </p>
+        ) : null}
         {proc?.uwagi?.length ? (
           <p className="mt-2 border-l-2 border-amber-500 pl-3 text-xs text-inksoft">
             <strong className="font-medium">Odczyt fragmentaryczny:</strong> {proc.uwagi[proc.uwagi.length - 1]}
           </p>
         ) : null}
-        {media?.poZdarzeniu ? (
+        {(media?.poZdarzeniu ?? 0) + (proc?.poZdarzeniu ?? 0) > 0 ? (
           <p className="mt-2 border-l-2 border-amber-500 pl-3 text-xs text-inksoft">
-            <strong className="font-medium">Uwaga na wnioskowanie wsteczne:</strong> {media.poZdarzeniu}{" "}
-            publikacji pochodzi z okresu PO ocenianym zdarzeniu. Opisują jego skutki, nie stan wiedzy
-            dostępnej w dniu decyzji — w osobnej tabeli poniżej.
+            <strong className="font-medium">Uwaga na wnioskowanie wsteczne:</strong>{" "}
+            {[
+              proc?.poZdarzeniu ? `${proc.poZdarzeniu} zdarzeń procesu decyzyjnego` : null,
+              media?.poZdarzeniu ? `${media.poZdarzeniu} publikacji prasowych` : null,
+            ]
+              .filter(Boolean)
+              .join(" i ")}{" "}
+            pochodzi z okresu PO ocenianej decyzji. Opisują jej następstwa, nie stan wiedzy z dnia
+            jej podjęcia — w osobnych tabelach poniżej.
           </p>
         ) : null}
         {proc?.bezOcr?.length ? (

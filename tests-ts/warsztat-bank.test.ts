@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
-import { zbudujMedia, zbudujOtoczeniePrawne, zbudujSektor } from "@/lib/opinion/warsztat-bank";
+import { zbudujMedia, zbudujOtoczeniePrawne, zbudujProcedury, zbudujSektor } from "@/lib/opinion/warsztat-bank";
 
 const DZIEN = "2008-09-11"; // dzień decyzji w sprawie MBR
 
@@ -112,5 +112,38 @@ describe("moduł otoczenie_prawne — z datowanego katalogu, bez modelu", () => 
     const o = zbudujOtoczeniePrawne(przepisyNaDzien("2008-09-11"), [], "");
     expect((o.data.tables as { rows: string[][] }[])[0].rows).toHaveLength(0);
     expect(o.findings[0]).toContain("stanu prawnego nie ustalono");
+  });
+});
+
+describe("moduł procedury — chronologia a dzień decyzji", () => {
+  const Z = [
+    { plik: "u.pdf", data: "2008-02-08", organ: "KZAiP", ustalenie: "Ustalono limity na II kwartał." },
+    { plik: "a.docx", data: "2008-09-15", organ: "DRF", ustalenie: "Przekazano 20 mln zł na rachunek kontrahenta." },
+    { plik: "a.docx", data: "2012-05-23", organ: "audyt wewnętrzny", ustalenie: "Ustalenia audytu nr 6." },
+  ];
+
+  it("zdarzenie późniejsze nie wchodzi do chronologii procesu decyzyjnego", () => {
+    // Chronologia czyta się jak JEDEN ciągły proces, więc ustalenie audytu spisane
+    // cztery lata po decyzji wygląda w tabeli tak samo jak uchwała sprzed niej.
+    const p = zbudujProcedury(Z, DZIEN);
+    const t = p.data.tables as { caption: string; rows: string[][] }[];
+    expect(t[0].rows.map((r) => r[0])).toEqual(["2008-02-08"]);
+    expect(t[0].caption).toContain("do dnia 2008-09-11");
+  });
+
+  it("zdarzenia po decyzji zostają — w osobnej tabeli z granicą użycia", () => {
+    // Dokumentują, co bank zrobił, gdy się dowiedział, i to jest istotne dla oceny
+    // procesu. Nie wolno ich tylko użyć do ustalenia stanu wiedzy z dnia decyzji.
+    const t = zbudujProcedury(Z, DZIEN).data.tables as { caption: string; rows: string[][] }[];
+    expect(t).toHaveLength(2);
+    expect(t[1].caption).toContain("nie stanowią podstawy oceny stanu wiedzy");
+    expect(t[1].rows.map((r) => r[0])).toEqual(["2008-09-15", "2012-05-23"]);
+    expect(zbudujProcedury(Z, DZIEN).findings.join(" ")).toContain("2 zdarzeń pochodzi z okresu PO");
+  });
+
+  it("bez daty zdarzenia nie dzieli chronologii", () => {
+    const p = zbudujProcedury(Z, "");
+    expect((p.data.tables as unknown[]).length).toBe(1);
+    expect((p.data.table as { rows: string[][] }).rows).toHaveLength(3);
   });
 });
