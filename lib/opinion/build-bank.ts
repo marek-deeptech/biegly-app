@@ -15,6 +15,8 @@ import { packDla } from "@/lib/domain";
 import { przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 
 import { chapterFromStored, type Chapter, type Doc, type Metric, type Opinion, type StoredSub } from "./build";
+import { chartSvg } from "./charts";
+import { wykresyBankowe } from "./charts-bank";
 
 /** Moduły rozdziału V w kolejności, w jakiej występują w opinii wzorcowej (MBR, A–L). */
 const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
@@ -73,6 +75,19 @@ export function buildOpinionBank(
   moduly.forEach((c, n) => {
     c.no = `V.${String.fromCharCode(65 + n)}`;
   });
+
+  // WYKRESY — rzut policzonych serii na osie, generowany tu, a nie przez model.
+  // Szereg 33 punktów w tabeli jest nieczytelny; spadek indeksu o 55% widać
+  // dopiero na osi. SVG powstaje od razu, żeby eksport do DOCX i PDF miał co
+  // rasteryzować, zamiast zostawiać puste miejsce „wykres do wstawienia".
+  for (const w of wykresyBankowe(stored, dzienZdarzenia)) {
+    const rozdzial = moduly.find((c) => byKind.get(w.kind) && c.title === MODULY_V.find((m) => m.kind === w.kind)?.tytul);
+    if (!rozdzial) continue;
+    rozdzial.placeholders = [
+      ...(rozdzial.placeholders ?? []),
+      { kind: "wykres", name: w.name, label: w.spec.title, chart: w.spec, svg: chartSvg(w.spec) },
+    ];
+  }
 
   const chapters: Chapter[] = [
     {

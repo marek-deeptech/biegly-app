@@ -42,6 +42,22 @@ def _req(method, url, data=None, headers=None):
         return resp.status, resp.read()
 
 
+def _etykieta(nazwa):
+    """Czytelna nazwa szeregu z nazwy pliku eksportu."""
+    rdzen = nazwa.rsplit(".", 1)[0].strip()
+    rdzen = rdzen.lstrip("^").replace("_d", "").replace("_", " ").strip()
+    rdzen = rdzen.split("(")[0].strip()
+    znane = {
+        "icex": "Indeks giełdowy ICEX (Islandia)",
+        "omx": "Indeks giełdowy OMX",
+        "wig": "Indeks WIG",
+    }
+    for k, v in znane.items():
+        if k in rdzen.lower():
+            return v
+    return rdzen or nazwa
+
+
 def _fmt(v):
     s = f"{v:,.2f}".replace(",", " ").replace(".", ",")
     return s[:-3] if s.endswith(",00") else s
@@ -70,7 +86,10 @@ def policz(case_id, dzien=None):
                 continue
             obj = f"{BASE}/storage/v1/object/case-files/{urllib.parse.quote(d['storage_path'])}"
             _, dane = _req("GET", obj)
-            s = czytaj_csv(dane, nazwa)
+            # Nazwa serii dla tytułu wykresu i tabeli: nazwa pliku bywa techniczna
+            # („^icex_d (1).csv"), a w opinii sądowej tytuł musi coś znaczyć.
+            etykieta = _etykieta(nazwa)
+            s = czytaj_csv(dane, etykieta)
             if not s:
                 odrzucone.append(f"{nazwa}: nie rozpoznano kolumn data/wartość")
                 continue

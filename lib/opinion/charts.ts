@@ -17,6 +17,17 @@ export type ChartSpec = {
   days: string[]; // oś X (sesje, ISO)
   left: ChartSeries; // oś lewa
   right?: ChartSeries; // opcjonalna oś prawa (druga skala)
+  /**
+   * Poziom odniesienia rysowany linią przerywaną — próg regulacyjny albo wartość
+   * graniczna. W opinii bankowej wykres współczynnika kapitałowego bez progu
+   * z danego okresu jest nieczytelny: czytelnik nie wie, czy 11% to dużo czy mało.
+   */
+  prog?: { wartosc: number; label: string };
+  /**
+   * Data pionowej linii — dzień ocenianego zdarzenia. Bez niej czytelnik musi
+   * szukać na osi, kiedy zapadła decyzja będąca przedmiotem opinii.
+   */
+  znacznik?: { dzien: string; label: string };
 };
 
 const W = 1000;
@@ -59,12 +70,19 @@ function fmtTick(v: number, unit: string): string {
   return unit === "%" ? `${s}%` : s;
 }
 
-function scaleOf(series: ChartSeries): { lo: number; hi: number; step: number } {
+function scaleOf(series: ChartSeries, prog?: number): { lo: number; hi: number; step: number } {
   const vals = series.values.filter((v): v is number => v != null && isFinite(v));
   if (!vals.length) return { lo: 0, hi: 1, step: 0.25 };
   let lo = Math.min(...vals);
-  const hi = Math.max(...vals);
+  let hi = Math.max(...vals);
   if (series.kind === "bars") lo = Math.min(0, lo);
+  // Skala MUSI objąć próg odniesienia. Współczynnik 11–15% przy progu 8% dawał oś
+  // zaczynającą się od 11 — linia progu wypadała poza pole i czytelnik nie widział,
+  // jak daleko jest do minimum regulacyjnego. To odbiera wykresowi cały sens.
+  if (prog != null && isFinite(prog)) {
+    lo = Math.min(lo, prog);
+    hi = Math.max(hi, prog);
+  }
   return niceScale(lo, hi);
 }
 
@@ -80,8 +98,8 @@ export function chartSvg(spec: ChartSpec): string {
   const grouped =
     !!spec.right && spec.left.kind === "bars" && spec.right.kind === "bars" && spec.left.unit === spec.right.unit;
   const L = grouped
-    ? scaleOf({ ...spec.left, values: [...spec.left.values, ...(spec.right?.values ?? [])] })
-    : scaleOf(spec.left);
+    ? scaleOf({ ...spec.left, values: [...spec.left.values, ...(spec.right?.values ?? [])] }, spec.prog?.wartosc)
+    : scaleOf(spec.left, spec.prog?.wartosc);
   const R = grouped ? null : spec.right ? scaleOf(spec.right) : null;
   const yOf = (v: number, s: { lo: number; hi: number }) => MT + ih - ((v - s.lo) / (s.hi - s.lo)) * ih;
 
@@ -113,6 +131,30 @@ export function chartSvg(spec: ChartSpec): string {
     el.push(`<text x="${x}" y="${MT + ih + 16}" text-anchor="end" transform="rotate(-42 ${x} ${MT + ih + 16})">${esc(d)}</text>`);
   });
   el.push(`<line x1="${ML}" y1="${MT + ih}" x2="${W - MR}" y2="${MT + ih}" stroke="${INK}" stroke-width="1"/>`);
+
+  // Próg odniesienia — linia przerywana z etykietą przy prawej krawędzi.
+  if (spec.prog && spec.prog.wartosc >= L.lo && spec.prog.wartosc <= L.hi) {
+    const y = yOf(spec.prog.wartosc, L);
+    el.push(
+      `<line x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="7 4"/>`,
+    );
+    el.push(
+      `<text x="${W - MR - 4}" y="${y - 5}" text-anchor="end" fill="#b91c1c" font-size="11">${esc(spec.prog.label)}</text>`,
+    );
+  }
+
+  // Znacznik dnia zdarzenia — pionowa linia w kolumnie najbliższej dacie, ale
+  // NIE PÓŹNIEJSZEJ: przesunięcie w prawo sugerowałoby, że decyzja zapadła po
+  // notowaniu, którego oceniany nie mógł znać.
+  if (spec.znacznik) {
+    let idx = -1;
+    for (let i = 0; i < spec.days.length; i++) if (spec.days[i] <= spec.znacznik.dzien) idx = i;
+    if (idx >= 0) {
+      const x = xC(idx);
+      el.push(`<line x1="${x}" y1="${MT}" x2="${x}" y2="${MT + ih}" stroke="#1d4ed8" stroke-width="1.6" stroke-dasharray="4 3"/>`);
+      el.push(`<text x="${x + 4}" y="${MT + 12}" fill="#1d4ed8" font-size="11">${esc(spec.znacznik.label)}</text>`);
+    }
+  }
 
   // Serie: najpierw prawa (tło — słupki), potem lewa (linia na wierzchu).
   const drawBars = (s: ChartSeries, sc: { lo: number; hi: number }, color: string, off = 0, wf = 0.62) => {
