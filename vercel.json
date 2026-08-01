@@ -21,6 +21,10 @@
     "api/makro.py": {
       "includeFiles": "engine/**",
       "maxDuration": 120
+    },
+    "api/sygnaly.py": {
+      "includeFiles": "engine/**",
+      "maxDuration": 120
     }
   }
 }
