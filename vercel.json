@@ -13,6 +13,10 @@
     "api/ip.py": {
       "includeFiles": "engine/**",
       "maxDuration": 60
+    },
+    "api/bank.py": {
+      "includeFiles": "engine/**",
+      "maxDuration": 300
     }
   }
 }

@@ -1,2 +1,6 @@
 openpyxl>=3.1
 xlrd>=2.0.1
+# Odczyt sprawozdań finansowych w trasie /api/bank (engine/sprawozdania.py).
+# Bez tego funkcja serverless pada na „No module named 'pypdf'" — lokalnie działa,
+# bo pakiet jest w środowisku deweloperskim.
+pypdf>=5.0
