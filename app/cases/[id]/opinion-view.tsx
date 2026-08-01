@@ -23,6 +23,7 @@ import { IV_REDACT_KINDS } from "@/lib/opinion/redact";
 // Przycisk „Rozwiń prozą" musi znać rodzaje OBU dziedzin — trasa i tak odrzuci
 // rodzaj niewłaściwy dla typu sprawy, więc lista jest tu tylko filtrem widoku.
 import { BANK_REDACT_KINDS } from "@/lib/opinion/redact-bank";
+import { buildWnioskiBank } from "@/lib/opinion/wnioski-bank";
 import { zapiszKorekte } from "@/lib/opinion/korekty";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 
@@ -82,7 +83,10 @@ export default function OpinionView({
   subanalyses,
   onOpenFiles }: {
   caseId: string;
-  caseRow: { name: string; signature: string | null };
+  // `typ` jest częścią kontraktu, nie dodatkiem: po nim rozgałęzia się i budowniczy
+  // opinii (buildOpinionDla), i generator Wniosków. Wcześniej typ propa go nie
+  // deklarował, choć rodzic przekazywał — pole działało przypadkiem.
+  caseRow: { name: string; signature: string | null; typ?: string | null };
   metrics: Metric[];
   documents: Doc[];
   subanalyses: SubRow[];
@@ -192,6 +196,15 @@ export default function OpinionView({
     const cq = (stored.find((s) => s.kind === "pytania_organu")?.data as { questions?: string[] } | undefined)?.questions
       ?.map((q) => String(q).trim())
       .filter((q) => q.length > 0);
+    // ROZGAŁĘZIENIE DZIEDZINOWE. Wnioski GPW stoją na technikach manipulacji, zdarzeniach
+    // ESPI, powiązaniach KRS i zbieżności IP — w sprawie o ryzyko kredytowe banku nie ma
+    // żadnej z tych rzeczy, więc szkielet wychodził pusty albo nie na temat.
+    if (caseRow.typ === "ryzyko_bankowe") {
+      const dzien =
+        (stored.find((s) => s.kind === "limity")?.data as { dzienZdarzenia?: string | null } | undefined)
+          ?.dzienZdarzenia ?? null;
+      return saveGenerated(buildWnioskiBank(cq ?? [], stored, dzien), ow);
+    }
     return saveGenerated(buildWnioskiSubanaliza(caseRow.name, metrics, stored, cq && cq.length ? cq : undefined), ow);
   };
 

@@ -135,8 +135,13 @@ def policz(case_id, dzien=None):
 
         # Szeregi oczekiwane, których w aktach NIE MA — to ustalenie, nie milczenie.
         obecne = " ".join(s.nazwa.lower() for s in szeregi)
+        # Brak formułujemy ZDANIEM, nie etykietą. Sama etykieta („Inflacja konsumencka
+        # (CPI)") wędruje do Wniosków i czyta się tam jak ustalenie, a nie jak luka —
+        # czyli mówi coś przeciwnego do tego, co znaczy.
         braki = [
-            etykieta for _, frazy, etykieta in OCZEKIWANE
+            f"W aktach nie ma szeregu danych: {etykieta}. Powołanie takiej wartości w opinii "
+            f"wymaga wskazania źródła spoza akt."
+            for _, frazy, etykieta in OCZEKIWANE
             if not any(f in obecne for f in frazy)
         ]
 

@@ -75,8 +75,10 @@ export type BankRedactInput = {
   przepisy: string[];
   /** Przepisy późniejsze niż zdarzenie — do jawnego zakazu powoływania. */
   anachroniczne: string[];
-  /** Uwagi silnika (dopełnienia z tożsamości, wartości niewiarygodne). */
+  /** Wartości doliczone z tożsamości — użyteczne, wymagają ujawnienia pochodzenia. */
   uwagi?: string[];
+  /** Odczyt niewiarygodny — na takiej wartości nie wolno budować oceny. */
+  zastrzezenia?: string[];
 };
 
 const SYSTEM =
@@ -118,10 +120,16 @@ export function buildBankRedactPrompt(inp: BankRedactInput): { system: string; u
         "okres po okresie — wskazując poziomy, tendencję i ich znaczenie:\n" +
         inp.tableText,
     );
+  if (inp.zastrzezenia?.length)
+    parts.push(
+      "ODCZYT NIEWIARYGODNY — te wartości mogą być błędne i NIE WOLNO na nich opierać oceny. " +
+        "Wymień je w tekście jako wymagające weryfikacji w oryginale sprawozdania:\n" +
+        inp.zastrzezenia.map((u) => "- " + u).join("\n"),
+    );
   if (inp.uwagi?.length)
     parts.push(
-      "UWAGI SILNIKA DO DANYCH — musisz je uwzględnić w treści, a nie przemilczeć. Wartość dopełniona " +
-        "z tożsamości albo oznaczona jako niewiarygodna wymaga zastrzeżenia w tekście:\n" +
+      "WARTOŚCI DOLICZONE Z TOŻSAMOŚCI — wolno ich używać, ale przy powołaniu ujawnij, że pochodzą " +
+        "z odejmowania składników, a nie z odczytu wprost:\n" +
         inp.uwagi.map((u) => "- " + u).join("\n"),
     );
   if (inp.findings.length)

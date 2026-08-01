@@ -26,15 +26,24 @@ describe("prompt redakcji rozdziałów bankowych", () => {
     expect(user).toContain("Uchwała nr 1/2007 KNB");
   });
 
-  it("wymusza uwzględnienie uwag silnika, zamiast pozwolić je przemilczeć", () => {
-    // Wartość dopełniona z tożsamości albo oznaczona jako niewiarygodna musi
-    // dostać zastrzeżenie w tekście opinii.
+  it("rozróżnia dopełnienie z tożsamości od niewiarygodnego odczytu", () => {
+    // Obie kategorie muszą trafić do tekstu, ale z RÓŻNYM skutkiem: wartość doliczona
+    // z tożsamości jest użyteczna i wymaga tylko ujawnienia pochodzenia, a odczyt
+    // niewiarygodny nie może być podstawą oceny. Wspólny komunikat kazał traktować
+    // kilkanaście rutynowych dopełnień jak błędy i topił w nich realne rozjazdy.
     const { user } = buildBankRedactPrompt({
       ...bazowe, kind: "wskazniki_bank", dzienZdarzenia: "2008-09-11",
       uwagi: ["2008-06-30: kapitał AT1 = 62 824 (Tier 1 − CET1, nie odczytany wprost)"],
+      zastrzezenia: ["2007-12-31: bilans nie domyka się — różnica 27,5%"],
     });
-    expect(user).toContain("UWAGI SILNIKA");
+    expect(user).toContain("ODCZYT NIEWIARYGODNY");
+    expect(user).toContain("NIE WOLNO na nich opierać oceny");
+    expect(user).toContain("bilans nie domyka");
+    expect(user).toContain("WARTOŚCI DOLICZONE Z TOŻSAMOŚCI");
     expect(user).toContain("nie odczytany wprost");
+    // Dopełnienie nie może wpaść pod zakaz — to dwie różne sekcje promptu.
+    const zakaz = user.slice(user.indexOf("ODCZYT NIEWIARYGODNY"), user.indexOf("WARTOŚCI DOLICZONE"));
+    expect(zakaz).not.toContain("nie odczytany wprost");
   });
 
   it("system zakazuje liczenia i przesądzania o winie", () => {

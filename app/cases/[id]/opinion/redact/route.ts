@@ -14,6 +14,7 @@ import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
 import { buildWiedzaBlock } from "@/lib/opinion/wiedza";
 import { BANK_REDACT_KINDS, buildBankRedactPrompt, modulDla, type BankRedactKind } from "@/lib/opinion/redact-bank";
+import { buildBankWnioskiPrompt, materialWnioskow } from "@/lib/opinion/wnioski-bank";
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
@@ -60,8 +61,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const isIv = !bankowa && (IV_REDACT_KINDS as readonly string[]).includes(chapter);
   const isBank = bankowa && (BANK_REDACT_KINDS as readonly string[]).includes(chapter);
-  const isWnioski = chapter === "wnioski";
-  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isBank && !isWnioski))
+  // Wnioski mają OSOBNĄ ścieżkę per dziedzina. Wnioski GPW składa się z technik
+  // manipulacji, zdarzeń ESPI, powiązań KRS i zbieżności IP — w sprawie o ryzyko
+  // kredytowe banku nie ma żadnej z tych rzeczy, a prompt pytałby o nie modelu.
+  const isWnioski = chapter === "wnioski" && !bankowa;
+  const isWnioskiBank = chapter === "wnioski" && bankowa;
+  if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isBank && !isWnioski && !isWnioskiBank))
     return Response.json({ ok: false, reason: "Nieznany rozdział w tej dziedzinie." }, { status: 400 });
 
   const metricsData = await fetchAllMetrics(supabase, id);
@@ -78,7 +83,35 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let userPrompt: string;
   let meta: unknown;
 
-  if (isWnioski) {
+  if (isWnioskiBank) {
+    // ── Wnioski dziedziny bankowej ──
+    const sub = (subs ?? []).find((s) => s.kind === "wnioski");
+    if (!sub)
+      return Response.json({ ok: false, reason: "Najpierw wygeneruj Wnioski (Generuj: Wnioski), potem rozwiń prozą." });
+    const pytania =
+      ((subs ?? []).find((s) => s.kind === "pytania_organu")?.data as { questions?: string[] } | null)?.questions
+        ?.map((q) => String(q).trim())
+        .filter((q) => q.length > 0) ?? [];
+    // Data zdarzenia z warsztatu (Krok 4) — wyznacza stan prawny wniosków. BEZ domyślnej
+    // wartości: zgadnięta data dobrałaby zły stan prawny, a to jest rozdział, który
+    // prokurator czyta jako odpowiedź na swoje pytanie.
+    const dzien =
+      ((subs ?? []).find((s) => s.kind === "limity")?.data as { dzienZdarzenia?: string | null } | undefined)
+        ?.dzienZdarzenia ?? null;
+    // Materiał liczymy ŚWIEŻO z modułów, nie z body_md — wcześniejsza redakcja mogła
+    // zastąpić szkielet prozą, a wnioski muszą stać na aktualnych ustaleniach.
+    const material = materialWnioskow((subs ?? []) as never, dzien);
+    const p = buildBankWnioskiPrompt({
+      caseName: caseRow.name,
+      signature: caseRow.signature,
+      dzienZdarzenia: dzien,
+      pytania,
+      material,
+    });
+    system = p.system;
+    userPrompt = p.user;
+    meta = { kind: "wnioski" };
+  } else if (isWnioski) {
     const sub = (subs ?? []).find((s) => s.kind === "wnioski");
     if (!sub)
       return Response.json({ ok: false, reason: "Najpierw wygeneruj Wnioski (Generuj: Wnioski), potem rozwiń prozą." });
@@ -187,6 +220,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             .map((x) => `${x.ref} (obowiązuje od ${x.od})`)
         : [],
       uwagi: (sub.data as { uwagi?: string[] } | null)?.uwagi ?? [],
+      zastrzezenia: (sub.data as { zastrzezenia?: string[] } | null)?.zastrzezenia ?? [],
     });
     system = p.system;
     userPrompt = p.user;

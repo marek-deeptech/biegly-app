@@ -86,7 +86,15 @@ def policz(case_id, paths=None):
                 if not str(p).startswith(f"{case_id}/"):
                     return (403, {"ok": False, "error": "Plik nie należy do tej sprawy."})
 
-            pozycje, uwagi, zrodla = [], [], []
+            # DWIE RÓŻNE KATEGORIE, celowo nie w jednej liście:
+            # `uwagi`        — wartość doliczona z tożsamości. Jest UŻYTECZNA, wymaga tylko
+            #                  ujawnienia, skąd pochodzi.
+            # `zastrzezenia` — odczyt jest NIEWIARYGODNY (bilans się nie domyka, składnik
+            #                  większy od całości, powielona kolumna). Na takiej wartości
+            #                  nie wolno oprzeć wniosku.
+            # Zlane w jedną listę osłabiały się nawzajem: 14 rutynowych dopełnień topiło
+            # 4 realne błędy odczytu, a do Wniosków szło hurtem „nie opieraj się na tym".
+            pozycje, uwagi, zastrzezenia, zrodla = [], [], [], []
             # Miejsce odczytu każdej pozycji — do kolumny „Źródło" w rozdziale
             # o sprawozdaniach. Nazwę pliku dopisujemy tylko przy wielu sprawozdaniach,
             # bo inaczej „str. 47" nie wskazuje jednoznacznie żadnego dokumentu.
@@ -109,7 +117,7 @@ def policz(case_id, paths=None):
                     uwagi.append(f"{os.path.basename(p)}: nie rozpoznano kolumn dat — pominięto")
                     continue
                 uwagi += uzupelnij_z_tozsamosci(odczyt, poz)
-                uwagi += sprawdz_spojnosc(odczyt, poz)
+                zastrzezenia += sprawdz_spojnosc(odczyt, poz)
                 for pole, gdzie in strony_pol(odczyt, os.path.basename(p) if len(paths) > 1 else "").items():
                     miejsca.setdefault(pole, gdzie)
                 strony = sorted({k.strona for k in odczyt.kandydaci})
@@ -163,7 +171,7 @@ def policz(case_id, paths=None):
             for pz in unikalne:
                 for w in wskazniki(pz):
                     if w.ostrzezenie:
-                        uwagi.append(f"{w.dzien}: {w.nazwa} — {w.ostrzezenie}")
+                        zastrzezenia.append(f"{w.dzien}: {w.nazwa} — {w.ostrzezenie}")
 
             ponizej = [w for p in unikalne for w in wskazniki(p) if w.spelniony is False]
             findings = [
@@ -192,6 +200,7 @@ def policz(case_id, paths=None):
                     "okresy": okresy,
                     "zrodla": zrodla,
                     "uwagi": uwagi,
+                    "zastrzezenia": zastrzezenia,
                     "findings": findings,
                 },
                 "body_md": "",
@@ -210,8 +219,7 @@ def policz(case_id, paths=None):
             # i wynik nie są przypięte do jednej strony i kolumna potrafi się rozjechać
             # przy scalaniu dwóch sprawozdań. Uwagi idą do OBU rozdziałów: wskaźniki
             # liczą się z tych samych odczytów.
-            uwagi_bilans = sprawdz_bilans(unikalne)
-            uwagi += uwagi_bilans
+            zastrzezenia += sprawdz_bilans(unikalne)
             sub_spr = {
                 "case_id": case_id,
                 "kind": "sprawozdania",
@@ -223,6 +231,7 @@ def policz(case_id, paths=None):
                     "okresy": zest["okresy"],
                     "zrodla": zrodla,
                     "uwagi": uwagi,
+                    "zastrzezenia": zastrzezenia,
                     "findings": zest["findings"] or [
                         "Odczytano pozycje sprawozdań, ale żadna nie zmieniła się o więcej niż 20% "
                         "między skrajnymi okresami."
@@ -237,7 +246,8 @@ def policz(case_id, paths=None):
 
             return (200, {"ok": True, "okresy": okresy, "wskaznikow": len(rows),
                              "pozycji_sprawozdan": len([r for r in zest["rows"] if r[1]]),
-                             "ponizej_progu": len(findings), "uwagi": uwagi, "zrodla": zrodla})
+                             "ponizej_progu": len(findings), "uwagi": uwagi,
+                             "zastrzezenia": zastrzezenia, "zrodla": zrodla})
         except KeyError as e:
             return (400, {"ok": False, "error": f"Brak pola: {e}"})
         except Exception as e:  # noqa: BLE001
