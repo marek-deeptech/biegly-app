@@ -19,7 +19,7 @@ import { chartSvg } from "./charts";
 import { wykresyBankowe } from "./charts-bank";
 
 /** Moduły rozdziału V w kolejności, w jakiej występują w opinii wzorcowej (MBR, A–L). */
-const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
+export const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
   { kind: "makro", litera: "A", tytul: "Otoczenie makroekonomiczne" },
   { kind: "media", litera: "B", tytul: "Publikacje prasowe i komunikaty" },
   { kind: "ekspozycja_sektor", litera: "C", tytul: "Skala sektora bankowego wobec gospodarki" },

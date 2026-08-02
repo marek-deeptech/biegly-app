@@ -15,7 +15,8 @@ import {
   type StoredSub,
   type SubResult } from "@/lib/opinion/build";
 import { buildOpinionDla } from "@/lib/opinion/build-router";
-import { resolvePlan, type IVKind } from "@/lib/opinion/chapters";
+import { type IVKind } from "@/lib/opinion/chapters";
+import { planRedakcji, type KrokRedakcji } from "@/lib/opinion/plan-redakcji";
 // Listy rozdziałów wyprowadzone z katalogu, nie przepisane: zaszyte kopie pomijały
 // fixing, concentration i reversal, więc techniki wykryte przez silnik nie dawały się
 // rozwinąć prozą — przycisk po prostu nie istniał.
@@ -122,10 +123,7 @@ export default function OpinionView({
     const t = subanalyses.find((s) => s.kind === "techniki");
     return ((t?.data as { selected?: string[] } | null)?.selected ?? []) as IVKind[];
   }, [subanalyses]);
-  const plan = useMemo(() => resolvePlan(caseRow.name, selectedTech), [caseRow.name, selectedTech]);
   const generated = useMemo(() => new Set(subanalyses.map((s) => s.kind)), [subanalyses]);
-  const hasWnioski = generated.has("wnioski");
-  const canWnioski = subanalyses.some((s) => s.status === "zatwierdzona" && s.chapter_no.startsWith("IV"));
   const draftFor = (s: SubRow) => drafts[s.id] ?? s.body_md;
 
   // Zabezpieczenie przed utratą treści: generator zapisuje krótki szkic z silnika,
@@ -314,8 +312,6 @@ export default function OpinionView({
     }
   }
 
-  const hasKind = (k: string) => subanalyses.some((s) => s.kind === k);
-
   // Wyciąganie danych ze źródeł PDF (ESPI/KRS/sprawozdania) → zasila rozdziały IV.
   async function extractSource(kind: "espi" | "krs" | "fin") {
     setExBusy(kind);
@@ -445,51 +441,35 @@ export default function OpinionView({
   // Stepper montażu — kroki w kolejności PISANIA z bramkami zależności.
   const isApproved = (kind: string) => subanalyses.some((s) => s.kind === kind && s.status === "zatwierdzona");
   const bodyOf = (kind: string) => subanalyses.find((s) => s.kind === kind)?.body_md ?? "";
-  const ivAllApproved = plan.length > 0 && plan.every((p) => isApproved(p.kind));
-  const wnioskiApproved = isApproved("wnioski");
-  const steps: {
-    no: string;
-    label: string;
-    kind: string;
-    gen: () => void;
-    busyKey: string;
-    locked: boolean;
-    lockReason?: string;
-    note?: string;
-  }[] = [
-    ...plan.map((p) => ({
-      no: p.no,
-      label: p.title,
-      kind: p.kind,
-      gen: () => void genIV(p.kind),
-      busyKey: "gen-" + p.kind,
-      locked: false })),
-    {
-      no: "II",
-      label: "Wnioski",
-      kind: "wnioski",
-      gen: () => void genWnioski(),
-      busyKey: "gen-wnioski",
-      locked: !ivAllApproved,
-      lockReason: "Najpierw zatwierdź wszystkie rozdziały IV" },
-    {
-      no: "III",
-      label: "Wstęp — ujęcie teoretyczne",
-      kind: "proza_iii",
-      gen: () => void redact("III"),
-      busyKey: "redact-III",
-      locked: !wnioskiApproved,
-      lockReason: "Najpierw zatwierdź Wnioski",
-      note: "III powstaje też automatycznie z biblioteki prawnej — regeneracja modelem jest opcjonalna." },
-    {
-      no: "V",
-      label: "Podsumowanie",
-      kind: "proza_v",
-      gen: () => void redact("V"),
-      busyKey: "redact-V",
-      locked: !wnioskiApproved,
-      lockReason: "Najpierw zatwierdź Wnioski" },
-  ];
+  // PLAN ZALEŻY OD DZIEDZINY. Liczony wcześniej wyłącznie z katalogu GPW pokazywał
+  // w sprawie bankowej rozdziały o technikach manipulacji i numerację cudzego szkieletu
+  // (Wnioski jako II zamiast III, Wstęp jako III zamiast IV).
+  const steps: KrokRedakcji[] = useMemo(
+    () =>
+      planRedakcji({
+        typ: caseRow.typ,
+        caseName: caseRow.name,
+        obecne: subanalyses.map((s) => s.kind),
+        zatwierdzone: subanalyses.filter((s) => s.status === "zatwierdzona").map((s) => s.kind),
+        techniki: selectedTech,
+      }),
+    [caseRow.typ, caseRow.name, subanalyses, selectedTech],
+  );
+
+  /** Uruchomienie kroku — jedno miejsce mapujące akcję planu na wywołanie. */
+  function wykonaj(k: KrokRedakcji, nadpisz = false) {
+    const a = k.akcja;
+    if (a.typ === "generuj-iv") void genIV(a.kind, nadpisz);
+    else if (a.typ === "generuj-wnioski") void genWnioski(nadpisz);
+    else if (a.typ === "redaguj-proze") void redact(a.rozdzial);
+    else void expandChapter(a.kind);
+  }
+  const kluczZajetosci = (k: KrokRedakcji) =>
+    k.akcja.typ === "generuj-iv" ? "gen-" + k.akcja.kind
+    : k.akcja.typ === "generuj-wnioski" ? "gen-wnioski"
+    : k.akcja.typ === "redaguj-proze" ? "redact-" + k.akcja.rozdzial
+    : "expand-" + k.akcja.kind;
+
   const stepsApproved = steps.filter((s) => isApproved(s.kind)).length;
 
   const reviewErrors = review.filter((r) => r.severity === "ERROR").length;
@@ -533,55 +513,41 @@ export default function OpinionView({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Rozdziały — drafty</h2>
           <div className="flex flex-wrap gap-2">
-            {plan.map((p) =>
-              generated.has(p.kind) ? null : (
-                <Button
-                  key={p.kind}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => genIV(p.kind, false)}
-                  disabled={
-                    (busy !== null && busy !== "gen-" + p.kind) ||
-                    (["aktywnosc", "wash", "layering"].includes(p.kind) && metrics.length === 0)
-                  }
-                  loading={busy === "gen-" + p.kind}
-                  loadingLabel="Generuję…"
-                  title={KIND_LABEL[p.kind] ?? p.title}
-                >
-                  {`Generuj: ${p.no}`}
-                </Button>
-              ),
-            )}
-            {!hasWnioski && canWnioski && (
-              <Button
-                variant="successSolid"
-                size="sm"
-                onClick={() => genWnioski(false)}
-                disabled={busy !== null && busy !== "gen-wnioski"}
-                loading={busy === "gen-wnioski"}
-                loadingLabel="Generuję…"
-                title="Synteza z zatwierdzonych subanaliz"
-              >
-                Generuj: Wnioski
-              </Button>
-            )}
-            {(["I", "III", "V"] as const).map((ch) =>
-              hasKind(`proza_${ch.toLowerCase()}`) ? null : (
-                <Button
-                  key={ch}
-                  variant="outline"
-                  size="sm"
-                  className="border-ink/60 text-inksoft"
-                  onClick={() => redact(ch)}
-                  disabled={busy !== null && busy !== "redact-" + ch}
-                  loading={busy === "redact-" + ch}
-                  loadingLabel="Redaguję…"
-                  title="Redakcja rozdziału przez model (Claude API)"
-                >
-                  {`Proza ${ch} (model)`}
-                </Button>
-              ),
-            )}
+            {/* Przyciski wynikają z PLANU DZIEDZINY, nie z katalogu GPW. W sprawie
+                bankowej moduły rozdziału V powstają w krokach 3–4, więc tu widnieje
+                „Rozwiń prozą", a nie „Generuj" — sugerowałoby, że da się je zrobić
+                bez odczytu sprawozdań. */}
+            {steps
+              .filter((k) => !(k.akcja.typ === "rozwin-modul" && !generated.has(k.kind)))
+              .filter((k) => !k.blokada)
+              .map((k) => {
+                const zrobione =
+                  k.akcja.typ === "rozwin-modul" ? bodyOf(k.kind).length > 200 : generated.has(k.kind);
+                if (zrobione) return null;
+                const etykieta =
+                  k.akcja.typ === "rozwin-modul" ? `Proza: ${k.no}`
+                  : k.akcja.typ === "generuj-wnioski" ? "Generuj: Wnioski"
+                  : `Proza ${k.no} (model)`;
+                return (
+                  <Button
+                    key={k.kind}
+                    variant={k.akcja.typ === "generuj-wnioski" ? "successSolid" : "outline"}
+                    size="sm"
+                    onClick={() => wykonaj(k)}
+                    disabled={
+                      (busy !== null && busy !== kluczZajetosci(k)) ||
+                      (k.akcja.typ === "generuj-iv" &&
+                        ["aktywnosc", "wash", "layering"].includes(k.kind) &&
+                        metrics.length === 0)
+                    }
+                    loading={busy === kluczZajetosci(k)}
+                    loadingLabel="Pracuję…"
+                    title={k.label}
+                  >
+                    {etykieta}
+                  </Button>
+                );
+              })}
           </div>
         </div>
 
@@ -1057,14 +1023,14 @@ export default function OpinionView({
               const row = subanalyses.find((s) => s.kind === st.kind);
               const approved = !!row && row.status === "zatwierdzona";
               const generated = !!row;
-              const state = st.locked
+              const state = st.blokada
                 ? "zablokowany"
                 : approved
                   ? "zatwierdzony"
                   : generated
                     ? "szkic"
                     : "do wygenerowania";
-              const badge = st.locked
+              const badge = st.blokada
                 ? "bg-ink/10 text-inksoft"
                 : approved
                   ? "bg-emerald-100 text-emerald-800"
@@ -1072,7 +1038,7 @@ export default function OpinionView({
                     ? "bg-amber-100 text-amber-800"
                     : "bg-ink/10 text-inksoft";
               return (
-                <li key={st.kind} className={`border border-line bg-paper p-3 ${st.locked ? "opacity-60" : ""}`}>
+                <li key={st.kind} className={`border border-line bg-paper p-3 ${st.blokada ? "opacity-60" : ""}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-ink/10 text-[11px] font-medium">
@@ -1084,8 +1050,8 @@ export default function OpinionView({
                     </div>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] ${badge}`}>{state}</span>
                   </div>
-                  {st.locked ? (
-                    <p className="mt-1 pl-7 text-xs text-inksoft">Zablokowane: {st.lockReason}.</p>
+                  {st.blokada ? (
+                    <p className="mt-1 pl-7 text-xs text-inksoft">Zablokowane: {st.blokada}.</p>
                   ) : (
                     <>
                       {generated && (
@@ -1096,11 +1062,15 @@ export default function OpinionView({
                       )}
                       <div className="mt-2 flex flex-wrap items-center gap-2 pl-7">
                         <button
-                          onClick={st.gen}
+                          onClick={() => wykonaj(st)}
                           disabled={busy !== null}
                           className="border border-ink px-3 py-1 text-xs uppercase tracking-wider transition-colors hover:bg-ink hover:text-paper disabled:opacity-40"
                         >
-                          {busy === st.busyKey ? "Pracuję…" : generated ? "Regeneruj" : "Generuj"}
+                          {busy === kluczZajetosci(st)
+                            ? "Pracuję…"
+                            : st.akcja.typ === "rozwin-modul"
+                              ? bodyOf(st.kind).length > 200 ? "Redaguj ponownie" : "Rozwiń prozą"
+                              : generated ? "Regeneruj" : "Generuj"}
                         </button>
                         {generated && !approved && row && (
                           <button
@@ -1129,7 +1099,7 @@ export default function OpinionView({
                           </button>
                         )}
                       </div>
-                      {st.note && <p className="mt-1 pl-7 text-[11px] italic text-inksoft">{st.note}</p>}
+                      {st.uwaga && <p className="mt-1 pl-7 text-[11px] italic text-inksoft">{st.uwaga}</p>}
                     </>
                   )}
                 </li>
