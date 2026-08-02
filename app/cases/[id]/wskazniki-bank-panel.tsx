@@ -183,12 +183,17 @@ export default function WskaznikiBankPanel({
               ),
             )}
           </ul>
-          <p className="mt-2 text-[11px] text-inksoft">
-            Wartości dopełnione z tożsamości odtwarzają sumy podane w sprawozdaniu — Tier 1 wychodzi
-            z nich identyczny jak odczytany z wiersza, a Tier 2 nie wchodzi do żadnego wskaźnika.
-            Uważnie sprawdź natomiast pozycje „wywnioskowane z układu strony”: to one zasilają marżę
-            odsetkową i udział depozytów.
-          </p>
+          {/* Objaśnienie dotyczy WYŁĄCZNIE wartości doliczonych. Wyświetlane przy każdej
+              uwadze mówiło o dopełnieniach z tożsamości także wtedy, gdy uwagi opisywały
+              pominięte pliki — czytało się jak zapewnienie, że liczby jednak powstały. */}
+          {dane.uwagi.some((u) => /tożsamości|układu strony/i.test(u)) ? (
+            <p className="mt-2 text-[11px] text-inksoft">
+              Wartości dopełnione z tożsamości odtwarzają sumy podane w sprawozdaniu — Tier 1 wychodzi
+              z nich identyczny jak odczytany z wiersza, a Tier 2 nie wchodzi do żadnego wskaźnika.
+              Uważnie sprawdź natomiast pozycje „wywnioskowane z układu strony”: to one zasilają marżę
+              odsetkową i udział depozytów.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </section>
