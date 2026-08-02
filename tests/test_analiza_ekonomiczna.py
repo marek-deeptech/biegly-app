@@ -146,3 +146,55 @@ def test_ocena_globalna_nie_powstaje_bez_kompletu_obszarow():
     w = analiza_ekonomiczna("x", poz, ["2014-12-31"])
     assert w["ocena_globalna"] is None
     assert all(o["ocena"] is None for o in w["obszary"])
+
+
+# ── Odtworzenie aktywów ważonych ryzykiem ────────────────────────────────────
+
+def test_rwa_odtwarza_sie_z_funduszy_i_wykazanego_wspolczynnika():
+    from engine.analiza_ekonomiczna import rwa_implikowane
+
+    # SK Bank na 31.12.2014: fundusze własne 389 566 000 zł, wykazany wsp. 13,84%.
+    rwa = rwa_implikowane(389_566_000, 13.84)
+    assert rwa is not None
+    # Kontrola odwrotna: z odtworzonego RWA współczynnik musi wyjść ten sam.
+    assert round(100.0 * 389_566_000 / rwa, 2) == 13.84
+
+
+def test_bez_ktoregokolwiek_skladnika_nie_zgadujemy():
+    from engine.analiza_ekonomiczna import bufor_do_progu, rwa_implikowane, wspolczynnik_po_korekcie
+
+    assert rwa_implikowane(None, 13.84) is None
+    assert rwa_implikowane(389_566_000, None) is None
+    assert wspolczynnik_po_korekcie(None, 13.84, 1) is None
+    assert bufor_do_progu(389_566_000, None, 8.0) is None
+
+
+def test_wspolczynnik_po_dotworzeniu_rezerw():
+    """Sedno sprawy: ile wyniósłby współczynnik, gdyby bank utworzył wymagane rezerwy.
+
+    ⚠️ TEN TEST OBALIŁ ZAŁOŻENIE, Z KTÓRYM GO PISANO. Przyjęto, że korekta rzędu
+    123 mln zł sprowadziłaby SK Bank poniżej normy 8% na 31.12.2014 — nie sprowadza.
+    Przy funduszach własnych 389 566 tys. zł i wykazanym współczynniku 13,84%
+    odtworzone RWA wynosi ok. 2 814 783 tys. zł, więc po takiej korekcie współczynnik
+    daje 9,47%, a do progu brakuje jeszcze ok. 164 383 tys. zł. Wniosek „utworzenie
+    rezerw naruszyłoby normę" nie broni się na tej dacie i wymaga albo innej daty,
+    albo innej kwoty korekty — to jest ustalenie dla opinii, nie usterka.
+    """
+    from engine.analiza_ekonomiczna import wspolczynnik_po_korekcie
+
+    assert wspolczynnik_po_korekcie(389_566_000, 13.84, 123_000_000) == 9.47
+
+
+def test_bufor_do_progu_mowi_ile_brakowalo_do_naruszenia_normy():
+    from engine.analiza_ekonomiczna import bufor_do_progu, wspolczynnik_po_korekcie
+
+    b = bufor_do_progu(389_566_000, 13.84, 8.0)
+    assert b is not None and b > 0
+    # Korekta dokładnie o bufor sprowadza współczynnik do progu.
+    assert wspolczynnik_po_korekcie(389_566_000, 13.84, b) == 8.0
+
+
+def test_ujemny_bufor_znaczy_norme_niespelniona_juz_przy_wartosciach_wykazanych():
+    from engine.analiza_ekonomiczna import bufor_do_progu
+
+    assert bufor_do_progu(301_011_000, 7.5, 8.0) < 0

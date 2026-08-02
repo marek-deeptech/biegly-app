@@ -25,6 +25,7 @@ type Dane = {
   ocena_globalna?: number | null;
   opis_oceny?: string | null;
   braki?: Brak[];
+  rwa?: { caption?: string; head?: string[]; rows?: string[][] };
   uwagi?: string[];
 };
 
@@ -131,6 +132,40 @@ export default function AnalizaEfPanel({
           </tbody>
         </table>
       </div>
+
+      {/* Odtworzone RWA — jedyna droga do współczynnika wypłacalności, gdy akta
+          nie zawierają aktywów ważonych ryzykiem. Bufor mówi, o ile mogłyby spaść
+          fundusze własne, zanim bank przestałby spełniać normę. */}
+      {dane.rwa?.rows?.length ? (
+        <div className="mt-5 border-t border-ink/15 pt-3">
+          <p className="text-xs font-medium">Odtworzone aktywa ważone ryzykiem i bufor do progu</p>
+          <p className="mt-0.5 text-[11px] text-inksoft">
+            Współczynnika nie da się z akt policzyć — nie ma w nich RWA. Mianownik odtworzono z funduszy
+            własnych i współczynnika WYKAZANEGO przez bank; odtworzenie dziedziczy wiarygodność tych
+            wartości i nie jest pomiarem niezależnym.
+          </p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-ink/30 text-left">
+                  {(dane.rwa.head ?? []).map((h, i) => (
+                    <th key={h} className={`py-1 pr-2 font-medium ${i ? "text-right" : ""}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(dane.rwa.rows ?? []).map((r) => (
+                  <tr key={r[0]} className="border-b border-ink/10">
+                    {r.map((v, j) => (
+                      <td key={j} className={`py-1 pr-2 tabular-nums ${j ? "text-right" : ""}`}>{v}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       {braki.length > 0 && (
         <div className="mt-4 border-t border-ink/15 pt-3">

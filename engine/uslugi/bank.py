@@ -33,6 +33,8 @@ from engine.analiza_ekonomiczna import (  # noqa: E402
     ocena_globalna,
     punktacja,
     wartosc as wartosc_ef,
+    bufor_do_progu,
+    rwa_implikowane,
     wskaznik_czastkowy,
     wskaznik_syntetyczny,
 )
@@ -134,7 +136,7 @@ def _z_chronologii(case_id):
     return jako_pozycje(okresy), wykazane_wspolczynniki(okresy), ", ".join(sorted(strony, key=_nr))
 
 
-def analiza_ekonomiczna(case_id, unikalne, okresy):
+def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=()):
     """Rubryka 16 wskaźników w 4 obszarach — z rejestrem tego, czego policzyć NIE MOŻNA.
 
     ⚠️ REJESTR BRAKÓW JEST TU RÓWNIE WAŻNY JAK TABELA. W sprawie SK Banku dziesięciu
@@ -211,6 +213,29 @@ def analiza_ekonomiczna(case_id, unikalne, okresy):
         } for pole, nazwy in braki_pol.items()),
         key=lambda x: (not x["brak_zupelny"], -len(x["wskazniki"])),
     )
+    # ── Odtworzenie aktywów ważonych ryzykiem ─────────────────────────────────
+    # Współczynnika wypłacalności nie da się z akt POLICZYĆ (brak RWA), ale da się
+    # odtworzyć mianownik z dwóch wartości wykazanych — a wtedy odpowiedzieć na
+    # pytanie, o które w tej sprawie chodzi: jak duża korekta wyniku wystarczyłaby,
+    # żeby bank przestał spełniać normę.
+    wg_dnia_wyk = dict(wykazane)
+    wiersze_rwa = []
+    for pz in unikalne:
+        wsp = wg_dnia_wyk.get(pz.dzien)
+        rwa = rwa_implikowane(pz.fundusze_wlasne, wsp)
+        if rwa is None:
+            continue
+        prog = prog_na_dzien("tcr", pz.dzien)
+        bufor = bufor_do_progu(pz.fundusze_wlasne, wsp, prog.minimum) if prog else None
+        wiersze_rwa.append([
+            pz.dzien,
+            _fmt(pz.fundusze_wlasne),
+            f"{_fmt(wsp)} %",
+            _fmt(rwa),
+            (f"{_fmt(prog.minimum)} %" if prog else "—"),
+            (_fmt(bufor) if bufor is not None else "—"),
+        ])
+
     return {
         "table": {
             "caption": "Tabela. Analiza ekonomiczno-finansowa banku wg rubryki banku zrzeszającego",
@@ -224,7 +249,18 @@ def analiza_ekonomiczna(case_id, unikalne, okresy):
         "ocena_globalna": globalna,
         "opis_oceny": OPIS_OCENY.get(globalna) if globalna else None,
         "braki": zamowienie,
-        "uwagi": [ROZBIEZNOSC_WAGI] if punkty else [],
+        "rwa": {
+            "caption": "Tabela. Odtworzone aktywa ważone ryzykiem i bufor funduszy własnych do progu",
+            "head": ["Dzień", "Fundusze własne", "Wsp. wykazany", "RWA odtworzone",
+                     "Próg", "Bufor do progu"],
+            "rows": wiersze_rwa,
+        },
+        "uwagi": ([ROZBIEZNOSC_WAGI] if punkty else []) + ([
+            "Aktywa ważone ryzykiem odtworzono z funduszy własnych i WYKAZANEGO współczynnika "
+            "wypłacalności — odtworzenie dziedziczy wiarygodność tych wartości i nie jest pomiarem "
+            "niezależnym. Bufor do progu mówi, o ile mogłyby spaść fundusze własne (np. wskutek "
+            "dotworzenia wymaganych rezerw), zanim współczynnik zszedłby poniżej normy."
+        ] if wiersze_rwa else []),
     }
 
 
@@ -609,7 +645,7 @@ def policz(case_id, paths=None):
                   "Prefer": "resolution=merge-duplicates,return=minimal"})
 
             # ── Analiza ekonomiczno-finansowa wg rubryki banku zrzeszającego ──
-            aef = analiza_ekonomiczna(case_id, unikalne, okresy)
+            aef = analiza_ekonomiczna(case_id, unikalne, okresy, wykazane)
             proza_a, byla_a = _zachowaj_proze(case_id, "analiza_ekonomiczna")
             _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
                  json.dumps({

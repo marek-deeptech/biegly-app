@@ -237,3 +237,55 @@ OPIS_OCENY: dict[int, str] = {
     4: "sytuacja zła; badane obszary nie mogą uzyskać oceny cząstkowej niższej niż 4",
     5: "zagrożenie funkcjonowania banku",
 }
+
+
+# ── Odtworzenie aktywów ważonych ryzykiem ────────────────────────────────────
+# Współczynnik wypłacalności = fundusze własne / aktywa ważone ryzykiem × 100.
+# W aktach SK Banku RWA nie występuje ani razu, ale WYSTĘPUJĄ oba pozostałe
+# składniki: fundusze własne i sam współczynnik, oba wykazane przez bank. Z nich
+# mianownik daje się odtworzyć — i dopiero wtedy da się odpowiedzieć na pytanie,
+# które w tej sprawie jest sednem: ILE WYNIÓSŁBY WSPÓŁCZYNNIK, gdyby bank utworzył
+# wymagane rezerwy.
+#
+# ⚠️ ODTWORZENIE DZIEDZICZY WIARYGODNOŚĆ ŹRÓDŁA. RWA policzone z dwóch wartości
+# wykazanych przez bank jest tak wiarygodne, jak te wartości — jeżeli bank zawyżył
+# współczynnik, odtworzone RWA jest zaniżone o ten sam czynnik. To NIE JEST pomiar
+# niezależny i nie wolno go tak przedstawiać w opinii.
+
+
+def rwa_implikowane(fundusze_wlasne: float | None, wsp_pct: float | None) -> float | None:
+    """Aktywa ważone ryzykiem odtworzone z funduszy własnych i wykazanego współczynnika."""
+    if not fundusze_wlasne or not wsp_pct:
+        return None
+    return round(fundusze_wlasne / (wsp_pct / 100.0), 2)
+
+
+def wspolczynnik_po_korekcie(
+    fundusze_wlasne: float | None, wsp_pct: float | None, korekta: float
+) -> float | None:
+    """Współczynnik po pomniejszeniu funduszy własnych o `korekta` (np. o dotworzone rezerwy).
+
+    Mianownik zostaje bez zmian: utworzenie rezerwy celowej obciąża wynik, a przez
+    niego fundusze własne — nie zmienia natomiast wagi ryzyka aktywów. To jest
+    uproszczenie i jako uproszczenie musi być w opinii nazwane; dokładny rachunek
+    wymagałby ekspozycji w podziale na wagi ryzyka, których akta nie zawierają.
+    """
+    rwa = rwa_implikowane(fundusze_wlasne, wsp_pct)
+    if rwa is None:
+        return None
+    return round(100.0 * (fundusze_wlasne - korekta) / rwa, 2)
+
+
+def bufor_do_progu(
+    fundusze_wlasne: float | None, wsp_pct: float | None, prog_pct: float
+) -> float | None:
+    """O ile mogłyby spaść fundusze własne, zanim współczynnik zejdzie poniżej progu.
+
+    Odpowiada na pytanie zadawane wprost w sprawach o nadzór: jak duża korekta
+    wyniku wystarczyłaby, żeby bank przestał spełniać normę. Wartość ujemna
+    znaczy, że norma nie była spełniona już przy wartościach wykazanych.
+    """
+    rwa = rwa_implikowane(fundusze_wlasne, wsp_pct)
+    if rwa is None or fundusze_wlasne is None:
+        return None
+    return round(fundusze_wlasne - (prog_pct / 100.0) * rwa, 2)
