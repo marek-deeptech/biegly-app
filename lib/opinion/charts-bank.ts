@@ -107,7 +107,15 @@ export function wykresyBankowe(
   }
 
   const wsk = dane("wskazniki_bank");
-  for (const kod of ["kapitału podstawowego", "kapitału Tier 1", "Łączny współczynnik"]) {
+  // Lista jest szersza niż trzy współczynniki kapitałowe, bo nie każda sprawa ma
+  // sprawozdania z notą o adekwatności. W sprawie SK Banku wielkości pochodzą
+  // z narracji nadzorczej i cały ciężar dowodowy niosą dwa inne wiersze: udział
+  // kredytów zagrożonych (5,86% → 46,20%) i współczynnik WYKAZANY przez bank
+  // zestawiony z progiem 8%. Bez nich rozdział o wskaźnikach nie miałby wykresu.
+  // Wiersz nieobecny w tabeli daje null i nie tworzy pustego wykresu, więc sprawy
+  // z pełnymi sprawozdaniami (MBR) zachowują dotychczasowy komplet.
+  for (const kod of ["kapitału podstawowego", "kapitału Tier 1", "Łączny współczynnik",
+                     "Udział kredytów zagrożonych", "WYKAZANY"]) {
     const w = wykresAdekwatnosci(wsk?.table, kod);
     if (w) out.push({ kind: "wskazniki_bank", name: `adekwatnosc_${out.length + 1}`, spec: w });
   }

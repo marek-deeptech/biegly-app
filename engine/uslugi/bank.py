@@ -22,7 +22,12 @@ from http.server import BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from dataclasses import fields as _pola_dataclass  # noqa: E402
 
-from engine.bank import Pozycje, szereg, wskazniki, zmiany  # noqa: E402
+from engine.bank import Pozycje, prog_na_dzien, szereg, wskazniki, zmiany  # noqa: E402
+from engine.chronologia import (  # noqa: E402
+    OkresNadzorczy,
+    jako_pozycje,
+    wykazane_wspolczynniki,
+)
 
 # Nazwy pól scalanych między sprawozdaniami — z definicji dataclass, nie przepisane,
 # żeby dodanie pozycji do modelu nie wymagało pamiętania o tym miejscu.
@@ -72,6 +77,39 @@ def _zachowaj_proze(case_id, kind):
         return tresc, bool(tresc.strip())
     except Exception:  # noqa: BLE001
         return "", False
+
+
+def _z_chronologii(case_id):
+    """Okresy zapisane przez moduł chronologii nadzorczej — gałąź zapasowa odczytu.
+
+    Akta bywają bez sprawozdań z badanego okresu: w sprawie SK Banku jedyne dwa
+    pochodzą z 2019 r., z postępowania upadłościowego, a pytanie dotyczy lat
+    2012–2015. Wielkości bilansowe z tamtych lat są w harmonogramie działań
+    nadzorczych i moduł chronologii już je odczytał — nie ma powodu, by zakładka
+    wskaźników pokazywała pustkę, skoro liczby leżą w tej samej sprawie.
+
+    Zwraca ([], [], "") także wtedy, gdy chronologii nie uruchomiono — brak danych
+    nie może udawać zera.
+    """
+    try:
+        _, b = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}"
+                           f"&kind=eq.chronologia_nadzoru&select=data")
+        arr = json.loads(b or b"[]")
+    except Exception:  # noqa: BLE001
+        return [], [], ""
+    if not arr:
+        return [], [], ""
+    surowe = (arr[0].get("data") or {}).get("okresy") or []
+    if not surowe:
+        return [], [], ""
+    pola = {f.name for f in _pola_dataclass(OkresNadzorczy)}
+    okresy = [OkresNadzorczy(**{k: v for k, v in o.items() if k in pola}) for o in surowe if o.get("dzien")]
+    # Sortowanie NUMERYCZNE: po tekście „str. 14" wypadało przed „str. 7".
+    strony = {o.zrodlo for o in okresy if o.zrodlo}
+    def _nr(t):
+        cyfry = "".join(c for c in t if c.isdigit())
+        return int(cyfry) if cyfry else 0
+    return jako_pozycje(okresy), wykazane_wspolczynniki(okresy), ", ".join(sorted(strony, key=_nr))
 
 
 def _uniewaznij(case_id, uwagi):
@@ -198,6 +236,23 @@ def policz(case_id, paths=None):
                                "okresy": [x.dzien for x in poz]})
                 pozycje += poz
 
+            # GAŁĄŹ ZAPASOWA: skoro ze sprawozdań nic nie wyszło, a chronologia nadzorcza
+            # ma odczytane okresy — liczymy z nich. To ten sam materiał liczbowy, tylko
+            # z innego dokumentu, więc te same wzory obowiązują.
+            z_chronologii, wykazane = False, []
+            if not pozycje:
+                pozycje, wykazane, skad = _z_chronologii(case_id)
+                if pozycje:
+                    z_chronologii = True
+                    uwagi.append(
+                        "Sprawozdań finansowych z badanego okresu w aktach nie ma — wskaźniki "
+                        "policzone z okresów odczytanych przez moduł chronologii nadzorczej "
+                        "z narracji nadzorczej (harmonogram działań, wystąpienia pokontrolne)"
+                        + (f", {skad}" if skad else "") + "."
+                    )
+                    zrodla.append({"plik": skad or "chronologia nadzorcza",
+                                   "strony": [], "okresy": [p.dzien for p in pozycje]})
+
             if not pozycje:
                 # ⚠️ KOMUNIKAT MUSI MÓWIĆ, CO SIĘ STAŁO Z KAŻDYM PLIKIEM. Wcześniej
                 # jedno zdanie o brakującym OCR-ze padało niezależnie od przyczyny —
@@ -267,6 +322,40 @@ def policz(case_id, paths=None):
                         "value": w.wartosc, "unit": w.jednostka, "target": w.prog,
                         "session_day": w.dzien,
                     })
+
+            # ⚠️ WSPÓŁCZYNNIK WYPŁACALNOŚCI Z CHRONOLOGII JEST WARTOŚCIĄ WYKAZANĄ.
+            # Silnik liczy go z funduszy własnych i aktywów ważonych ryzykiem; narracja
+            # nadzorcza RWA nie podaje, więc policzyć się go NIE DA — można go wyłącznie
+            # przepisać za dokumentem. Różnica nie jest formalna: SK Bank wykazywał
+            # 13,84% przy jednoczesnym nietworzeniu wymaganych rezerw, a po ich
+            # utworzeniu wynik spadł o 123 mln zł. Dlatego osobny wiersz, własna nazwa
+            # i klucz metryki `bank_tcr_wykazany` — nigdy `bank_tcr`.
+            if z_chronologii and wykazane:
+                wg_dnia_wyk = dict(wykazane)
+                ostatni_dzien = max(wg_dnia_wyk)
+                prog = prog_na_dzien("tcr", ostatni_dzien)
+                pary = sorted(wg_dnia_wyk.items())
+                rows.append([
+                    "Współczynnik wypłacalności — WYKAZANY przez bank (nie policzony)",
+                    *[(f"{_fmt(wg_dnia_wyk[d])} %" if d in wg_dnia_wyk else "—") for d in okresy],
+                    (f"{pary[-1][1] - pary[-2][1]:+.2f} p.p." if len(pary) > 1 else "—"),
+                    (f"{_fmt(prog.minimum)}%" if prog else "—"),
+                    (prog.podstawa if prog else "brak progu w tym stanie prawnym"),
+                ])
+                for d, v in pary:
+                    metryki.append({
+                        "case_id": case_id, "key": "bank_tcr_wykazany",
+                        "label": "Współczynnik wypłacalności wykazany przez bank",
+                        "value": v, "unit": "%",
+                        "target": (prog_na_dzien("tcr", d).minimum if prog_na_dzien("tcr", d) else None),
+                        "session_day": d,
+                    })
+                zastrzezenia.append(
+                    "Współczynnik wypłacalności pochodzi z narracji nadzorczej i jest wartością "
+                    "WYKAZANĄ przez bank, nie policzoną przez silnik z funduszy własnych i aktywów "
+                    "ważonych ryzykiem — ustalenie, ile wynosił rzeczywiście, wymaga oceny, czy bank "
+                    "utworzył wymagane rezerwy."
+                )
 
             # Ostrzeżenia arytmetyczne (udział > 100%) trafiają do uwag razem z uwagami
             # odczytu — biegły ma je zobaczyć w tym samym miejscu.

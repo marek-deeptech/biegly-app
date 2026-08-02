@@ -91,3 +91,58 @@ def test_dynamika_pomija_okresy_bez_wartosci():
     d = dict(dynamika(_okresy(), "portfel_utrata"))
     assert d["2014-09-30"] == pytest.approx(265.6, abs=0.1)
     assert "2013-03-31" not in d  # pierwszy okres nie ma z czym się porównać
+
+
+# ── Most do silnika wskaźników ───────────────────────────────────────────────
+
+def _okres(**kw):
+    from engine.chronologia import OkresNadzorczy
+
+    return OkresNadzorczy(dzien=kw.pop("dzien", "2014-12-31"), **kw)
+
+
+def test_kwoty_nadzorcze_staja_sie_pozycjami_sprawozdawczymi():
+    """Akta bez sprawozdań z badanego okresu — liczby są w narracji nadzorcy.
+
+    W sprawie SK Banku jedyne dwa sprawozdania pochodzą z 2019 r., z postępowania
+    upadłościowego, a pytanie dotyczy lat 2012–2015. Bez tego mostu zakładka
+    wskaźników pokazywała pustkę, choć dane leżały w tej samej sprawie.
+    """
+    from engine.chronologia import jako_pozycje
+
+    p = jako_pozycje([_okres(suma_bilansowa=3828641000, portfel_kredytowy=2500215000,
+                             portfel_utrata=560663000, depozyty=3346830000,
+                             fundusze_wlasne=389566000, wynik_finansowy=7690000)])[0]
+    assert (p.aktywa_ogolem, p.kredyty_brutto, p.kredyty_zagrozone) == (3828641000, 2500215000, 560663000)
+    assert (p.depozyty_klientow, p.fundusze_wlasne, p.zysk_netto) == (3346830000, 389566000, 7690000)
+
+
+def test_wspolczynnik_wyplacalnosci_nie_przechodzi_jako_pozycja():
+    """WARTOŚĆ WYKAZANA NIE MOŻE UDAWAĆ POLICZONEJ.
+
+    Silnik liczy współczynnik z funduszy własnych i aktywów ważonych ryzykiem;
+    narracja nadzorcza RWA nie podaje. SK Bank wykazywał 13,84% przy jednoczesnym
+    nietworzeniu wymaganych rezerw — po ich utworzeniu wynik spadł o 123 mln zł.
+    """
+    from engine.chronologia import jako_pozycje, wykazane_wspolczynniki
+
+    okresy = [_okres(fundusze_wlasne=389566000, wsp_wyplacalnosci_pct=13.84)]
+    p = jako_pozycje(okresy)[0]
+    assert p.aktywa_wazone_ryzykiem is None
+    assert wykazane_wspolczynniki(okresy) == [("2014-12-31", 13.84)]
+
+
+def test_okres_z_samym_wspolczynnikiem_nie_daje_pozycji():
+    # Sam wskaźnik bez kwot nie jest pozycją sprawozdawczą — ta sama zasada,
+    # co przy odczycie sprawozdań: brak danych zostaje brakiem.
+    from engine.chronologia import jako_pozycje
+
+    assert jako_pozycje([_okres(wsp_wyplacalnosci_pct=9.5)]) == []
+
+
+def test_pozycje_ida_w_porzadku_chronologicznym():
+    from engine.chronologia import jako_pozycje
+
+    p = jako_pozycje([_okres(dzien="2015-09-30", suma_bilansowa=3086871000),
+                      _okres(dzien="2012-12-31", suma_bilansowa=1578168000)])
+    assert [x.dzien for x in p] == ["2012-12-31", "2015-09-30"]

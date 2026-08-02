@@ -298,6 +298,12 @@ export async function wykonajChronologie(
         ...(skrocone.length ? { uwagi: skrocone } : {}),
         zrodla: dokumenty.map((d) => ({ plik: d.plik })),
         podmiot: nazwy,
+        // ⚠️ SUROWE OKRESY, NIE TYLKO WYRENDEROWANA TABELA. Zapisywaliśmy wyłącznie
+        // wiersze sformatowane do wyświetlenia („1 578 168 000", „5.86 %"), więc
+        // jedyne liczby, jakimi ta sprawa dysponuje, były dostępne wyłącznie do
+        // czytania oczami. Zakładka wskaźników finansowych nie miała jak po nie
+        // sięgnąć i pokazywała pustkę, choć dane leżały obok.
+        okresy: unikalne,
       },
     },
     { onConflict: "case_id,kind" },

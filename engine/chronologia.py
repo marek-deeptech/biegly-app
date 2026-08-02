@@ -171,3 +171,53 @@ def dynamika(okresy: list[OkresNadzorczy], pole: str) -> list[tuple[str, float]]
         if a:
             out.append((d2, round(100.0 * (b - a) / abs(a), 2)))
     return out
+
+
+# ── Most do silnika wskaźników ───────────────────────────────────────────────
+# W sprawie SK Banku akta NIE ZAWIERAJĄ sprawozdań z badanego okresu — jedyne dwa
+# pochodzą z 2019 r., z postępowania upadłościowego, cztery lata po zdarzeniu.
+# Wielkości bilansowe za lata 2012–2015 są natomiast w harmonogramie działań
+# nadzorczych. To ten sam materiał liczbowy, tylko z innego dokumentu, więc te same
+# wskaźniki dają się z niego policzyć.
+#
+# ⚠️ CZEGO TEN MOST NIE PRZENOSI: współczynnika wypłacalności. Silnik liczy go
+# z funduszy własnych i aktywów ważonych ryzykiem, a narracja nadzorcza RWA nie
+# podaje — podaje sam współczynnik, WYKAZANY przez bank. Wartość wykazana i wartość
+# policzona mają różny status dowodowy (SK Bank wykazywał 13,84% przy nietworzeniu
+# wymaganych rezerw), więc wykazana nie ma prawa wejść do tabeli jako policzona.
+# Przenosi ją osobna funkcja, pod własną nazwą.
+
+
+def jako_pozycje(okresy: list[OkresNadzorczy]) -> list["Pozycje"]:  # noqa: F821
+    """Okresy nadzorcze jako pozycje sprawozdawcze — wyłącznie wielkości KWOTOWE."""
+    from .bank import Pozycje
+
+    out = []
+    for o in sorted(okresy, key=lambda x: x.dzien):
+        p = Pozycje(
+            dzien=o.dzien,
+            aktywa_ogolem=o.suma_bilansowa,
+            kredyty_brutto=o.portfel_kredytowy,
+            kredyty_zagrozone=o.portfel_utrata,
+            depozyty_klientow=o.depozyty,
+            fundusze_wlasne=o.fundusze_wlasne,
+            zysk_netto=o.wynik_finansowy,
+        )
+        # Okres bez ani jednej kwoty nie wnosi nic poza datą — ta sama zasada, co
+        # przy odczycie sprawozdań: brak danych ma zostać brakiem.
+        if any(v is not None for k, v in vars(p).items() if k not in ("dzien", "waluta")):
+            out.append(p)
+    return out
+
+
+def wykazane_wspolczynniki(okresy: list[OkresNadzorczy]) -> list[tuple[str, float]]:
+    """(dzień, współczynnik wypłacalności) — tak, jak podał go dokument nadzorczy.
+
+    Osobno od `jako_pozycje`, żeby wartości WYKAZANEJ nie dało się przypadkiem
+    wpuścić tam, gdzie aplikacja obiecuje wartość policzoną.
+    """
+    return [
+        (o.dzien, o.wsp_wyplacalnosci_pct)
+        for o in sorted(okresy, key=lambda x: x.dzien)
+        if o.wsp_wyplacalnosci_pct is not None
+    ]

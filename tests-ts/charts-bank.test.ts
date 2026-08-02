@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { chartSvg } from "@/lib/opinion/charts";
-import { wykresAdekwatnosci, wykresSzeregu, wykresyPozycji } from "@/lib/opinion/charts-bank";
+import { wykresAdekwatnosci, wykresSzeregu, wykresyBankowe, wykresyPozycji } from "@/lib/opinion/charts-bank";
 
 // Układ tabeli dokładnie taki, jaki produkuje /api/bank: wskaźniki w wierszach,
 // okresy w kolumnach, na końcu zmiana, próg i podstawa progu.
@@ -101,5 +101,43 @@ describe("wykresy kwotowe ze sprawozdań", () => {
   it("seria bez jednostki nie dostaje pustego nawiasu w legendzie", () => {
     // „Aktywa ważone ryzykiem (RWA) ()" wygląda w opinii sądowej jak usterka pliku.
     expect(chartSvg(wykresyPozycji(POZ)[0].spec)).not.toContain(" ()");
+  });
+});
+
+describe("wykresy dla sprawy bez sprawozdań (dane z chronologii nadzorczej)", () => {
+  // W sprawie SK Banku wskaźniki pochodzą z narracji nadzorczej, więc tabela nie ma
+  // wierszy CET1/Tier 1. Lista wierszy do wykresu obejmowała tylko je i rozdział
+  // o wskaźnikach zostawał bez jednego wykresu, mimo pełnego szeregu ośmiu okresów.
+  const tabela = {
+    head: ["Wskaźnik", "2012-12-31", "2014-12-31", "2015-09-30", "Zmiana", "Próg", "Podstawa progu"],
+    rows: [
+      ["Udział kredytów zagrożonych", "5,86 %", "22,42 %", "46,20 %", "+23.65 p.p.", "—", "brak progu"],
+      ["Współczynnik wypłacalności — WYKAZANY przez bank (nie policzony)",
+       "10,60 %", "13,84 %", "8,61 %", "-3.83 p.p.", "8%", "art. 92 ust. 1 lit. c CRR"],
+    ],
+  };
+
+  it("rysuje udział kredytów zagrożonych", () => {
+    const w = wykresyBankowe([{ kind: "wskazniki_bank", data: { table: tabela } }]);
+    const npl = w.find((x) => x.spec.title.includes("zagrożonych"));
+    expect(npl?.spec.left.values).toEqual([5.86, 22.42, 46.2]);
+    expect(npl?.spec.days).toEqual(["2012-12-31", "2014-12-31", "2015-09-30"]);
+  });
+
+  it("rysuje współczynnik wykazany z progiem z daty zdarzenia", () => {
+    const w = wykresyBankowe([{ kind: "wskazniki_bank", data: { table: tabela } }]);
+    const tcr = w.find((x) => x.spec.title.includes("WYKAZANY"));
+    expect(tcr?.spec.prog?.wartosc).toBe(8);
+    // Tytuł niesie zastrzeżenie: wykres bez niego sugerowałby wartość policzoną.
+    expect(tcr?.spec.title).toContain("nie policzony");
+  });
+
+  it("sprawa z pełnymi sprawozdaniami nie dostaje pustych wykresów", () => {
+    const mbr = {
+      head: ["Wskaźnik", "2007-12-31", "2008-06-30", "Zmiana", "Próg", "Podstawa progu"],
+      rows: [["Łączny współczynnik kapitałowy", "11,20 %", "10,10 %", "-1.10 p.p.", "8%", "Uchwała nr 1/2007 KNB"]],
+    };
+    const w = wykresyBankowe([{ kind: "wskazniki_bank", data: { table: mbr } }]);
+    expect(w).toHaveLength(1);
   });
 });
