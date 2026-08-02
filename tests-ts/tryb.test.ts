@@ -74,3 +74,19 @@ describe("prompty przejmują tryb", () => {
     }
   });
 });
+
+describe("akta mieszane", () => {
+  it("tryb cywilny zakazuje przenoszenia zastrzeżeń z innego postępowania", () => {
+    // W aktach sprawy cywilnej SK Banku leży akt oskarżenia z art. 296 k.k.
+    // Model przeniósł z niego ramę karną: rozdział kończył się zastrzeżeniem
+    // „kwalifikacja z art. 296 § 1 i 3 k.k. pozostaje w gestii sądu", choć
+    // w tym postępowaniu nikogo nie oskarża się o przestępstwo.
+    const b = blokTrybu("cywilne");
+    expect(b).toContain("AKTA MOGĄ ZAWIERAĆ MATERIAŁ Z INNEGO POSTĘPOWANIA");
+    expect(b).toContain("zastrzeżeń właściwych tamtemu trybowi nie przenoś");
+  });
+
+  it("ostrzeżenie jest w obu trybach — akta karne też bywają mieszane", () => {
+    expect(blokTrybu("karne")).toContain("AKTA MOGĄ ZAWIERAĆ MATERIAŁ Z INNEGO POSTĘPOWANIA");
+  });
+});

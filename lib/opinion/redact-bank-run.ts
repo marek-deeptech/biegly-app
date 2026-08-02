@@ -15,6 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 
+import { buildWnioskiBank } from "./wnioski-bank";
 import { buildStyleCorpus } from "./korekty";
 import {
   BANK_REDACT_KINDS,
@@ -25,6 +26,34 @@ import {
 import { buildWiedzaBlock } from "./wiedza";
 import { buildBankWnioskiPrompt, materialWnioskow } from "./wnioski-bank";
 import { buildWzorzecBlock } from "./wzorce";
+
+/**
+ * Zapis prozy do rozdziału — Z KONTROLĄ, ŻE COŚ SIĘ ZAPISAŁO.
+ *
+ * ⚠️ `update` na nieistniejącym wierszu aktualizuje ZERO rekordów i NIE zgłasza błędu.
+ * Redakcja Wniosków sprawy SK Banku zameldowała „✓ 10 811 zn.", a w bazie nie było
+ * wiersza — bo powstaje on dopiero w kroku „Generuj: Wnioski", którego nie wykonano.
+ * Trzecia w tej sesji awaria tej samej klasy: skutek zerowy zameldowany jako sukces.
+ */
+async function zapiszProze(
+  sb: SupabaseClient,
+  id: string,
+  kind: string,
+  text: string,
+): Promise<void> {
+  const { data, error } = await sb
+    .from("subanalyses")
+    .update({ body_md: text, status: "szkic" })
+    .eq("case_id", id)
+    .eq("kind", kind)
+    .select("id");
+  if (error) throw new Error(`Zapis rozdziału „${kind}” nie powiódł się: ${error.message}`);
+  if (!data?.length)
+    throw new Error(
+      `Rozdział „${kind}” nie istnieje w sprawie — proza nie została zapisana. ` +
+        "Wykonaj najpierw krok, który go tworzy (Krok 3/4 dla modułów, „Generuj: Wnioski” dla wniosków).",
+    );
+}
 
 export type WynikRedakcji = {
   kind: string;
@@ -85,7 +114,7 @@ async function jedenRozdzial(
     return { kind, ok: false, znakow: text.length, akapitow: 0, powod: "odpowiedź urwana na limicie długości" };
   if (!text) return { kind, ok: false, znakow: 0, akapitow: 0, powod: "model nie zwrócił treści" };
 
-  await sb.from("subanalyses").update({ body_md: text, status: "szkic" }).eq("case_id", id).eq("kind", kind);
+  await zapiszProze(sb, id, kind, text);
   return { kind, ok: true, znakow: text.length, akapitow: text.split(/\n\n+/).length };
 }
 
@@ -154,6 +183,22 @@ export async function zredagujWnioskiBankowe(sb: SupabaseClient, id: string): Pr
   if (msg.stop_reason === "max_tokens")
     return { kind: "wnioski", ok: false, znakow: text.length, akapitow: 0, powod: "odpowiedź urwana" };
   if (!text) return { kind: "wnioski", ok: false, znakow: 0, akapitow: 0, powod: "model nie zwrócił treści" };
-  await sb.from("subanalyses").update({ body_md: text, status: "szkic" }).eq("case_id", id).eq("kind", "wnioski");
+  // Wiersz Wniosków powstaje w kroku „Generuj: Wnioski". Redakcja wsadowa bywa
+  // uruchamiana bez niego, więc tworzymy go tu z tego samego budowniczego — inaczej
+  // proza nie miałaby gdzie trafić, a rejestr ustaleń w ogóle by nie powstał.
+  const szkielet = buildWnioskiBank(pytania, lista as never, dzien);
+  await sb.from("subanalyses").upsert(
+    {
+      case_id: id,
+      kind: "wnioski",
+      chapter_no: szkielet.chapterNo,
+      title: szkielet.title,
+      status: "szkic",
+      body_md: szkielet.bodyMd,
+      data: szkielet.data,
+    },
+    { onConflict: "case_id,kind" },
+  );
+  await zapiszProze(sb, id, "wnioski", text);
   return { kind: "wnioski", ok: true, znakow: text.length, akapitow: text.split(/\n\n+/).length };
 }

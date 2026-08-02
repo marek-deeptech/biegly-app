@@ -73,6 +73,14 @@ export function blokTrybu(tryb?: string | null): string {
   return (
     `Jesteś biegłym sądowym: ${t.rola}. Odpowiadasz na ${t.zrodloPytan}. ` +
     `POZA TWOJĄ KOMPETENCJĄ pozostają: ${t.pozaKompetencja}. ` +
-    `Strony postępowania nazywaj właściwie dla tego trybu (${t.strony}).`
+    `Strony postępowania nazywaj właściwie dla tego trybu (${t.strony}). ` +
+    // ⚠️ Akta bywają MIESZANE. W sprawie SK Banku (cywilnej) leży akt oskarżenia
+    // z art. 296 k.k., a model przeniósł z niego ramę karną: rozdział kończył się
+    // zastrzeżeniem „kwalifikacja z art. 296 § 1 i 3 k.k. pozostaje w gestii sądu",
+    // choć w tym postępowaniu nikogo nie oskarża się o przestępstwo.
+    "AKTA MOGĄ ZAWIERAĆ MATERIAŁ Z INNEGO POSTĘPOWANIA (np. akt oskarżenia w sprawie " +
+    "karnej). Możesz się na nie powoływać jako na DOWÓD, ale zastrzeżeń właściwych " +
+    "tamtemu trybowi nie przenoś do tej opinii — granica Twojej kompetencji wynika " +
+    "z postępowania, w którym Cię powołano, a nie z dokumentów leżących w aktach."
   );
 }
