@@ -12,7 +12,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
 }
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { docTypesDla } from "@/lib/intake/classify";
+import { docTypesDla, typyDziedzinowe, typyKlasyfikacji } from "@/lib/intake/classify";
 import { pdfText } from "@/lib/intake/pdf";
 import {
   buildKlasyfikacjaPrompt,
@@ -31,11 +31,32 @@ const WSZYSTKIE = process.argv.includes("--wszystkie");
 const ZNAKOW = 6000;   // początek dokumentu wystarcza — rozpoznajemy nagłówek, nie treść
 const W_PACZCE = 5;
 
+/**
+ * Ponowienie po BŁĘDZIE SIECI. Przebieg na kilkudziesięciu skanach to kilkanaście
+ * minut pobierania z Storage i odpytywania modelu; jedno `ECONNRESET` przerywało
+ * całość PRZED fazą zapisu, więc praca modelu szła w całości do kosza, a skrypt
+ * kończył się śladem stosu wyglądającym jak błąd programu, nie zerwane łącze.
+ */
+async function ponow<T>(co: string, fn: () => Promise<T>, prob = 3): Promise<T> {
+  let ostatni: unknown;
+  for (let i = 1; i <= prob; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      ostatni = e;
+      console.log(`   ⟳ ${co}: próba ${i}/${prob} nieudana (${(e as Error).message}) — ponawiam`);
+      await new Promise((r) => setTimeout(r, 2000 * i));
+    }
+  }
+  throw ostatni;
+}
+
 async function main() {
-  const { data: sprawy } = await sb.from("cases").select("id,name,typ").ilike("name", `%${SPRAWA}%`);
+  const { data: sprawy } = await sb.from("cases").select("id,name,typ,tryb").ilike("name", `%${SPRAWA}%`);
   if (!sprawy?.length) throw new Error(`Nie znaleziono sprawy: ${SPRAWA}`);
   const c = sprawy[0];
-  const TYPY = docTypesDla(c.typ);
+  const TYPY = docTypesDla(c.typ);           // pełny katalog — do etykiet i zapisu
+  const TYPY_MODELU = typyKlasyfikacji(c.typ); // węższy — bez kodów obcych dziedzinie
   const { data: docs } = await sb
     .from("documents")
     .select("id,rel_path,doc_type,storage_path,warstwa_tekstu")
@@ -51,27 +72,30 @@ async function main() {
 
   const wejscia: WejscieKlasyfikacji[] = [];
   for (const d of doCzytania) {
-    const { data: blob } = await sb.storage.from("case-files").download(d.storage_path!);
+    const nazwaPliku = d.rel_path.split("/").pop()!;
+    const { data: blob } = await ponow(nazwaPliku, () =>
+      sb.storage.from("case-files").download(d.storage_path!),
+    );
     if (!blob) continue;
     const tekst = await pdfText(await blob.arrayBuffer(), ZNAKOW).catch(() => "");
     if (tekst.trim().length < 80) {
       console.log(`   ⚠ ${d.rel_path.split("/").pop()}: po OCR wciąż < 80 znaków — pomijam`);
       continue;
     }
-    wejscia.push({ id: d.id, nazwa: d.rel_path.split("/").pop()!, tekst });
+    wejscia.push({ id: d.id, nazwa: nazwaPliku, tekst });
   }
 
   const ai = new Anthropic();
   const wyniki: WynikKlasyfikacji[] = [];
   for (let i = 0; i < wejscia.length; i += W_PACZCE) {
     const paczka = wejscia.slice(i, i + W_PACZCE);
-    const p = buildKlasyfikacjaPrompt(TYPY, paczka);
-    const msg = await ai.messages.create({
+    const p = buildKlasyfikacjaPrompt(TYPY_MODELU, paczka, { dziedzinowe: typyDziedzinowe(c.typ), tryb: c.tryb });
+    const msg = await ponow(`paczka ${i / W_PACZCE + 1}`, () => ai.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 4000,
       system: p.system,
       messages: [{ role: "user", content: p.user }],
-    });
+    }));
     if (msg.stop_reason === "max_tokens") {
       console.log(`   ⚠ paczka ${i / W_PACZCE + 1}: odpowiedź urwana — pomijam, uruchom ponownie`);
       continue;
@@ -83,7 +107,7 @@ async function main() {
     console.log(`   … ${Math.min(i + W_PACZCE, wejscia.length)}/${wejscia.length}`);
   }
 
-  const { przyjete, odrzucone } = przefiltruj(wyniki, TYPY);
+  const { przyjete, odrzucone } = przefiltruj(wyniki, TYPY_MODELU);
   const nazwa = (id: string) => (docs ?? []).find((d) => d.id === id)?.rel_path.split("/").pop() ?? id;
   console.log(`\n═══ ROZPOZNANE (${przyjete.length}) ═══`);
   for (const w of przyjete)

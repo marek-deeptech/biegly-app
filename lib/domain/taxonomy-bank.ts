@@ -24,6 +24,14 @@ export const DOC_TYPES_BANK: Record<string, DocType> = {
   DANE_RYNKOWE_SZEREG: { label: "Szereg danych rynkowych (CDS, kursy, stopy, indeksy)", source: "źródło rynkowe", provenance: "wejście" },
   RATING_AGENCJA: { label: "Rating / komunikat agencji ratingowej", source: "agencja ratingowa", provenance: "wejście" },
   PRASA: { label: "Publikacja prasowa (dowód stanu wiedzy powszechnej)", source: "media", provenance: "wejście" },
+  // ⚠️ DWA TYPY DOPISANE PRZY SPRAWIE SK BANKU. Katalog powstał na sprawie MBR, gdzie
+  // badano decyzję banku o ulokowaniu środków u kontrahenta — nie występował tam ani
+  // deponent, ani upadłość. W powództwie deponenta przeciwko nadzorcy potwierdzenie
+  // lokaty JEST dowodem szkody, a lista wierzytelności syndyka mówi, ile z niej odzyskano.
+  // Bez tych kodów model odsyłał je do KORESPONDENCJI albo zostawiał nierozpoznane
+  // (potwierdzenie eLokaty24 na 800 tys. zł dostało pewność 0,40 — nie miał czym trafić).
+  DOWOD_DEPOZYTU: { label: "Dokument klienta banku (umowa/potwierdzenie lokaty, zaświadczenie o środkach)", source: "bank", provenance: "wejście" },
+  UPADLOSC_SYNDYK: { label: "Dokument postępowania upadłościowego (syndyk, lista wierzytelności)", source: "syndyk / sąd upadłościowy", provenance: "wejście" },
   AKT_PRAWNY: { label: "Akt prawny (ustawa, rozporządzenie, uchwała nadzorcza)", source: "źródło prawa", provenance: "wejście" },
   RACHUNEK_BIEGLEGO: { label: "Rachunek / karta pracy biegłego (dokument rozliczeniowy)", source: "biegły sądowy", provenance: "wyjście" },
   GRAFIKA: { label: "Wykres / ilustracja do opinii", source: "biegły sądowy", provenance: "wyjście" },
@@ -80,6 +88,12 @@ export const RULES_BANK: { phrases: string[]; code: string }[] = [
   { phrases: ["financial times", "gazeta wyborcza", "rzeczpospolita", "puls biznesu", "bloomberg", "reuters",
               "w tarapatach", "whispers"], code: "PRASA" },
 
+  // Dokumenty deponenta i upadłości — przed korespondencją, bo mają formę pisma.
+  { phrases: ["lokata", "elokata", "zaświadczenie o stanie", "zaswiadczenie o stanie", "potwierdzenie zawarcia umowy",
+              "rachunek depozytowy"], code: "DOWOD_DEPOZYTU" },
+  { phrases: ["syndyk", "lista wierzytelności", "lista wierzytelnosci", "masa upadłości", "masa upadlosci",
+              "upadłość likwidacyjna", "upadlosc likwidacyjna"], code: "UPADLOSC_SYNDYK" },
+
   { phrases: ["pismo z dnia", "notatka służbowa", "notatka sluzbowa", "korespondencja", "departament ryzyka"], code: "KORESPONDENCJA_WEWN" },
   { phrases: ["uchwała", "uchwala"], code: "UCHWALA_WEWNETRZNA" },
 
@@ -95,7 +109,11 @@ export const WYMOGI_BANK: Wymog[] = [
   {
     id: "postanowienie",
     label: "Postanowienie o powołaniu biegłego (z pytaniami organu)",
-    docTypes: ["POSTANOWIENIE"],
+    // ⚠️ TRZY KODY, NIE JEDEN. `POSTANOWIENIE` wystawia prokurator, `POSTANOWIENIE_SAD`
+    // — sąd. Sprawa bankowa bywa cywilna (SK Bank, II C 595/23) i wtedy dowód z opinii
+    // dopuszcza sąd: postanowienie LEŻAŁO w aktach, a raport kompletności wykazywał
+    // brak krytyczny, bo pytał wyłącznie o kod prokuratorski.
+    docTypes: ["POSTANOWIENIE", "POSTANOWIENIE_SAD", "PYTANIA_BIEGLY"],
     namePatterns: [/postanowieni/i, /powołani[ue] biegłego/i],
     unlocks: ["pytania"],
     zamow: "Postanowienie o dopuszczeniu dowodu z opinii biegłego wraz z pełną treścią pytań.",
@@ -108,7 +126,8 @@ export const WYMOGI_BANK: Wymog[] = [
     namePatterns: [/\bsf-/i, /sprawozdanie finansowe/i, /financial statement/i, /annual report/i],
     unlocks: ["sprawozdania", "adekwatnosc"],
     zamow:
-      "Sprawozdania finansowe podmiotu, wobec którego oceniano ryzyko, za co najmniej dwa kolejne okresy poprzedzające zdarzenie — wraz z notą o funduszach własnych i aktywach ważonych ryzykiem.",
+      "Sprawozdania finansowe ocenianego podmiotu za co najmniej dwa kolejne okresy poprzedzające " +
+      "zdarzenie — wraz z notą o funduszach własnych i aktywach ważonych ryzykiem.",
     krytyczny: true,
   },
   {
@@ -118,7 +137,8 @@ export const WYMOGI_BANK: Wymog[] = [
     namePatterns: [/metodyk\w* limit/i, /limit\w* zaangażowan/i],
     unlocks: ["limity"],
     zamow:
-      "Obowiązująca w dacie zdarzenia metodyka wyznaczania limitów zaangażowania wraz z uchwałą wprowadzającą i wysokością limitów dla ocenianego kontrahenta.",
+      "Obowiązująca w dacie zdarzenia metodyka wyznaczania limitów zaangażowania wraz z uchwałą " +
+      "wprowadzającą oraz wysokością limitów obowiązujących w badanym okresie.",
     krytyczny: true,
   },
   {
@@ -128,7 +148,8 @@ export const WYMOGI_BANK: Wymog[] = [
     namePatterns: [/protoko[łl]/i, /kzaip/i],
     unlocks: ["procedury", "limity"],
     zamow:
-      "Protokoły posiedzeń komitetu zarządzania aktywami i pasywami (lub równoważnego) z okresu obejmującego zatwierdzenie limitów i podjęcie ocenianej decyzji.",
+      "Protokoły posiedzeń komitetu zarządzania aktywami i pasywami, komitetu kredytowego lub " +
+      "równoważnego, z okresu objętego badaniem.",
     krytyczny: true,
   },
   {
@@ -147,7 +168,9 @@ export const WYMOGI_BANK: Wymog[] = [
     namePatterns: [/\bcds\b/i, /icex/i, /\.csv$/i, /inflation/i],
     unlocks: ["makro", "sygnaly_rynkowe"],
     zamow:
-      "Notowania spreadów CDS ocenianego podmiotu oraz szeregi kursów walutowych, stóp procentowych i inflacji za okres poprzedzający zdarzenie.",
+      "Szeregi danych rynkowych właściwe dla ocenianego podmiotu — notowania spreadów CDS i oceny " +
+      "ratingowe, o ile podmiot był nimi objęty — oraz kursy walutowe, stopy procentowe i wskaźniki " +
+      "inflacji za okres poprzedzający zdarzenie.",
     krytyczny: false,
   },
   {
@@ -156,7 +179,9 @@ export const WYMOGI_BANK: Wymog[] = [
     docTypes: ["RAPORT_BANK_CENTRALNY"],
     namePatterns: [/financial stability/i, /monetary bulletin/i, /biuletyn monetarny/i],
     unlocks: ["makro", "ekspozycja_sektor"],
-    zamow: "Raporty o stabilności finansowej i biuletyny monetarne kraju siedziby kontrahenta z okresu badanego.",
+    zamow:
+      "Raporty o stabilności finansowej i biuletyny monetarne banku centralnego właściwego dla siedziby " +
+      "ocenianego podmiotu, za okres badany.",
     krytyczny: false,
   },
   {
@@ -169,6 +194,23 @@ export const WYMOGI_BANK: Wymog[] = [
     krytyczny: false,
   },
   {
+    // Moduł `chronologia_nadzoru` dołączył do pakietu bankowego przy sprawie SK Banku
+    // i NIE BYŁ ODBLOKOWYWANY PRZEZ ŻADEN WYMÓG — raport kompletności go nie wymieniał,
+    // więc jedyny moduł odpowiadający na pytanie „od kiedy dało się rozpoznać" nie
+    // pojawiał się ani wśród dostępnych, ani wśród zablokowanych. Milczenie o module
+    // czyta się jak jego brak w dziedzinie.
+    id: "chronologia",
+    label: "Datowany przebieg nadzoru (harmonogram, wystąpienia pokontrolne)",
+    docTypes: ["NADZOR_KNF"],
+    namePatterns: [/harmonogram/i, /wystąpieni\w* pokontroln/i, /wystapieni\w* pokontroln/i, /protok[óo][łl] z kontroli/i],
+    unlocks: ["chronologia_nadzoru"],
+    zamow:
+      "Datowany przebieg czynności nadzorczych wobec banku — harmonogram działań, protokoły i wystąpienia " +
+      "pokontrolne, zalecenia wraz z terminami — oraz wskaźniki banku w kolejnych okresach sprawozdawczych, " +
+      "w postaci, w jakiej dysponował nimi organ nadzoru w danym momencie.",
+    krytyczny: false,
+  },
+  {
     id: "audyt",
     label: "Ustalenia audytu wewnętrznego",
     docTypes: ["AUDYT_WEWNETRZNY"],
@@ -178,13 +220,32 @@ export const WYMOGI_BANK: Wymog[] = [
     krytyczny: false,
   },
   {
+    // Wymóg WYŁĄCZNIE cywilny: w sprawie karnej o niegospodarność nie ma powoda ani
+    // roszczenia, więc wypisywanie go tam byłoby brakiem nie do uzupełnienia.
+    id: "szkoda",
+    label: "Dowód wysokości i losu środków powoda (lokata, lista wierzytelności)",
+    docTypes: ["DOWOD_DEPOZYTU", "UPADLOSC_SYNDYK"],
+    namePatterns: [/lokat/i, /zaświadczeni/i, /lista wierzytelnoś/i, /syndyk/i],
+    // Świadomie pusta: dowód szkody nie odblokowuje modułu ANALIZY — biegły ustala
+    // stan banku i przebieg nadzoru, a nie wysokość roszczenia. Wymóg opisuje, co MUSI
+    // być w aktach, żeby opinia dało się do czegoś odnieść, nie co da się z niego policzyć.
+    unlocks: [],
+    zamow:
+      "Dokumenty potwierdzające wysokość środków powoda w banku (umowa lub potwierdzenie lokaty, " +
+      "zaświadczenie o stanie rachunku) oraz zaspokojenie wierzytelności w postępowaniu upadłościowym " +
+      "(lista wierzytelności, plan podziału).",
+    krytyczny: false,
+    tryb: "cywilne",
+  },
+  {
     id: "prasa",
     label: "Publikacje prasowe z okresu poprzedzającego zdarzenie",
     docTypes: ["PRASA"],
     namePatterns: [/financial times/i, /gazeta/i, /rzeczpospolita/i],
     unlocks: ["media"],
     zamow:
-      "Publikacje prasowe dotyczące sytuacji kontrahenta i jego rynku, opublikowane przed dniem ocenianej decyzji (dowód stanu wiedzy powszechnie dostępnej).",
+      "Publikacje prasowe dotyczące sytuacji ocenianego podmiotu i jego rynku, opublikowane PRZED dniem " +
+      "zdarzenia objętego badaniem (dowód stanu wiedzy powszechnie dostępnej, nie wiedzy dzisiejszej).",
     krytyczny: false,
   },
 ];

@@ -38,17 +38,44 @@ export type WynikKlasyfikacji = {
 /** Poniżej tej pewności zostawiamy UNKNOWN i oddajemy decyzję biegłemu. */
 export const PROG_PEWNOSCI = 0.6;
 
+/** Kontekst sprawy — decyduje o pierwszeństwie typów i o nazewnictwie postępowania. */
+export type KontekstKlasyfikacji = {
+  /**
+   * Kody typów właściwych DZIEDZINIE sprawy. Mają pierwszeństwo przed rdzeniem
+   * ogólnoprocesowym — patrz komentarz przy regule (6).
+   */
+  dziedzinowe?: string[];
+  /** Tryb postępowania, żeby prompt nie nazywał sprawy cywilnej karną. */
+  tryb?: string | null;
+};
+
 export function buildKlasyfikacjaPrompt(
   typy: Record<string, DocType>,
   dokumenty: WejscieKlasyfikacji[],
+  kontekst: KontekstKlasyfikacji = {},
 ): { system: string; user: string } {
-  const katalog = Object.entries(typy)
-    .filter(([k]) => k !== "UNKNOWN")
-    .map(([kod, t]) => `- ${kod}: ${t.label} (źródło: ${t.source})`)
-    .join("\n");
+  const dziedzinowe = new Set(kontekst.dziedzinowe ?? []);
+  const wiersz = ([kod, t]: [string, DocType]) => `- ${kod}: ${t.label} (źródło: ${t.source})`;
+  const wpisy = Object.entries(typy).filter(([k]) => k !== "UNKNOWN");
+  const dzied = wpisy.filter(([k]) => dziedzinowe.has(k)).map(wiersz);
+  const rdzen = wpisy.filter(([k]) => !dziedzinowe.has(k)).map(wiersz);
+
+  // Bez podziału na sekcje model dostaje jedną listę ~54 kodów, w której typ
+  // dziedzinowy i ogólnoprocesowy są równorzędne — i wybiera raz jeden, raz drugi.
+  const katalog = dzied.length
+    ? [
+        "TYPY DZIEDZINOWE — mają PIERWSZEŃSTWO:",
+        ...dzied,
+        "",
+        "TYPY OGÓLNOPROCESOWE — wybierz dopiero wtedy, gdy żaden dziedzinowy nie pasuje:",
+        ...rdzen,
+      ].join("\n")
+    : rdzen.join("\n");
+
+  const postepowanie = kontekst.tryb === "cywilne" ? "sprawy cywilnej" : "sprawy karnej";
 
   const system =
-    "Jesteś asystentem biegłego sądowego. Klasyfikujesz dokumenty z akt sprawy karnej na podstawie " +
+    `Jesteś asystentem biegłego sądowego. Klasyfikujesz dokumenty z akt ${postepowanie} na podstawie ` +
     "ICH TREŚCI — nagłówków, pieczęci, podpisów, formuł urzędowych. Nazwa pliku nie niesie informacji " +
     "(to skany z automatycznymi nazwami) i nie wolno się nią sugerować. " +
     "ZASADY BEZWZGLĘDNE: " +
@@ -59,7 +86,14 @@ export function buildKlasyfikacjaPrompt(
     "o zatwierdzeniu regulaminu kredytowego”), a nie streszczenie treści. " +
     "(4) `data`, `wytworca` i `karta` podawaj WYŁĄCZNIE gdy widnieją w dokumencie — nie wyprowadzaj ich " +
     "z kontekstu ani z innych dokumentów. " +
-    "(5) Odpowiadasz WYŁĄCZNIE obiektem JSON.";
+    // ⚠️ REGUŁA WYPROWADZONA Z BŁĘDU. W sprawie SK Banku wystąpienie pokontrolne NIK
+    // dotyczące nadzoru KNF nad bankiem trafiło do KORESPONDENCJI, a fragment TEGO
+    // SAMEGO raportu — do NADZOR_KNF. Oba typy pasowały, więc wybór był losowy.
+    // Skutek: raport kompletności nie widział materiałów nadzoru, czyli rdzenia akt.
+    "(5) FORMA DOKUMENTU NIE PRZESĄDZA TYPU. To, że materiał ma postać pisma, nie czyni go " +
+    "korespondencją, jeżeli jego treścią jest ustalenie organu nadzoru, sprawozdanie albo umowa. " +
+    "Gdy dokument pasuje jednocześnie do typu dziedzinowego i ogólnoprocesowego, wybierz DZIEDZINOWY. " +
+    "(6) Odpowiadasz WYŁĄCZNIE obiektem JSON.";
 
   const user = [
     "Katalog typów dokumentów tej dziedziny — wybierz kod z tej listy albo UNKNOWN:",

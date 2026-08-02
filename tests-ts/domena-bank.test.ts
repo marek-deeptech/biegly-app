@@ -76,6 +76,32 @@ describe("raport kompletności", () => {
     expect(r.braki_krytyczne.join(" ")).toContain("Sprawozdania");
   });
 
+  it("postanowienie SĄDU też powołuje biegłego — sprawa bankowa bywa cywilna", () => {
+    // Wymóg pytał wyłącznie o kod prokuratorski POSTANOWIENIE. W sprawie SK Banku
+    // (II C 595/23) dowód z opinii dopuścił sąd, więc postanowienie leżało w aktach
+    // jako POSTANOWIENIE_SAD — a raport wykazywał brak KRYTYCZNY dokumentu, który jest.
+    const akta = [{ rel_path: "SKM_C451i26080212340.ocr.pdf", doc_type: "POSTANOWIENIE_SAD" }];
+    const r = buildCompleteness(akta, "ryzyko_bankowe");
+    expect(r.wymogi.find((x) => x.wymog.id === "postanowienie")!.spelniony).toBe(true);
+    expect(r.braki_krytyczne.join(" ")).not.toContain("Postanowienie");
+  });
+
+  it("moduł chronologii nadzoru jest w ogóle wymieniany", () => {
+    // Moduł dołączył do pakietu przy sprawie SK Banku i nie był odblokowywany przez
+    // żaden wymóg — nie pojawiał się ani wśród dostępnych, ani wśród zablokowanych.
+    // Jedyny moduł odpowiadający na pytanie „od kiedy dało się rozpoznać" był niewidoczny.
+    const r = buildCompleteness(docs, "ryzyko_bankowe");
+    expect(r.techniki.map((t) => t.kind)).toContain("chronologia_nadzoru");
+    const chrono = r.techniki.find((t) => t.kind === "chronologia_nadzoru")!;
+    expect(chrono.label).not.toBe("chronologia_nadzoru");   // ma etykietę, nie surowy kod
+  });
+
+  it("materiały nadzoru odblokowują chronologię", () => {
+    const akta = [{ rel_path: "harmonogram dzialan UKNF.pdf", doc_type: "NADZOR_KNF" }];
+    const r = buildCompleteness(akta, "ryzyko_bankowe");
+    expect(r.techniki.find((t) => t.kind === "chronologia_nadzoru")!.dostepna).toBe(true);
+  });
+
   it("skan bez warstwy tekstowej NIE spełnia wymogu", () => {
     // Najgroźniejszy błąd, jaki ta aplikacja może popełnić: w sprawie MBR raport
     // pokazał 10/10, a dziewięć kluczowych dokumentów miało zero znaków na 125

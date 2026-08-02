@@ -32,6 +32,15 @@ export type Wymog = {
   zamow: string;
   /** Czy brak przekreśla rdzeń opinii (a nie tylko jeden rozdział). */
   krytyczny: boolean;
+  /**
+   * Tryb postępowania, w którym wymóg w ogóle występuje. Brak = w każdym.
+   *
+   * Dokumenty wymagane zależą nie tylko od DZIEDZINY, ale i od tego, KTO pyta:
+   * w powództwie deponenta o zapłatę trzeba wykazać wysokość szkody, a w sprawie
+   * karnej o niegospodarność nie ma powoda ani roszczenia. Wymóg wypisany w złym
+   * trybie to brak, którego nie da się uzupełnić — akta go nigdy nie będą zawierać.
+   */
+  tryb?: "karne" | "cywilne";
 };
 
 // Etykiety technik — spójne z lib/opinion/chapters.ts (IV_TITLE).
@@ -56,6 +65,7 @@ const TECH_LABEL: Record<string, string> = {
   ekspozycja_sektor: "Skala sektora bankowego wobec gospodarki",
   sprawozdania: "Analiza sprawozdań finansowych kontrahenta",
   adekwatnosc: "Współczynniki kapitałowe w czasie",
+  chronologia_nadzoru: "Chronologia nadzorcza i wskaźniki banku w czasie",
   limity: "Metodyka limitów i koncentracja zaangażowania",
   procedury: "Proces decyzyjny i dokumenty wewnętrzne",
   otoczenie_prawne: "Otoczenie prawne i standardy identyfikacji ryzyka",
@@ -208,8 +218,15 @@ const basename = (p: string) => p.split(/[/\\]/).pop() ?? p;
 // Wymogi zależą od dziedziny: akta bankowe niosą metodyki limitów i protokoły
 // komitetów, a nie arkusze zleceń. Brak typu → GPW, bo sprawy sprzed migracji 0010
 // nie mają ustawionego typu i ich raport musi wyglądać jak dotąd.
-export function buildCompleteness(documents: DocLite[], typ?: string | null): RaportKompletnosci {
-  const zestaw = typ === "ryzyko_bankowe" ? WYMOGI_BANK : WYMOGI;
+export function buildCompleteness(
+  documents: DocLite[],
+  typ?: string | null,
+  tryb?: string | null,
+): RaportKompletnosci {
+  const wszystkieWymogi = typ === "ryzyko_bankowe" ? WYMOGI_BANK : WYMOGI;
+  // Brak trybu = karne (tak działały wszystkie sprawy sprzed migracji 0014).
+  const trybSprawy = tryb === "cywilne" ? "cywilne" : "karne";
+  const zestaw = wszystkieWymogi.filter((w) => !w.tryb || w.tryb === trybSprawy);
   const wymogi: WymogStatus[] = zestaw.map((w) => {
     // 1) dopasowanie po typie dokumentu (mocniejszy sygnał — świadoma klasyfikacja)
     const poTypie = w.docTypes.length

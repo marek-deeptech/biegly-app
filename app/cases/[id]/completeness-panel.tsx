@@ -17,16 +17,19 @@ export default function CompletenessPanel({
   caseName,
   signature,
   typ,
+  tryb,
 }: {
   documents: DocLite[];
   caseName: string;
   signature: string | null;
   /** Dziedzina sprawy — wyznacza zestaw wymogów i listę modułów analizy. */
   typ?: string | null;
+  /** Tryb postępowania — część wymogów występuje tylko w jednym z nich. */
+  tryb?: string | null;
 }) {
   const [pokazPismo, setPokazPismo] = useState(false);
   const [skopiowano, setSkopiowano] = useState(false);
-  const raport = useMemo(() => buildCompleteness(documents, typ), [documents, typ]);
+  const raport = useMemo(() => buildCompleteness(documents, typ, tryb), [documents, typ, tryb]);
   const pismo = useMemo(() => pismoDoOrganu(raport, caseName, signature), [raport, caseName, signature]);
 
   // Pliki nieczytelne, dla których NIE ma wersji po OCR. Oryginał skanu, którego

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { docTypesDla } from "@/lib/intake/classify";
+import { docTypesDla, typyDziedzinowe, typyKlasyfikacji } from "@/lib/intake/classify";
 import { buildKlasyfikacjaPrompt, przefiltruj, PROG_PEWNOSCI } from "@/lib/intake/klasyfikacja-tresci";
 
 const TYPY = docTypesDla("ryzyko_bankowe");
@@ -63,5 +63,63 @@ describe("odsiew wyników", () => {
     const { przyjete, odrzucone } = przefiltruj([{ id: "a", typ: "UNKNOWN", pewnosc: 0.95, opis: "?" }], TYPY);
     expect(przyjete).toHaveLength(0);
     expect(odrzucone[0].powod).toContain("nie rozpoznał");
+  });
+});
+
+// ── Pierwszeństwo typów dziedzinowych ────────────────────────────────────────
+// Sprawa bankowa dostaje rdzeń ogólnoprocesowy PLUS katalog bankowy — razem ~50 kodów,
+// w których „pismo organu nadzoru" pasuje i do NADZOR_KNF, i do KORESPONDENCJI.
+// W aktach SK Banku wystąpienie pokontrolne NIK trafiło do korespondencji, a fragment
+// TEGO SAMEGO raportu — do materiałów nadzoru. Raport kompletności przestał wtedy
+// widzieć rdzeń akt sprawy o nadzór.
+describe("pierwszeństwo typów dziedziny", () => {
+  const KONTEKST = { dziedzinowe: typyDziedzinowe("ryzyko_bankowe"), tryb: "cywilne" };
+
+  it("dzieli katalog na dziedzinowy i ogólnoprocesowy", () => {
+    const { user } = buildKlasyfikacjaPrompt(TYPY, DOK, KONTEKST);
+    expect(user).toContain("TYPY DZIEDZINOWE");
+    expect(user).toContain("TYPY OGÓLNOPROCESOWE");
+    expect(user.indexOf("NADZOR_KNF")).toBeLessThan(user.indexOf("- KORESPONDENCJA:"));
+  });
+
+  it("mówi wprost, że forma pisma nie przesądza typu", () => {
+    const { system } = buildKlasyfikacjaPrompt(TYPY, DOK, KONTEKST);
+    expect(system).toContain("FORMA DOKUMENTU NIE PRZESĄDZA TYPU");
+    expect(system).toContain("wybierz DZIEDZINOWY");
+  });
+
+  it("nie nazywa sprawy cywilnej karną", () => {
+    expect(buildKlasyfikacjaPrompt(TYPY, DOK, KONTEKST).system).toContain("sprawy cywilnej");
+    expect(buildKlasyfikacjaPrompt(TYPY, DOK, { tryb: "karne" }).system).toContain("sprawy karnej");
+  });
+
+  it("dziedzina GPW zostaje przy jednej liście — bez zmiany dla spraw sprzed migracji 0010", () => {
+    const gpw = docTypesDla(null);
+    const { user } = buildKlasyfikacjaPrompt(gpw, DOK, { dziedzinowe: typyDziedzinowe(null) });
+    expect(user).not.toContain("TYPY DZIEDZINOWE");
+    expect(user).toContain("DANE_UTP");
+  });
+});
+
+describe("katalog podsuwany modelowi", () => {
+  it("sprawie bankowej nie podsuwa kodu dublującego typ bankowy", () => {
+    // Informacja dodatkowa do sprawozdania SK Banku dostała SPRAWOZDANIE_FIN zamiast
+    // SPRAWOZDANIE_BANK, a zaświadczenie banku o stanie środków — DANE_BROKERSKIE
+    // („Dane z firm inwestycyjnych"). Sama reguła pierwszeństwa tego nie domykała.
+    const modelu = typyKlasyfikacji("ryzyko_bankowe");
+    expect(modelu).not.toHaveProperty("SPRAWOZDANIE_FIN");
+    expect(modelu).not.toHaveProperty("DANE_BROKERSKIE");
+    expect(modelu).not.toHaveProperty("DANE_UTP");
+    expect(modelu).toHaveProperty("SPRAWOZDANIE_BANK");
+    expect(modelu).toHaveProperty("KORESPONDENCJA");
+  });
+
+  it("katalog ETYKIET zostaje pełny — dokument oznaczony kiedyś takim kodem ma się wyświetlać", () => {
+    expect(docTypesDla("ryzyko_bankowe")).toHaveProperty("SPRAWOZDANIE_FIN");
+    expect(docTypesDla("ryzyko_bankowe").DANE_BROKERSKIE.label).toBeTruthy();
+  });
+
+  it("dziedziny GPW nie zawęża", () => {
+    expect(Object.keys(typyKlasyfikacji(null))).toEqual(Object.keys(docTypesDla(null)));
   });
 });
