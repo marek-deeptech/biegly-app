@@ -24,6 +24,10 @@ import {
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 const SPRAWA = process.argv[2];
 const ZAPISZ = process.argv.includes("--zapisz");
+// Domyślnie ruszamy tylko nierozpoznane — ponowne pytanie o dokument już opisany
+// kosztuje tyle samo, co pierwsze. `--wszystkie` służy uzupełnieniu OPISÓW w sprawach
+// sklasyfikowanych, zanim kolumna `opis` istniała.
+const WSZYSTKIE = process.argv.includes("--wszystkie");
 const ZNAKOW = 6000;   // początek dokumentu wystarcza — rozpoznajemy nagłówek, nie treść
 const W_PACZCE = 5;
 
@@ -41,7 +45,7 @@ async function main() {
   // bliźniaka po OCR — to ten sam dokument, a zostawiony jako UNKNOWN zaśmiecałby
   // listę i psuł raport kompletności.
   const doCzytania = (docs ?? []).filter(
-    (d) => d.storage_path && d.warstwa_tekstu !== "brak" && d.doc_type === "UNKNOWN",
+    (d) => d.storage_path && d.warstwa_tekstu !== "brak" && (WSZYSTKIE || d.doc_type === "UNKNOWN"),
   );
   console.log(`${c.name}: ${docs?.length} dokumentów, do klasyfikacji ${doCzytania.length}`);
 
@@ -121,7 +125,7 @@ async function main() {
     zapisane++;
     const n = nazwa(w.id);
     const oryginal = n.endsWith(".ocr.pdf") ? wgNazwy.get(n.replace(/\.ocr\.pdf$/i, ".pdf")) : null;
-    if (oryginal && oryginal.doc_type === "UNKNOWN" && (await zapisz(oryginal.id, pola))) blizniakow++;
+    if (oryginal && (WSZYSTKIE || oryginal.doc_type === "UNKNOWN") && (await zapisz(oryginal.id, pola))) blizniakow++;
   }
   if (bledy.length) {
     console.log(`\n✗ NIE ZAPISANO ${bledy.length} — klasyfikacja NIE weszła do bazy:`);
