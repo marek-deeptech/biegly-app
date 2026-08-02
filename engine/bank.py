@@ -108,6 +108,28 @@ class Pozycje:
     aktywa_plynne: float | None = None
     wyplywy_netto_30d: float | None = None
 
+    # ── Pozycje wymagane przez rubrykę analizy ekonomiczno-finansowej ──────────
+    # Dopisane po odczytaniu ze skanu uchwały nr 12/14/AB/BS/2002 Zarządu Banku BPS
+    # (akta SK Banku, k. 162–163) rubryki 16 wskaźników w 4 obszarach, którą bank
+    # zrzeszający był zobowiązany stosować do banków spółdzielczych.
+    #
+    # ⚠️ ISTNIEJĄ, ŻEBY BRAK BYŁ NAZWANY. Żadnej z tych pozycji nie ma w aktach SK
+    # Banku — i to jest ustalenie, nie usterka: bez nich dziesięciu z szesnastu
+    # wskaźników nie da się policzyć, a lista brakujących pozycji jest gotową treścią
+    # wniosku dowodowego. Pole nieobecne w modelu dawałoby komunikat „wskaźnik
+    # nieobsługiwany" zamiast „brak danych", czyli zrzucałoby winę na aplikację.
+    fundusz_udzialowy: float | None = None
+    fundusze_podstawowe: float | None = None
+    odpis_zobowiazan_podporzadkowanych: float | None = None
+    aktywa_pracujace: float | None = None
+    rezerwy_utworzone: float | None = None
+    rezerwy_wymagane: float | None = None
+    koszty_dzialania: float | None = None
+    wynik_dzialalnosci_bankowej: float | None = None
+    wynik_z_rezerw: float | None = None
+    pasywa_niestabilne: float | None = None
+    depozyty_stabilne: float | None = None
+
 
 @dataclass
 class Wskaznik:
