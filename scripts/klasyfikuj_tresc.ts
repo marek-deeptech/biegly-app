@@ -91,24 +91,43 @@ async function main() {
 
   if (!ZAPISZ) { console.log("\ntryb raportu — uruchom z --zapisz"); return; }
 
+  // Kolumna `opis` przychodzi migracją 0013 i bywa jeszcze nieuruchomiona. Sprawdzamy
+  // to RAZ, zamiast pozwolić, żeby każdy update cicho padał na nieznanej kolumnie.
+  const { error: brakOpisu } = await sb.from("documents").select("opis").limit(1);
+  const zOpisem = !brakOpisu;
+  if (!zOpisem)
+    console.log("\n⚠ kolumna `opis` nie istnieje (migracja 0013 nieuruchomiona) — zapisuję sam typ.");
+
   // Zapis + przeniesienie typu na oryginał skanu (X.pdf ↔ X.ocr.pdf).
   const wgNazwy = new Map((docs ?? []).map((d) => [d.rel_path.split("/").pop()!, d]));
   let zapisane = 0, blizniakow = 0;
+  const bledy: string[] = [];
+  const zapisz = async (id: string, pola: Record<string, unknown>) => {
+    // ⚠️ BŁĄD ZAPISU MUSI BYĆ WIDOCZNY. supabase-js NIE RZUCA wyjątku — zwraca `error`.
+    // Bez tego sprawdzenia skrypt wypisał „✓ zapisano 28 klasyfikacji", podczas gdy
+    // każdy update padł na nieistniejącej kolumnie i wszystkie 64 dokumenty zostały
+    // UNKNOWN. Komunikat sukcesu przy zerowym skutku jest gorszy niż jawny błąd.
+    const { error } = await sb.from("documents").update(pola).eq("id", id);
+    if (error) { bledy.push(`${nazwa(id)}: ${error.message}`); return false; }
+    return true;
+  };
   for (const w of przyjete) {
     const t = TYPY[w.typ];
     const pola: Record<string, unknown> = { doc_type: w.typ };
     if (t.provenance === "wejście" || t.provenance === "wyjście") pola.provenance = t.provenance;
-    if (w.opis) pola.opis = w.opis;
+    if (zOpisem && w.opis) pola.opis = w.opis;
     if (w.karta) pola.karta_start = w.karta;
-    await sb.from("documents").update(pola).eq("id", w.id);
+    if (!(await zapisz(w.id, pola))) continue;
     zapisane++;
     const n = nazwa(w.id);
     const oryginal = n.endsWith(".ocr.pdf") ? wgNazwy.get(n.replace(/\.ocr\.pdf$/i, ".pdf")) : null;
-    if (oryginal && oryginal.doc_type === "UNKNOWN") {
-      await sb.from("documents").update(pola).eq("id", oryginal.id);
-      blizniakow++;
-    }
+    if (oryginal && oryginal.doc_type === "UNKNOWN" && (await zapisz(oryginal.id, pola))) blizniakow++;
   }
-  console.log(`\n✓ zapisano ${zapisane} klasyfikacji (+ ${blizniakow} oryginałów skanów)`);
+  if (bledy.length) {
+    console.log(`\n✗ NIE ZAPISANO ${bledy.length} — klasyfikacja NIE weszła do bazy:`);
+    for (const b of bledy.slice(0, 5)) console.log(`   ${b}`);
+    process.exitCode = 1;
+  }
+  console.log(`\n${zapisane ? "✓" : "✗"} zapisano ${zapisane} klasyfikacji (+ ${blizniakow} oryginałów skanów)`);
 }
 main();
