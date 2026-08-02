@@ -31,13 +31,14 @@ describe("chronologia nadzorcza", () => {
     const f = zbudujChronologie(OKRESY, [], DZIEN).findings.join(" ");
     expect(f).toContain("pochodzą z 2014-12-31");
     expect(f).toContain("75 dni wcześniej");
-    expect(f).toContain("22.42%");
+    // Zapis POLSKI — to tekst opinii dla sądu, nie wydruk techniczny.
+    expect(f).toContain("22,42%");
   });
 
   it("podaje trend udziału — to on odpowiada na pytanie „od kiedy”", () => {
     const f = zbudujChronologie(OKRESY, [], DZIEN).findings.join(" ");
-    expect(f).toContain("2013-12-31 — 6.97%");
-    expect(f).toContain("2015-09-30 — 46.20%");
+    expect(f).toContain("2013-12-31 — 6,97%");
+    expect(f).toContain("2015-09-30 — 46,20%");
   });
 
   it("bez okresu przed datą mówi wprost, że ustalić się nie da", () => {
