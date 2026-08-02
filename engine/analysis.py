@@ -1,6 +1,6 @@
 """Zbiorcze obliczenie wskaźników z danych UTP — jedno źródło prawdy.
 
-Używane lokalnie (testy) i przez funkcję Vercel (api/analyze.py). Reużywa
+Używane lokalnie (testy) i przez funkcję Vercel (engine/uslugi/analyze.py). Reużywa
 zwalidowanych funkcji z metrics.py; zwraca listę rekordów gotowych do zapisu
 w tabeli `metrics`.
 """

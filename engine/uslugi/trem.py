@@ -14,7 +14,8 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Katalog repozytorium — o dwa poziomy wyżej niż ten plik (engine/uslugi/…).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from engine.analysis import compute_trem  # noqa: E402
 from engine.loader import load_trem_paired  # noqa: E402
 

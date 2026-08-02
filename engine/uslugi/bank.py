@@ -18,7 +18,8 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Katalog repozytorium — o dwa poziomy wyżej niż ten plik (engine/uslugi/…).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from dataclasses import fields as _pola_dataclass  # noqa: E402
 
 from engine.bank import Pozycje, szereg, wskazniki, zmiany  # noqa: E402
@@ -348,6 +349,6 @@ class handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    # Uruchomienie z konsoli: python3 api/bank.py <case_id>
+    # Uruchomienie z konsoli: python3 -m engine.uslugi.bank <case_id>
     kod, payload = policz(sys.argv[1] if len(sys.argv) > 1 else "")
     print(kod, json.dumps(payload, ensure_ascii=False, indent=1))

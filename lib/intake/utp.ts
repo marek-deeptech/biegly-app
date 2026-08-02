@@ -11,7 +11,7 @@
 //   2) najwyższa WERSJA w nazwie (-4, _pop, _pop2, „final") — „ostatni wariant",
 //   3) największy ROZMIAR (proxy kompletności) — „najpełniejszy", gdy w nazwach brak wersji.
 //
-// UWAGA: bliźniacza logika w Pythonie — api/spoofing.py (_is_main, _utp_version_key). Zmiana
+// UWAGA: bliźniacza logika w Pythonie — engine/uslugi/spoofing.py (_is_main, _utp_version_key). Zmiana
 // tu wymaga zmiany tam (test: tests/test_utp_pick.py blokuje wybór dla HUBTECH i MLM).
 
 function base(p: string): string {

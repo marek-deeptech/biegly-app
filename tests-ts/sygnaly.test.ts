@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-// Moduł sygnałów rynkowych jest w Pythonie (api/sygnaly.py) — tu sprawdzamy tylko
+// Moduł sygnałów rynkowych jest w Pythonie (engine/uslugi/sygnaly.py) — tu sprawdzamy tylko
 // to, co decyduje o jego wpięciu: rodzaj rozdziału musi być znany redakcji prozy
 // i mieć profil doktryny, inaczej rozdział powstanie bez materiału referencyjnego.
 import { BANK_REDACT_KINDS } from "@/lib/opinion/redact-bank";

@@ -12,15 +12,15 @@ import importlib.util
 import os
 
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_spec = importlib.util.spec_from_file_location("api_spoofing", os.path.join(_HERE, "api", "spoofing.py"))
-api_spoofing = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(api_spoofing)
-_is_main = api_spoofing._is_main
-_version = api_spoofing._utp_version_key
+_spec = importlib.util.spec_from_file_location("uslugi_spoofing", os.path.join(_HERE, "engine", "uslugi", "spoofing.py"))
+uslugi_spoofing = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(uslugi_spoofing)
+_is_main = uslugi_spoofing._is_main
+_version = uslugi_spoofing._utp_version_key
 
 
 def _pick(files):
-    """Odtwarza wybór z api/spoofing.py: filtr .xlsx + _is_main, sort (wersja, rozmiar) malejąco."""
+    """Odtwarza wybór z engine/uslugi/spoofing.py: filtr .xlsx + _is_main, sort (wersja, rozmiar) malejąco."""
     cand = [d for d in files if str(d["rel_path"]).lower().endswith(".xlsx")]
     pick = [d for d in cand if _is_main(d["rel_path"])] or cand
     pick.sort(key=lambda d: (_version(d["rel_path"]), d.get("size_bytes") or 0), reverse=True)

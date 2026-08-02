@@ -2,29 +2,19 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "functions": {
-    "api/analyze.py": {
+    "api/silnik.py": {
       "includeFiles": "engine/**",
       "maxDuration": 60
-    },
-    "api/trem.py": {
-      "includeFiles": "engine/**",
-      "maxDuration": 60
-    },
-    "api/ip.py": {
-      "includeFiles": "engine/**",
-      "maxDuration": 60
-    },
-    "api/bank.py": {
-      "includeFiles": "engine/**",
-      "maxDuration": 300
-    },
-    "api/makro.py": {
-      "includeFiles": "engine/**",
-      "maxDuration": 120
-    },
-    "api/sygnaly.py": {
-      "includeFiles": "engine/**",
-      "maxDuration": 120
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/analyze", "destination": "/api/silnik?fn=analyze" },
+    { "source": "/api/bank", "destination": "/api/silnik?fn=bank" },
+    { "source": "/api/ip", "destination": "/api/silnik?fn=ip" },
+    { "source": "/api/makro", "destination": "/api/silnik?fn=makro" },
+    { "source": "/api/spoofing", "destination": "/api/silnik?fn=spoofing" },
+    { "source": "/api/sygnaly", "destination": "/api/silnik?fn=sygnaly" },
+    { "source": "/api/trem", "destination": "/api/silnik?fn=trem" },
+    { "source": "/api/health", "destination": "/api/silnik" }
+  ]
 }

@@ -12,7 +12,8 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Katalog repozytorium — o dwa poziomy wyżej niż ten plik (engine/uslugi/…).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from engine.ip import ip_correlation, load_login_events  # noqa: E402
 
 BASE = (os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "").rstrip("/")
