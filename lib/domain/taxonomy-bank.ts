@@ -139,7 +139,10 @@ export const WYMOGI_BANK: Wymog[] = [
     zamow:
       "Obowiązująca w dacie zdarzenia metodyka wyznaczania limitów zaangażowania wraz z uchwałą " +
       "wprowadzającą oraz wysokością limitów obowiązujących w badanym okresie.",
-    krytyczny: true,
+    // Rdzeń opinii, gdy oceniana jest decyzja samego banku albo działanie jego organów.
+    // W sprawie przeciwko nadzorcy metodyka leży u syndyka upadłego banku i nikt o nią
+    // nie pyta — oznaczona krytyczną, kazała raportowi twierdzić, że opinii nie da się wydać.
+    krytyczny: ["ocena_kontrahenta", "organy_banku"],
   },
   {
     id: "protokoly",
@@ -150,7 +153,7 @@ export const WYMOGI_BANK: Wymog[] = [
     zamow:
       "Protokoły posiedzeń komitetu zarządzania aktywami i pasywami, komitetu kredytowego lub " +
       "równoważnego, z okresu objętego badaniem.",
-    krytyczny: true,
+    krytyczny: ["ocena_kontrahenta", "organy_banku"],
   },
   {
     id: "uchwaly",
@@ -191,7 +194,9 @@ export const WYMOGI_BANK: Wymog[] = [
     namePatterns: [/\bbion\b/i, /postępowani\w* wyjaśniając/i],
     unlocks: ["procedury", "otoczenie_prawne"],
     zamow: "Materiały organu nadzoru dotyczące banku: ocena BION, ustalenia postępowania wyjaśniającego, zalecenia.",
-    krytyczny: false,
+    // Odwrotnie niż metodyka limitów: gdy przedmiotem oceny jest zachowanie nadzorcy,
+    // zapis jego czynności JEST rdzeniem opinii, a nie materiałem uzupełniającym.
+    krytyczny: ["nadzor_nad_bankiem"],
   },
   {
     // Moduł `chronologia_nadzoru` dołączył do pakietu bankowego przy sprawie SK Banku
@@ -208,7 +213,7 @@ export const WYMOGI_BANK: Wymog[] = [
       "Datowany przebieg czynności nadzorczych wobec banku — harmonogram działań, protokoły i wystąpienia " +
       "pokontrolne, zalecenia wraz z terminami — oraz wskaźniki banku w kolejnych okresach sprawozdawczych, " +
       "w postaci, w jakiej dysponował nimi organ nadzoru w danym momencie.",
-    krytyczny: false,
+    krytyczny: ["nadzor_nad_bankiem"],
   },
   {
     id: "audyt",

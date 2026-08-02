@@ -10,6 +10,7 @@
 //   1. Co mam? 2. Czego przez to NIE udowodnię? 3. O co wystąpić do organu?
 // Jest w pełni deterministyczny (bez modelu) — to inwentaryzacja, nie ocena.
 
+import { kodRoli, type Rola } from "@/lib/domain/rola";
 import { WYMOGI_BANK } from "@/lib/domain/taxonomy-bank";
 
 export type DocLite = {
@@ -30,8 +31,16 @@ export type Wymog = {
   unlocks: string[];
   /** Treść żądania do organu, gdy wymogu brak. */
   zamow: string;
-  /** Czy brak przekreśla rdzeń opinii (a nie tylko jeden rozdział). */
-  krytyczny: boolean;
+  /**
+   * Czy brak przekreśla rdzeń opinii (a nie tylko jeden rozdział).
+   *
+   * LISTA RÓL zamiast `true` znaczy: krytyczny WYŁĄCZNIE wtedy, gdy sprawa ma jedną
+   * z nich. Metodyka limitów banku jest rdzeniem opinii o decyzji tego banku i
+   * materiałem pomocniczym w sprawie przeciwko nadzorcy — ta sama pozycja, dwa różne
+   * ciężary. Oznaczenie jej krytyczną niezależnie od roli sprawiało, że raport
+   * sprawy SK Banku twierdził, iż opinii nie da się wydać.
+   */
+  krytyczny: boolean | Rola[];
   /**
    * Tryb postępowania, w którym wymóg w ogóle występuje. Brak = w każdym.
    *
@@ -218,10 +227,16 @@ const basename = (p: string) => p.split(/[/\\]/).pop() ?? p;
 // Wymogi zależą od dziedziny: akta bankowe niosą metodyki limitów i protokoły
 // komitetów, a nie arkusze zleceń. Brak typu → GPW, bo sprawy sprzed migracji 0010
 // nie mają ustawionego typu i ich raport musi wyglądać jak dotąd.
+/** Czy brak tego wymogu przekreśla rdzeń opinii W TEJ ROLI procesowej. */
+export function czyKrytyczny(w: Wymog, rola?: string | null): boolean {
+  return Array.isArray(w.krytyczny) ? w.krytyczny.includes(kodRoli(rola)) : w.krytyczny;
+}
+
 export function buildCompleteness(
   documents: DocLite[],
   typ?: string | null,
   tryb?: string | null,
+  rola?: string | null,
 ): RaportKompletnosci {
   const wszystkieWymogi = typ === "ryzyko_bankowe" ? WYMOGI_BANK : WYMOGI;
   // Brak trybu = karne (tak działały wszystkie sprawy sprzed migracji 0014).
@@ -280,7 +295,7 @@ export function buildCompleteness(
     wymogi,
     techniki,
     doZamowienia: niespelnione.map((w) => w.wymog.zamow),
-    braki_krytyczne: niespelnione.filter((w) => w.wymog.krytyczny).map((w) => w.wymog.label),
+    braki_krytyczne: niespelnione.filter((w) => czyKrytyczny(w.wymog, rola)).map((w) => w.wymog.label),
     wynik: {
       spelnione,
       wszystkie: wymogi.length,

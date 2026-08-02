@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui";
-import { buildCompleteness, pismoDoOrganu, type DocLite } from "@/lib/intake/completeness";
+import { buildCompleteness, czyKrytyczny, pismoDoOrganu, type DocLite } from "@/lib/intake/completeness";
 
 // Raport kompletności danych wejściowych — pokazuje, CO da się udowodnić z akt,
 // zanim biegły zacznie liczyć. Deterministyczny (bez modelu): inwentaryzacja wymogów
@@ -18,6 +18,7 @@ export default function CompletenessPanel({
   signature,
   typ,
   tryb,
+  rola,
 }: {
   documents: DocLite[];
   caseName: string;
@@ -26,10 +27,12 @@ export default function CompletenessPanel({
   typ?: string | null;
   /** Tryb postępowania — część wymogów występuje tylko w jednym z nich. */
   tryb?: string | null;
+  /** Rola procesowa — rozstrzyga, które braki są krytyczne. */
+  rola?: string | null;
 }) {
   const [pokazPismo, setPokazPismo] = useState(false);
   const [skopiowano, setSkopiowano] = useState(false);
-  const raport = useMemo(() => buildCompleteness(documents, typ, tryb), [documents, typ, tryb]);
+  const raport = useMemo(() => buildCompleteness(documents, typ, tryb, rola), [documents, typ, tryb, rola]);
   const pismo = useMemo(() => pismoDoOrganu(raport, caseName, signature), [raport, caseName, signature]);
 
   // Pliki nieczytelne, dla których NIE ma wersji po OCR. Oryginał skanu, którego
@@ -161,7 +164,7 @@ export default function CompletenessPanel({
               <tr key={w.wymog.id} className="border-b border-line/50 align-top">
                 <td className="py-1.5 pr-2">
                   {w.wymog.label}
-                  {w.wymog.krytyczny && <span className="ml-1 text-red-700" title="krytyczny">*</span>}
+                  {czyKrytyczny(w.wymog, rola) && <span className="ml-1 text-red-700" title="krytyczny">*</span>}
                 </td>
                 <td className="py-1.5 pr-2 whitespace-nowrap">
                   {w.spelniony ? (

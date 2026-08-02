@@ -50,7 +50,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   // Lista kontrolna zależy od dziedziny — akta bankowe niosą metodyki limitów
   // i protokoły komitetów, a nie arkusze zleceń.
   const etykiety: Record<string, { label: string }> = { ...DOC_TYPES, ...DOC_TYPES_BANK };
-  const { required, recommended: zalecaneTypy } = wymaganeTypy(caseRow.typ);
+  const { required, recommended: zalecaneTypy } = wymaganeTypy(caseRow.typ, caseRow.rola);
   const checklist = required.map((code) => ({ label: etykiety[code]?.label ?? code, present: has(code) }));
   const recommended = zalecaneTypy.map((code) => ({ label: etykiety[code]?.label ?? code, present: has(code) }));
 

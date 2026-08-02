@@ -28,7 +28,7 @@ import Albin from "./albin";
 // `typ` nie jest opcjonalny: po nim rozgałęziają się kroki procesu, builder opinii
 // i eksport. Opcjonalność sprawiała, że pominięcie pola nie było błędem kompilacji —
 // i tak właśnie trzy trasy eksportu cicho budowały opinię bankową wg szkieletu GPW.
-type CaseRow = { id: string; name: string; signature: string | null; typ: string | null; tryb: string | null };
+type CaseRow = { id: string; name: string; signature: string | null; typ: string | null; tryb: string | null; rola: string | null };
 type Doc = {
   id: string;
   rel_path: string;
@@ -1070,6 +1070,7 @@ export default function CaseDetail({
           signature={caseRow.signature}
           typ={caseRow.typ}
           tryb={caseRow.tryb}
+          rola={caseRow.rola}
         />
       )}
       {tab === "overview" && <PytaniaPanel caseId={caseRow.id} />}

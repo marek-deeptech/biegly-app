@@ -10,6 +10,7 @@
 // ZASADA WSPÓLNA obu dziedzinom i tu powtórzona: model REDAGUJE, ale NIE LICZY.
 // Liczby pochodzą z tabel silnika i mają być przepisane dokładnie.
 import type { BankModul } from "@/lib/domain/prawo-bankowe";
+import { blokRoli } from "@/lib/domain/rola";
 import { blokTrybu } from "@/lib/domain/tryb";
 
 export const BANK_REDACT_KINDS = [
@@ -90,6 +91,8 @@ export type BankRedactInput = {
   zastrzezenia?: string[];
   /** Tryb postępowania — rozstrzyga o adresacie opinii i o granicy kompetencji biegłego. */
   tryb?: string | null;
+  /** Rola procesowa — czyje zachowanie jest przedmiotem oceny. */
+  rola?: string | null;
   /**
    * Pliki, z których policzono wartości — WYMAGANE przy modułach liczbowych.
    *
@@ -103,9 +106,14 @@ export type BankRedactInput = {
   zrodla?: string[];
 };
 
-const system = (tryb?: string | null) =>
+const system = (tryb?: string | null, rola?: string | null) =>
   "Jesteś biegłym z zakresu bankowości i finansów. " +
   blokTrybu(tryb) +
+  " " +
+  // Tryb mówi, KOMU odpowiadasz; rola — CZYJE zachowanie oceniasz. Bez drugiego
+  // z tych zdań model przenosił ramę pierwszej sprawy bankowej i pisał o „kontrahencie"
+  // tam, gdzie badany jest bank pod nadzorem, a kontrahenta w sprawie w ogóle nie ma.
+  blokRoli(rola) +
   " Piszesz rzeczowo, bezosobowo, w czasie przeszłym, bez ozdobników. " +
   "ZASADY BEZWZGLĘDNE: (1) NIE LICZYSZ — wszystkie wartości liczbowe pochodzą z podanych tabel silnika " +
   "i przepisujesz je dokładnie; czego nie ma w danych, oznaczasz [do uzupełnienia] zamiast zmyślać. " +
@@ -187,7 +195,7 @@ export function buildBankRedactPrompt(inp: BankRedactInput): { system: string; u
       "obowiązującym w dacie zdarzenia, (4) wniosek cząstkowy — co z tego wynika dla oceny procesu " +
       "identyfikacji ryzyka. Objętość: 6–12 akapitów. Zwróć samą treść rozdziału, bez nagłówka.",
   );
-  return { system: system(inp.tryb), user: parts.join("\n\n") };
+  return { system: system(inp.tryb, inp.rola), user: parts.join("\n\n") };
 }
 
 /** Moduł analizy pakietu bankowego, do którego należy dany rodzaj rozdziału. */
@@ -237,7 +245,7 @@ function tabeleModulu(data: Record<string, unknown> | null | undefined): string 
 export function wejscieBankowe(args: {
   kind: BankRedactKind;
   sub: ZapisanaSub;
-  caseRow: { name: string; signature: string | null; tryb?: string | null };
+  caseRow: { name: string; signature: string | null; tryb?: string | null; rola?: string | null };
   /** Wszystkie subanalizy sprawy — z `limity` bierzemy datę zdarzenia. */
   subs: { kind: string; data?: Record<string, unknown> | null }[];
   /** doc_type → liczba dokumentów w aktach. */
@@ -272,6 +280,7 @@ export function wejscieBankowe(args: {
       ? args.przepisyAnachroniczne(dzien).map((x) => `${x.ref} (obowiązuje od ${x.od})`)
       : [],
     tryb: caseRow.tryb ?? null,
+    rola: caseRow.rola ?? null,
     uwagi: (d.uwagi ?? []) as string[],
     zastrzezenia: (d.zastrzezenia ?? []) as string[],
     // Pliki źródłowe → z nich model ustala, CZYJE są liczby. Bez tego przypisywał
@@ -302,10 +311,14 @@ export function buildBankProzaIIIPrompt(inp: {
   moduly: string[];
   /** Tryb postępowania. */
   tryb?: string | null;
+  /** Rola procesowa — czyje zachowanie jest przedmiotem oceny. */
+  rola?: string | null;
 }): { system: string; user: string } {
   const system =
     "Jesteś biegłym z zakresu bankowości i finansów. " +
     blokTrybu(inp.tryb) +
+    " " +
+    blokRoli(inp.rola) +
     " Piszesz rozdział WSTĘPNY opinii — ujęcie teoretyczne budujące aparat pojęciowy dla analizy. " +
     "ZASADY BEZWZGLĘDNE: (1) NIE PRZYTACZASZ ustaleń tej sprawy ani żadnych jej liczb — rozdział " +
     "jest ogólny, ustalenia należą do rozdziału analizy. (2) NIE PRZESĄDZASZ oceny postępowania " +

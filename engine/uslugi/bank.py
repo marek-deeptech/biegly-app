@@ -54,6 +54,15 @@ def _req(method, url, data=None, headers=None):
         return r.status, r.read()
 
 
+# Lustro `ROLE[*].tytulKwot` z lib/domain/rola.ts. Trzy napisy powielone przez granicę
+# TS/Python — tak jak reszta mostów silnika; źródłem prawdy jest moduł TypeScriptowy.
+TYTUL_KWOT = {
+    "ocena_kontrahenta": "Analiza sprawozdań finansowych kontrahenta",
+    "nadzor_nad_bankiem": "Wielkości bilansowe banku w okresach sprawozdawczych",
+    "organy_banku": "Analiza sprawozdań finansowych banku",
+}
+
+
 def _fmt(v):
     """Liczba w zapisie polskim, bez zbędnych zer po przecinku."""
     s = f"{v:,.2f}".replace(",", " ").replace(".", ",")
@@ -149,10 +158,11 @@ def policz(case_id, paths=None):
 
             # DZIEDZINA — twarda bramka. Ta trasa liczy adekwatność kapitałową;
             # w sprawie o manipulację instrumentem finansowym nie ma czego liczyć.
-            _, cb = _req("GET", f"{BASE}/rest/v1/cases?id=eq.{case_id}&select=name,typ")
+            _, cb = _req("GET", f"{BASE}/rest/v1/cases?id=eq.{case_id}&select=name,typ,rola")
             arr = json.loads(cb or b"[]")
             if not arr:
                 return (404, {"ok": False, "error": "Nie znaleziono sprawy."})
+            rola = arr[0].get("rola") or "ocena_kontrahenta"
             if (arr[0].get("typ") or "") != "ryzyko_bankowe":
                 return (409, {
                     "ok": False,
@@ -460,13 +470,11 @@ def policz(case_id, paths=None):
                 "case_id": case_id,
                 "kind": "sprawozdania",
                 "chapter_no": "V",
-                # ⚠️ NAZWA ROZDZIAŁU MUSI ZGADZAĆ SIĘ ZE ŹRÓDŁEM. „Sprawozdania
-                # kontrahenta" to rama sprawy MBR, gdzie oceniano decyzję banku wobec
-                # kontrahenta zagranicznego. W sprawie o nadzór badany jest bank, a kwoty
-                # pochodzą z narracji nadzorczej — tytuł mówiący o sprawozdaniach
-                # kontrahenta wprowadzałby w błąd co do tego, skąd wzięły się liczby.
-                "title": ("Wielkości bilansowe banku w okresach sprawozdawczych"
-                          if z_chronologii else "Analiza sprawozdań finansowych kontrahenta"),
+                # ⚠️ NAZWA ROZDZIAŁU WYNIKA Z ROLI PROCESOWEJ, nie z tego, skąd akurat
+                # przyszły liczby. „Sprawozdania kontrahenta" to rama sprawy MBR, gdzie
+                # oceniano decyzję banku wobec kontrahenta zagranicznego; w sprawie
+                # o nadzór badany jest sam bank i kontrahenta nie ma w ogóle.
+                "title": TYTUL_KWOT.get(rola, TYTUL_KWOT["ocena_kontrahenta"]),
                 "status": "szkic",
                 "data": {
                     "table": {

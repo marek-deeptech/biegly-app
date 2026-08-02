@@ -21,6 +21,7 @@
 // rozdziału ANALIZA i podstawa prawna.
 import { CATALOG_KINDS, type IVKind } from "@/lib/opinion/chapters";
 import type { BankModul } from "@/lib/domain/prawo-bankowe";
+import { czyKrytyczny } from "@/lib/intake/completeness";
 import { WYMOGI_BANK } from "@/lib/domain/taxonomy-bank";
 import { RECOMMENDED, REQUIRED } from "@/lib/intake/taxonomy";
 
@@ -238,10 +239,15 @@ export const WSZYSTKIE_PAKIETY = Object.values(PAKIETY);
  * utrzymywane jako druga lista. Dublowanie takich zestawień rozjeżdżało już w tym
  * projekcie cztery funkcje naraz.
  */
-export function wymaganeTypy(typ?: string | null): { required: string[]; recommended: string[] } {
+export function wymaganeTypy(
+  typ?: string | null,
+  rola?: string | null,
+): { required: string[]; recommended: string[] } {
   if (typ !== "ryzyko_bankowe") return { required: REQUIRED, recommended: RECOMMENDED };
+  // Krytyczność zależy od ROLI procesowej: metodyka limitów jest rdzeniem opinii
+  // o decyzji banku i materiałem pomocniczym w sprawie przeciwko nadzorcy.
   const plaskie = (kryt: boolean) => [
-    ...new Set(WYMOGI_BANK.filter((w) => w.krytyczny === kryt).flatMap((w) => w.docTypes)),
+    ...new Set(WYMOGI_BANK.filter((w) => czyKrytyczny(w, rola) === kryt).flatMap((w) => w.docTypes)),
   ];
   return { required: plaskie(true), recommended: plaskie(false) };
 }
