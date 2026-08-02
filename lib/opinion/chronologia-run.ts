@@ -71,6 +71,85 @@ export type WynikBiegu = {
   powod?: string;
 };
 
+/**
+ * Okresy odczytane Z OBRAZU strony (scripts/tabele_z_obrazu.py).
+ *
+ * ⚠️ TO JEST LEPSZE ŹRÓDŁO NIŻ TEKST PO OCR. OCR spłaszcza tabelę do potoku słów
+ * i gubi przynależność liczby do kolumny; model czytający obraz widzi linie tabeli
+ * i nagłówki. Na harmonogramie UKNF odczyt z tekstu dał 7 okresów z pięcioma
+ * zastrzeżeniami, a odczyt z obrazu — 8 okresów z jednym, i to wskazującym
+ * rozbieżność w SAMYM dokumencie.
+ */
+export type TabelaZObrazu = {
+  strona: number;
+  jednostka?: string;
+  kolumny: string[];
+  wiersze: { etykieta: string; wartosci: string[] }[];
+};
+
+// ⚠️ NIE UŻYWAĆ `\w` DO POLSKICH ETYKIET. `\w` to [A-Za-z0-9_] i nie obejmuje „ą”,
+// przez co wzorzec „utrat\w*\s+wartoś” nie łapał „utratą wartości”. Wiersz z udziałem
+// nie był rozpoznawany, pole `udzial_utrata_pct` zostawało puste — a kontrola
+// porównująca udział podany z policzonym MILCZAŁA z braku danych. Zero zastrzeżeń
+// wyglądało wtedy jak czysty wynik, choć jedna kontrola w ogóle się nie wykonała.
+// Wiersz ilorazowy MUSI być sprawdzany pierwszy: zawiera te same słowa co wiersz
+// kwotowy i inaczej zostałby dopasowany do niego.
+const ETYKIETY: [RegExp, keyof OkresNadzorczy][] = [
+  [/suma\s+bilansow/i, "suma_bilansowa"],
+  [/utrat[^/]*\/\s*portfel/i, "udzial_utrata_pct"],
+  [/portfel\s+kredytowy\s+z\s+utrat/i, "portfel_utrata"],
+  [/portfel\s+kredytowy/i, "portfel_kredytowy"],
+  [/depozyt/i, "depozyty"],
+  [/fundusze\s+własne/i, "fundusze_wlasne"],
+  [/wsp[óo]łczynnik\s+wypłacaln|łączny\s+wsp[óo]łczynnik/i, "wsp_wyplacalnosci_pct"],
+  [/wynik\s+finansow/i, "wynik_finansowy"],
+];
+
+/** „1.578.168" → 1578168, „6,39%" → 6.39. Zapis polski: kropka to tysiące. */
+function liczba(s: string): number | undefined {
+  const t = String(s).replace(/%/g, "").replace(/[\s ]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".");
+  const v = Number(t);
+  return Number.isFinite(v) ? v : undefined;
+}
+
+/** „31.12.2012" → „2012-12-31". */
+function isoData(s: string): string | null {
+  const m = String(s).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
+}
+
+export function okresyZTabel(tabele: TabelaZObrazu[]): OkresNadzorczy[] {
+  const wgDnia = new Map<string, OkresNadzorczy>();
+  // Jednostka bywa w przypisie tylko pod pierwszą tabelą, a obowiązuje dla wszystkich.
+  // `find` po PRAWDZIWOŚCI, nie po istnieniu pola: model zwraca `""` dla tabel bez
+  // przypisu, a `??` pustego łańcucha nie łapie — jednostka nie propagowała się
+  // i połowa okresów zostawała w tysiącach obok drugiej połowy w złotych.
+  const jednostkaDok = tabele.map((t) => t.jednostka).find((j) => (j ?? "").trim());
+  for (const t of tabele) {
+    t.kolumny.forEach((kol, i) => {
+      const dzien = isoData(kol);
+      if (!dzien) return;
+      const o: OkresNadzorczy =
+        wgDnia.get(dzien) ?? {
+          dzien,
+          kontekst: `tabela na str. ${t.strona}, nagłówek kolumny „${kol}”`,
+          jednostka: (t.jednostka ?? "").trim() || jednostkaDok,
+          plik: `str. ${t.strona}`,
+        };
+      for (const w of t.wiersze) {
+        const para = ETYKIETY.find(([re]) => re.test(w.etykieta));
+        if (!para) continue;
+        const v = liczba(w.wartosci[i] ?? "");
+        // Pierwsze trafienie wygrywa: ta sama kolumna powtarza się jako „bazowa"
+        // w kolejnych tabelach i wartości muszą być zgodne, a nie nadpisywane.
+        if (v != null && o[para[1]] == null) Object.assign(o, { [para[1]]: v });
+      }
+      wgDnia.set(dzien, o);
+    });
+  }
+  return [...wgDnia.values()].sort((a, b) => a.dzien.localeCompare(b.dzien));
+}
+
 export async function wykonajChronologie(
   sb: SupabaseClient,
   id: string,
@@ -84,6 +163,8 @@ export async function wykonajChronologie(
    * chronologii nadzorczej banku jak własne.
    */
   podmiot: string[],
+  /** Tabele odczytane z obrazu — gdy podane, zastępują ekstrakcję okresów z tekstu. */
+  tabele?: TabelaZObrazu[],
 ): Promise<WynikBiegu> {
   const nazwy = podmiot.map((x) => x.trim()).filter(Boolean);
   if (!nazwy.length)
@@ -166,14 +247,22 @@ export async function wykonajChronologie(
     }
   }
 
+  const zObrazu = tabele?.length ? okresyZTabel(tabele) : null;
   for (const d of dokumenty) {
-    const [o, z] = await Promise.all([
-      czytaj<OkresNadzorczy>(systemOkresy(nazwy), d.plik, d.tekst, "okresy"),
-      czytaj<ZdarzenieNadzorcze>(systemZdarzenia(nazwy), d.plik, d.tekst, "zdarzenia"),
-    ]);
-    okresy.push(...o);
-    zdarzenia.push(...z);
+    const zadania: Promise<unknown>[] = [
+      czytaj<ZdarzenieNadzorcze>(systemZdarzenia(nazwy), d.plik, d.tekst, "zdarzenia").then((z) =>
+        zdarzenia.push(...z),
+      ),
+    ];
+    // Okresy czytamy z tekstu TYLKO wtedy, gdy nie ma odczytu z obrazu — tamten jest
+    // wiarygodniejszy i mieszanie obu źródeł dałoby dwa warianty tego samego okresu.
+    if (!zObrazu)
+      zadania.push(
+        czytaj<OkresNadzorczy>(systemOkresy(nazwy), d.plik, d.tekst, "okresy").then((o) => okresy.push(...o)),
+      );
+    await Promise.all(zadania);
   }
+  if (zObrazu) okresy.push(...zObrazu);
 
   // Ten sam okres bywa opisany w kilku pismach, każde referuje inne wskaźniki —
   // scalamy POLE PO POLU. Wybór jednego „bogatszego" wpisu gubił dane: tabela wychodziła

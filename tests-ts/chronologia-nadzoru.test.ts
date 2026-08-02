@@ -128,3 +128,65 @@ describe("jednostki kwot", () => {
     ])).toHaveLength(0);
   });
 });
+
+describe("odczyt tabel z obrazu strony", () => {
+  const TABELE = [
+    {
+      strona: 7,
+      jednostka: "Dane w tys. zł",
+      kolumny: ["31.12.2012", "31.03.2013"],
+      wiersze: [
+        { etykieta: "Suma bilansowa", wartosci: ["1.578.168", "2.429.334"] },
+        { etykieta: "Portfel kredytowy", wartosci: ["1.132.934", "1.222.476"] },
+        { etykieta: "Portfel kredytowy z utratą wartości", wartosci: ["66.380", "115.338"] },
+        { etykieta: "Portfel kredytowy z utratą wartości/portfel kredytowy", wartosci: ["5,86%", "6,39%"] },
+        { etykieta: "Współczynnik wypłacalności", wartosci: ["10,60%", "9,61%"] },
+      ],
+    },
+    // Przypis z jednostką stoi tylko pod pierwszą tabelą, a obowiązuje dla wszystkich.
+    {
+      strona: 9,
+      jednostka: "",
+      kolumny: ["31.12.2012", "31.12.2013"],
+      wiersze: [{ etykieta: "Suma bilansowa", wartosci: ["1.578.168", "3.105.177"] }],
+    },
+  ];
+
+  it("rozpoznaje wiersz ILORAZOWY mimo polskich znaków", async () => {
+    // `\w` to [A-Za-z0-9_] i nie obejmuje „ą” — wzorzec „utrat\w*\s+wartoś” nie łapał
+    // „utratą wartości”, pole zostawało puste, a kontrola porównująca udział podany
+    // z policzonym MILCZAŁA z braku danych. Zero zastrzeżeń wyglądało jak czysty wynik.
+    const { okresyZTabel } = await import("@/lib/opinion/chronologia-run");
+    const o = okresyZTabel(TABELE)[1]; // 2013-03-31
+    expect(o.udzial_utrata_pct).toBe(6.39);
+    expect(o.portfel_utrata).toBe(115338);
+  });
+
+  it("wiersz ilorazowy nie jest brany za kwotowy", async () => {
+    const { okresyZTabel } = await import("@/lib/opinion/chronologia-run");
+    const o = okresyZTabel(TABELE)[0]; // 2012-12-31
+    expect(o.portfel_utrata).toBe(66380);   // nie 5.86
+    expect(o.udzial_utrata_pct).toBe(5.86);
+  });
+
+  it("jednostka z przypisu propaguje się na tabele bez przypisu", async () => {
+    // `??` nie łapie pustego łańcucha, więc połowa okresów zostawała w tysiącach
+    // obok drugiej połowy w złotych — z pozornym spadkiem sumy bilansowej do 0,1%.
+    const { okresyZTabel } = await import("@/lib/opinion/chronologia-run");
+    for (const o of okresyZTabel(TABELE)) expect(o.jednostka).toContain("tys");
+  });
+
+  it("nagłówek kolumny staje się datą ISO, a kontekst wskazuje stronę", async () => {
+    const { okresyZTabel } = await import("@/lib/opinion/chronologia-run");
+    const o = okresyZTabel(TABELE)[0];
+    expect(o.dzien).toBe("2012-12-31");
+    expect(o.kontekst).toContain("str. 7");
+  });
+
+  it("ta sama kolumna w dwóch tabelach nie jest nadpisywana", async () => {
+    // 31.12.2012 powtarza się jako kolumna bazowa; wartości muszą być zgodne,
+    // a nie zastępowane przez późniejszy odczyt.
+    const { okresyZTabel } = await import("@/lib/opinion/chronologia-run");
+    expect(okresyZTabel(TABELE).filter((o) => o.dzien === "2012-12-31")).toHaveLength(1);
+  });
+});
