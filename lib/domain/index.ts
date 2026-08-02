@@ -86,8 +86,11 @@ const KROKI_BANK: Krok[] = [
     gotowy: (s) => s.dokumentow > 0 && s.checklistOk },
   { klucz: "files", label: "Pliki", opis: "Wgranie i klasyfikacja akt (skany wymagają OCR)",
     gotowy: (s) => s.dokumentow > 0 },
-  { klucz: "analysis", label: "Wskaźniki finansowe",
-    opis: "Współczynniki kapitałowe w czasie, struktura finansowania, rentowność i jakość portfela — z progami z daty zdarzenia",
+  { klucz: "analysis", label: "Analiza ekonomiczno-finansowa",
+    opis:
+      "Współczynniki kapitałowe w czasie z progami z daty zdarzenia oraz rubryka 16 wskaźników " +
+      "w 4 obszarach (adekwatność, jakość aktywów, efektywność, płynność) wraz z rejestrem pozycji, " +
+      "których w aktach brakuje",
     gotowy: (s) => s.metryk > 0 || s.subanalizy.includes("wskazniki_bank") },
   { klucz: "warsztat", label: "Warsztat dowodowy",
     opis: "Proces decyzyjny, metodyka limitów, sygnały rynkowe i zestawienie z przepisami obowiązującymi w dacie zdarzenia",
@@ -172,6 +175,15 @@ const BANK: DomainPack = {
       id: "chronologia_nadzoru",
       tytul: "Chronologia nadzorcza i wskaźniki banku w czasie",
       opis: "Datowane działania organu nadzoru i banku zrzeszającego wraz ze wskaźnikami banku w kolejnych okresach sprawozdawczych. Moduł dla pytań o CZAS („od kiedy dało się rozpoznać”), gdzie źródłem jest narracja nadzorcza, a nie sprawozdanie finansowe.",
+    },
+    {
+      id: "analiza_ekonomiczna",
+      tytul: "Analiza ekonomiczno-finansowa banku",
+      opis:
+        "Rubryka 16 wskaźników w czterech obszarach (adekwatność kapitałów, jakość aktywów, efektywność, " +
+        "płynność) wraz z wagami istotności i punktacją — odtworzenie metodyki, którą oceniający był " +
+        "zobowiązany stosować. Zawiera rejestr pozycji sprawozdawczych, których w aktach brakuje: " +
+        "to on wyznacza granicę tego, co da się z materiału udowodnić.",
     },
     {
       id: "sprawozdania",

@@ -45,9 +45,10 @@ export const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
   // Litera G, nie F — dwa moduły z tym samym oznaczeniem. Renumeracja niżej to
   // maskowała, więc błąd przeżył do trzeciej sprawy.
   { kind: "wskazniki_bank", litera: "G", tytul: "Współczynniki kapitałowe i sytuacja finansowa w czasie" },
-  { kind: "limity", litera: "H", tytul: "Metodyka limitów i koncentracja zaangażowania" },
-  { kind: "procedury", litera: "I", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },
-  { kind: "otoczenie_prawne", litera: "J", tytul: "Otoczenie prawne i standardy identyfikacji ryzyka" },
+  { kind: "analiza_ekonomiczna", litera: "H", tytul: "Analiza ekonomiczno-finansowa banku" },
+  { kind: "limity", litera: "I", tytul: "Metodyka limitów i koncentracja zaangażowania" },
+  { kind: "procedury", litera: "J", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },
+  { kind: "otoczenie_prawne", litera: "K", tytul: "Otoczenie prawne i standardy identyfikacji ryzyka" },
 ];
 
 /**

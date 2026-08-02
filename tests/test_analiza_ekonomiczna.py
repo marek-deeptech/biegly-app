@@ -112,3 +112,37 @@ def test_ocena_czastkowa_zaokragla_do_najblizszej_calkowitej():
 def test_brak_jednego_obszaru_wyklucza_ocene_globalna():
     assert wskaznik_syntetyczny({"adekwatnosc": 1.0}) is None
     assert ocena_globalna(None) is None
+
+
+def test_rejestr_brakow_odroznia_brak_zupelny_od_niekompletnosci():
+    """Dwie różne rzeczy, dwa różne wnioski do sądu.
+
+    Pozycja nieobecna w aktach w ogóle (aktywa pracujące) wymaga dokumentu.
+    Pozycja obecna prawie wszędzie (suma bilansowa brakuje wyłącznie na 30.09.2014)
+    wymaga uzupełnienia jednego okresu. Wrzucone do jednego worka, sugerowały,
+    że akta nie zawierają sumy bilansowej — a zawierają ją w siedmiu z ośmiu okresów.
+    """
+    from engine.uslugi.bank import analiza_ekonomiczna
+
+    okresy = ["2014-06-30", "2014-09-30"]
+    poz = [
+        Pozycje(dzien="2014-06-30", aktywa_ogolem=3_505_639_000, kredyty_zagrozone=124_032_000,
+                kredyty_brutto=2_037_916_000),
+        Pozycje(dzien="2014-09-30", kredyty_zagrozone=421_588_000, kredyty_brutto=2_265_833_000),
+    ]
+    w = analiza_ekonomiczna("x", poz, okresy)
+    wg = {b["pozycja"]: b for b in w["braki"]}
+    assert wg["aktywa_pracujace"]["brak_zupelny"] is True
+    assert wg["aktywa_ogolem"]["brak_zupelny"] is False
+    assert wg["aktywa_ogolem"]["okresow_bez"] == 1
+    # Wskaźnik policzalny w choćby jednym okresie liczy się jako policzony.
+    assert w["policzonych"] >= 1
+
+
+def test_ocena_globalna_nie_powstaje_bez_kompletu_obszarow():
+    from engine.uslugi.bank import analiza_ekonomiczna
+
+    poz = [Pozycje(dzien="2014-12-31", kredyty_zagrozone=560_663_000, kredyty_brutto=2_500_215_000)]
+    w = analiza_ekonomiczna("x", poz, ["2014-12-31"])
+    assert w["ocena_globalna"] is None
+    assert all(o["ocena"] is None for o in w["obszary"])

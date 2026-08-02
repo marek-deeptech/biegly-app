@@ -73,6 +73,7 @@ const TECH_LABEL: Record<string, string> = {
   media: "Publikacje prasowe",
   ekspozycja_sektor: "Skala sektora bankowego wobec gospodarki",
   sprawozdania: "Analiza sprawozdań finansowych kontrahenta",
+  analiza_ekonomiczna: "Analiza ekonomiczno-finansowa banku (rubryka 16 wskaźników)",
   adekwatnosc: "Współczynniki kapitałowe w czasie",
   chronologia_nadzoru: "Chronologia nadzorcza i wskaźniki banku w czasie",
   limity: "Metodyka limitów i koncentracja zaangażowania",

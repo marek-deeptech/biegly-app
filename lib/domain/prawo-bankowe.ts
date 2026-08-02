@@ -34,6 +34,7 @@ export type BankModul =
   | "ekspozycja_sektor"
   | "chronologia_nadzoru"
   | "sprawozdania"
+  | "analiza_ekonomiczna"
   | "adekwatnosc"
   | "limity"
   | "procedury"

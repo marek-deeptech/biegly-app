@@ -21,6 +21,7 @@ export const BANK_REDACT_KINDS = [
   "sprawozdania",
   "chronologia_nadzoru",
   "wskazniki_bank",
+  "analiza_ekonomiczna",
   "limity",
   "procedury",
   "otoczenie_prawne",
@@ -48,6 +49,17 @@ const CEL: Record<BankRedactKind, string> = {
     "Analiza pozycji sprawozdań finansowych kontrahenta za okresy poprzedzające zdarzenie: wynik odsetkowy, " +
     "zysk netto, struktura finansowania (depozyty wobec finansowania hurtowego), jakość portfela. " +
     "Wskaż, co dało się odczytać ze sprawozdań DOSTĘPNYCH W DNIU DECYZJI.",
+  analiza_ekonomiczna:
+    "Ocena sytuacji ekonomiczno-finansowej banku w rubryce, którą oceniający BYŁ ZOBOWIĄZANY stosować: " +
+    "16 wskaźników w czterech obszarach, z wagami istotności. Rozdział ma dwie równorzędne części. " +
+    "PIERWSZA: co wskaźniki policzone z akt pokazują w kolejnych okresach. DRUGA, równie ważna: KTÓRYCH " +
+    "WSKAŹNIKÓW POLICZYĆ NIE MOŻNA i jakich pozycji sprawozdawczych do tego brakuje — to jest ustalenie " +
+    "o materiale dowodowym, nie przyznanie się do braku warsztatu, i musi zostać nazwane wprost. " +
+    "Wagi i przynależność do obszaru przytaczaj za dokumentem. Skala ocen jest ODWRÓCONA: 1 oznacza " +
+    "sytuację bardzo dobrą, 5 zagrożenie funkcjonowania banku — nie opisz jej odwrotnie. " +
+    "Nie wystawiaj oceny cząstkowej ani globalnej tam, gdzie silnik jej nie policzył: dokument podaje " +
+    "przedziały punktowe tylko dla jednego wskaźnika, a punktacja bez przedziałów byłaby zmyśleniem. " +
+    "Nie rozstrzygaj, czy oceniający dopełnił obowiązku — to należy do wniosków.",
   chronologia_nadzoru:
     "Oś czasu: co wskaźniki banku pokazywały w kolejnych okresach i jakie działania podejmował nadzór. " +
     "Rozdział odpowiada na pytanie OD KIEDY dane pozwalały rozpoznać pogorszenie — nie na pytanie, jaki był " +

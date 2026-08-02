@@ -18,6 +18,7 @@ import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
+import AnalizaEfPanel from "./analiza-ef-panel";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
 import WarsztatBankPanel from "./warsztat-bank-panel";
 import PytaniaPanel from "./pytania-panel";
@@ -1109,12 +1110,20 @@ export default function CaseDetail({
           bo pokazanie przycisku „Policz wskaźniki manipulacji" sugerowałoby, że jest
           co liczyć. */}
       {tab === "analysis" && dziedzinaBankowa && (
-        <WskaznikiBankPanel
-          caseId={caseRow.id}
-          documents={documents}
-          subanalyses={subanalyses}
-          onDone={() => router.refresh()}
-        />
+        <>
+          <WskaznikiBankPanel
+            caseId={caseRow.id}
+            documents={documents}
+            subanalyses={subanalyses}
+            onDone={() => router.refresh()}
+          />
+          {/* Rubryka banku zrzeszającego — liczona z tych samych pozycji, ale
+              odpowiadająca na inne pytanie: nie „jak zmieniał się współczynnik",
+              tylko „jak wypadłby bank w metodyce, którą miał być oceniany". */}
+          <div className="mt-4">
+            <AnalizaEfPanel subanalyses={subanalyses} />
+          </div>
+        </>
       )}
       {tab === "warsztat" && dziedzinaBankowa && (
         <WarsztatBankPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />

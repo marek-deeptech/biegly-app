@@ -23,6 +23,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from dataclasses import fields as _pola_dataclass  # noqa: E402
 
 from engine.bank import Pozycje, prog_na_dzien, szereg, wskazniki, zmiany  # noqa: E402
+from engine.analiza_ekonomiczna import (  # noqa: E402
+    OBSZARY,
+    OPIS_OCENY,
+    ROZBIEZNOSC_WAGI,
+    WSKAZNIKI_EF,
+    brakujace_pozycje,
+    ocena_czastkowa,
+    ocena_globalna,
+    punktacja,
+    wartosc as wartosc_ef,
+    wskaznik_czastkowy,
+    wskaznik_syntetyczny,
+)
 from engine.chronologia import (  # noqa: E402
     OkresNadzorczy,
     jako_pozycje,
@@ -119,6 +132,100 @@ def _z_chronologii(case_id):
         cyfry = "".join(c for c in t if c.isdigit())
         return int(cyfry) if cyfry else 0
     return jako_pozycje(okresy), wykazane_wspolczynniki(okresy), ", ".join(sorted(strony, key=_nr))
+
+
+def analiza_ekonomiczna(case_id, unikalne, okresy):
+    """Rubryka 16 wskaźników w 4 obszarach — z rejestrem tego, czego policzyć NIE MOŻNA.
+
+    ⚠️ REJESTR BRAKÓW JEST TU RÓWNIE WAŻNY JAK TABELA. W sprawie SK Banku dziesięciu
+    z szesnastu wskaźników nie da się policzyć, bo akta nie zawierają pozycji
+    sprawozdawczych, których wymagają (aktywa pracujące, rezerwy wymagane, pasywa
+    niestabilne, depozyty stabilne…). To nie jest usterka aplikacji, tylko ustalenie
+    o materiale dowodowym — i gotowa treść wniosku do sądu. Tabela pokazująca sześć
+    wskaźników bez powiedzenia, że brakuje dziesięciu, sugerowałaby, że analiza
+    jest kompletna.
+    """
+    wiersze, braki_pol, policzone = [], {}, set()
+    # Ile OKRESÓW nie ma danej pozycji. Zliczanie samego faktu braku mieszało dwie
+    # różne rzeczy: pozycję nieobecną w aktach w ogóle (aktywa pracujące) z pozycją
+    # obecną prawie wszędzie (suma bilansowa brakuje wyłącznie na 30.09.2014).
+    # We wniosku do sądu to jest różnica między „proszę o dokument" a „proszę
+    # o uzupełnienie jednego okresu".
+    # ZBIÓR OKRESÓW, nie licznik trafień: ta sama pozycja bywa potrzebna kilku
+    # wskaźnikom, więc zliczanie par (wskaźnik, okres) dawało liczby większe niż
+    # liczba okresów i „brak w 5 okresach" przy dwóch okresach w sprawie.
+    okresy_bez = {}
+    for w in WSKAZNIKI_EF:
+        kolumny, ma = [], False
+        for i, pz in enumerate(unikalne):
+            v = wartosc_ef(w, pz)
+            if v is None:
+                for pole in brakujace_pozycje(w, pz):
+                    braki_pol.setdefault(pole, set()).add(w.nazwa)
+                    okresy_bez.setdefault(pole, set()).add(i)
+                kolumny.append("—")
+            else:
+                ma = True
+                kolumny.append(f"{_fmt(v)} %")
+        if ma:
+            policzone.add(w.kod)
+        wiersze.append([OBSZARY[w.obszar], w.nazwa, f"{w.waga:.2f}".replace(".", ","), *kolumny])
+
+    # Punktacja — wyłącznie tam, gdzie uchwała podaje przedziały. Poza tym milczymy.
+    punkty, ostatni = {}, unikalne[-1] if unikalne else None
+    if ostatni is not None:
+        for w in WSKAZNIKI_EF:
+            v = wartosc_ef(w, ostatni)
+            if v is None:
+                continue
+            pkt = punktacja(w, v)
+            if pkt is not None:
+                punkty[w.kod] = pkt
+    czastkowe = {o: wskaznik_czastkowy(o, punkty) for o in OBSZARY}
+    czastkowe_pelne = {o: v for o, v in czastkowe.items() if v is not None}
+    synt = wskaznik_syntetyczny(czastkowe_pelne)
+    globalna = ocena_globalna(synt)
+
+    obszary_stan = []
+    for kod, nazwa in OBSZARY.items():
+        wsz = [w for w in WSKAZNIKI_EF if w.obszar == kod]
+        ile = len([w for w in wsz if w.kod in policzone])
+        waga_pokryta = round(sum(w.waga for w in wsz if w.kod in policzone), 2)
+        obszary_stan.append({
+            "obszar": nazwa,
+            "policzone": ile,
+            "wszystkie": len(wsz),
+            "waga_pokryta": waga_pokryta,
+            "ocena": ocena_czastkowa(czastkowe.get(kod)),
+        })
+
+    n_okresow = len(unikalne)
+    zamowienie = sorted(
+        ({
+            "pozycja": pole,
+            "wskazniki": sorted(nazwy),
+            # Pozycja brakująca we wszystkich okresach jest NIEOBECNA W AKTACH;
+            # brakująca w części — obecna, ale niekompletna.
+            "brak_zupelny": len(okresy_bez.get(pole, ())) >= n_okresow,
+            "okresow_bez": len(okresy_bez.get(pole, ())),
+        } for pole, nazwy in braki_pol.items()),
+        key=lambda x: (not x["brak_zupelny"], -len(x["wskazniki"])),
+    )
+    return {
+        "table": {
+            "caption": "Tabela. Analiza ekonomiczno-finansowa banku wg rubryki banku zrzeszającego",
+            "head": ["Obszar", "Wskaźnik", "Waga", *okresy],
+            "rows": wiersze,
+        },
+        "obszary": obszary_stan,
+        "policzonych": len(policzone),
+        "wszystkich": len(WSKAZNIKI_EF),
+        "wskaznik_syntetyczny": synt,
+        "ocena_globalna": globalna,
+        "opis_oceny": OPIS_OCENY.get(globalna) if globalna else None,
+        "braki": zamowienie,
+        "uwagi": [ROZBIEZNOSC_WAGI] if punkty else [],
+    }
 
 
 def _uniewaznij(case_id, uwagi):
@@ -501,10 +608,38 @@ def policz(case_id, paths=None):
                  {"Content-Type": "application/json",
                   "Prefer": "resolution=merge-duplicates,return=minimal"})
 
+            # ── Analiza ekonomiczno-finansowa wg rubryki banku zrzeszającego ──
+            aef = analiza_ekonomiczna(case_id, unikalne, okresy)
+            proza_a, byla_a = _zachowaj_proze(case_id, "analiza_ekonomiczna")
+            _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
+                 json.dumps({
+                     "case_id": case_id,
+                     "kind": "analiza_ekonomiczna",
+                     "chapter_no": "V",
+                     "title": "Analiza ekonomiczno-finansowa banku",
+                     "status": "szkic",
+                     "data": {**aef, "zrodla": zrodla, "proza_sprzed_przeliczenia": byla_a},
+                     "body_md": proza_a,
+                 }, ensure_ascii=False).encode(),
+                 {"Content-Type": "application/json",
+                  "Prefer": "resolution=merge-duplicates,return=minimal"})
+            for o in aef["obszary"]:
+                metryki_ef = [{
+                    "case_id": case_id, "key": "bank_ef_pokrycie",
+                    "label": f"Pokrycie wagowe obszaru: {o['obszar']}",
+                    "value": o["waga_pokryta"], "unit": "", "target": 1.0,
+                    "session_day": okresy[-1],
+                }]
+                _req("POST", f"{BASE}/rest/v1/metrics", json.dumps(metryki_ef).encode(),
+                     {"Content-Type": "application/json", "Prefer": "return=minimal"})
+
             return (200, {"ok": True, "okresy": okresy, "wskaznikow": len(rows),
                              "pozycji_sprawozdan": len([r for r in zest["rows"] if r[1]]),
                              "ponizej_progu": len(findings), "uwagi": uwagi,
-                             "zastrzezenia": zastrzezenia, "zrodla": zrodla})
+                             "zastrzezenia": zastrzezenia, "zrodla": zrodla,
+                             "analiza_ef": {"policzonych": aef["policzonych"],
+                                            "wszystkich": aef["wszystkich"],
+                                            "brakow": len(aef["braki"])}})
         except KeyError as e:
             return (400, {"ok": False, "error": f"Brak pola: {e}"})
         except Exception as e:  # noqa: BLE001
