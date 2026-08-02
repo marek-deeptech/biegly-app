@@ -31,7 +31,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 BUCKET = "case-files"
-TABELE = ["cases", "documents", "metrics", "findings", "subanalyses", "korekty", "audyty_opinii", "wzorce"]
+# ⚠️ TA LISTA MUSI ROSNĄĆ RAZEM Z MIGRACJAMI.
+# `wiedza` i `wiedza_zrodla` (migracja 0009) przez trzy tygodnie były poza kopią —
+# 2479 fragmentów literatury i aktów prawnych, których ponowne wczytanie wymaga
+# oryginalnych plików i kilku godzin. Przy dodaniu tabeli w migracji dopisz ją tutaj.
+TABELE = ["cases", "documents", "metrics", "findings", "subanalyses", "korekty", "audyty_opinii",
+          "wzorce", "wiedza_zrodla", "wiedza"]
+
+# Tabele, w których `storage_path` wskazuje plik SPOZA `documents`. Kopia chodzi po
+# wierszach `documents`, więc bez tego repozytorium wiedzy miałoby zrzut bazy, ale
+# żadnego pliku źródłowego — a bez plików nie da się go odtworzyć.
+TABELE_Z_PLIKAMI = ["wiedza_zrodla"]
 
 
 def env() -> tuple[str, str]:
@@ -114,6 +124,16 @@ def main() -> int:
 
     docs = json.loads((cel / "db" / "documents.json").read_text(encoding="utf8"))
     doStorage = [d for d in docs if d.get("storage_path")]
+    # Pliki spoza `documents` — źródła repozytorium wiedzy leżą w tym samym kubełku,
+    # ale ich ścieżki są w `wiedza_zrodla`. Kilka źródeł potrafi wskazywać ten sam
+    # plik (jedna prezentacja, kilka opracowań), więc deduplikujemy po ścieżce.
+    znane = {d["storage_path"] for d in doStorage}
+    for t in TABELE_Z_PLIKAMI:
+        for w in json.loads((cel / "db" / f"{t}.json").read_text(encoding="utf8")):
+            sp = w.get("storage_path")
+            if sp and sp not in znane:
+                znane.add(sp)
+                doStorage.append({"storage_path": sp, "size_bytes": 0})
     print(f"\n── pliki ({len(doStorage)}) ──")
 
     manifest, nowe, pominiete, bledy = [], 0, 0, 0
