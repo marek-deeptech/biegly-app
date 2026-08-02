@@ -198,10 +198,12 @@ describe("rejestr pakietów dziedzinowych", () => {
   });
 
   it("wymagane typy dziedziny bankowej wywodzą się z wymogów krytycznych", () => {
-    const { required } = wymaganeTypy("ryzyko_bankowe");
-    expect(required).toContain("SPRAWOZDANIE_BANK");
-    expect(required).toContain("METODYKA_LIMITOW");
-    expect(required).not.toContain("DANE_UTP");
+    // Od czasu, gdy typy jednego wymogu są ALTERNATYWĄ, funkcja zwraca grupy,
+    // a nie płaską listę kodów — patrz „lista kontrolna dokumentów wymaganych".
+    const kody = wymaganeTypy("ryzyko_bankowe").required.flatMap((g) => g.kody);
+    expect(kody).toContain("SPRAWOZDANIE_BANK");
+    expect(kody).toContain("METODYKA_LIMITOW");
+    expect(kody).not.toContain("DANE_UTP");
   });
 });
 
@@ -242,5 +244,36 @@ describe("builder opinii bankowej", () => {
       sub("wskazniki_bank", "Wskaźniki"), sub("limity", "Limity"), sub("procedury", "Procedury"),
     ]);
     expect(op.chapters.filter((c) => c.no.startsWith("V.")).map((c) => c.no)).toEqual(["V.A", "V.B", "V.C"]);
+  });
+});
+
+describe("lista kontrolna dokumentów wymaganych", () => {
+  it("typy jednego wymogu są ALTERNATYWĄ, nie koniunkcją", () => {
+    // Wymóg „postanowienie o powołaniu biegłego" spełnia POSTANOWIENIE
+    // (prokuratorskie), POSTANOWIENIE_SAD (sądowe) albo PYTANIA_BIEGLY. Płaska lista
+    // kodów kazała listy kontrolnej żądać wszystkich trzech naraz — żądanie
+    // niespełnialne z definicji, bo prokurator i sąd nie wydają tego samego
+    // orzeczenia. W sprawie SK Banku dawało to zgłoszenie braku dokumentu,
+    // który leży w aktach.
+    const { required } = wymaganeTypy("ryzyko_bankowe", "nadzor_nad_bankiem");
+    const g = required.find((x) => x.label.includes("Postanowienie"))!;
+    expect(g.kody).toEqual(["POSTANOWIENIE", "POSTANOWIENIE_SAD", "PYTANIA_BIEGLY"]);
+    // Sprawa cywilna ma wyłącznie postanowienie sądu — i to wystarcza.
+    expect(g.kody.some((k) => ["POSTANOWIENIE_SAD"].includes(k))).toBe(true);
+  });
+
+  it("krytyczność grup zależy od roli procesowej", () => {
+    const nadzor = wymaganeTypy("ryzyko_bankowe", "nadzor_nad_bankiem").required.map((g) => g.label);
+    const kontrahent = wymaganeTypy("ryzyko_bankowe", "ocena_kontrahenta").required.map((g) => g.label);
+    expect(nadzor.join(" ")).toContain("organu nadzoru");
+    expect(kontrahent.join(" ")).toContain("Metodyka");
+    expect(kontrahent.join(" ")).not.toContain("organu nadzoru");
+  });
+
+  it("dziedzina GPW zostaje przy jednym kodzie na wymóg", () => {
+    // Arkusz zleceń i odpisy KRS to różne dokumenty, nie warianty tego samego.
+    const { required } = wymaganeTypy(null);
+    expect(required.every((g) => g.kody.length === 1)).toBe(true);
+    expect(required.map((g) => g.kody[0])).toContain("DANE_UTP");
   });
 });

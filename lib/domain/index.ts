@@ -251,15 +251,38 @@ export const WSZYSTKIE_PAKIETY = Object.values(PAKIETY);
  * utrzymywane jako druga lista. Dublowanie takich zestawień rozjeżdżało już w tym
  * projekcie cztery funkcje naraz.
  */
+/**
+ * Grupa typów spełniających JEDEN wymóg. Wymóg jest spełniony, gdy w aktach jest
+ * KTÓRYKOLWIEK z nich.
+ *
+ * ⚠️ ALTERNATYWA, NIE KONIUNKCJA. Funkcja zwracała płaską listę kodów i lista
+ * kontrolna traktowała każdy jako osobny wymóg. Wymóg „postanowienie o powołaniu
+ * biegłego" spełnia POSTANOWIENIE (prokuratorskie), POSTANOWIENIE_SAD (sądowe)
+ * albo PYTANIA_BIEGLY — a sprawa cywilna ma z natury tylko jeden z nich. Skutek:
+ * w sprawie SK Banku aplikacja zgłaszała brak „Postanowienia o powołaniu biegłego"
+ * i „Pytań / tezy dowodowej", choć postanowienie Sądu Okręgowego LEŻY w aktach
+ * (k. 12340) i to z niego wyprowadzono pytania. Żądanie wszystkich trzech naraz
+ * jest niespełnialne z definicji: prokurator i sąd nie wydają tego samego orzeczenia.
+ */
+export type GrupaTypow = { label: string; kody: string[] };
+
 export function wymaganeTypy(
   typ?: string | null,
   rola?: string | null,
-): { required: string[]; recommended: string[] } {
-  if (typ !== "ryzyko_bankowe") return { required: REQUIRED, recommended: RECOMMENDED };
+): { required: GrupaTypow[]; recommended: GrupaTypow[] } {
+  // Dziedzina GPW: każdy kod JEST osobnym wymogiem (arkusz zleceń i odpisy KRS to
+  // różne dokumenty, nie warianty tego samego), więc grupa jednoelementowa.
+  if (typ !== "ryzyko_bankowe")
+    return {
+      required: REQUIRED.map((k) => ({ label: k, kody: [k] })),
+      recommended: RECOMMENDED.map((k) => ({ label: k, kody: [k] })),
+    };
   // Krytyczność zależy od ROLI procesowej: metodyka limitów jest rdzeniem opinii
   // o decyzji banku i materiałem pomocniczym w sprawie przeciwko nadzorcy.
-  const plaskie = (kryt: boolean) => [
-    ...new Set(WYMOGI_BANK.filter((w) => czyKrytyczny(w, rola) === kryt).flatMap((w) => w.docTypes)),
-  ];
-  return { required: plaskie(true), recommended: plaskie(false) };
+  const grupy = (kryt: boolean) =>
+    WYMOGI_BANK.filter((w) => czyKrytyczny(w, rola) === kryt && w.docTypes.length).map((w) => ({
+      label: w.label,
+      kody: w.docTypes,
+    }));
+  return { required: grupy(true), recommended: grupy(false) };
 }

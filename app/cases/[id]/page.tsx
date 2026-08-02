@@ -51,8 +51,13 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   // i protokoły komitetów, a nie arkusze zleceń.
   const etykiety: Record<string, { label: string }> = { ...DOC_TYPES, ...DOC_TYPES_BANK };
   const { required, recommended: zalecaneTypy } = wymaganeTypy(caseRow.typ, caseRow.rola);
-  const checklist = required.map((code) => ({ label: etykiety[code]?.label ?? code, present: has(code) }));
-  const recommended = zalecaneTypy.map((code) => ({ label: etykiety[code]?.label ?? code, present: has(code) }));
+  // Wymóg spełniony, gdy w aktach jest KTÓRYKOLWIEK z jego typów — patrz `GrupaTypow`.
+  const zGrupy = (g: { label: string; kody: string[] }) => ({
+    label: g.kody.length === 1 ? (etykiety[g.kody[0]]?.label ?? g.label) : g.label,
+    present: g.kody.some(has),
+  });
+  const checklist = required.map(zGrupy);
+  const recommended = zalecaneTypy.map(zGrupy);
 
   return (
     <>
