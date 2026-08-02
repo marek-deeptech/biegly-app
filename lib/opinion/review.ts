@@ -108,22 +108,73 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   // ma znak („−16,28%") — porównujemy wartości bezwzględne (znak nie decyduje o pokryciu).
   const unsign = (s: string) => s.replace(/^[+\-−]/, "");
   const numSet = new Set<string>();
+  // ⚠️ ZAOKRĄGLENIE TO NIE JEST LICZBA BEZ POKRYCIA. Kontrola porównywała napisy,
+  // więc proza mówiąca „spadek o 55,5%" nie pasowała do metryki −55,54% i szła jako
+  // ostrzeżenie. Po włączeniu tej kontroli na rozdziałach bankowych dało to 32 alarmy
+  // na gotowej opinii MBR — czyli dokładnie tyle szumu, ile potrzeba, żeby biegły
+  // przestał czytać ostrzeżenia. Wierne zaokrąglenie wartości silnika jest cytatem,
+  // a nie zmyśleniem; wychwytujemy je porównaniem liczbowym z TĄ SAMĄ precyzją.
+  const wartosci: number[] = [];
+  const dodajLiczbe = (t: string) => {
+    // ⚠️ KROPKA ZNACZY CO INNEGO W RÓŻNYCH TABELACH. Zapis polski używa kropki jako
+    // separatora tysięcy („1.578.168"), ale tabela chronologii podaje udziały
+    // z kropką DZIESIĘTNĄ („5.86 %"). Bezwarunkowe usuwanie kropek robiło z 5,86
+    // liczbę 586 i wartość przestawała pokrywać cytat w prozie. Rozstrzygamy tak samo,
+    // jak silnik w `engine/sprawozdania.py`: przecinek w napisie → kropki są tysiącami.
+    let x = unsign(t).replace(/[%\s\u00a0]/g, "");
+    x = x.includes(",") ? x.replace(/\./g, "").replace(",", ".") : x;
+    const v = Number(x);
+    if (Number.isFinite(v)) wartosci.push(Math.abs(v));
+  };
   for (const m of metrics)
-    if (m.value != null) numSet.add(unsign(m.value.toLocaleString("pl-PL")) + (m.unit === "%" ? "%" : ""));
+    if (m.value != null) {
+      numSet.add(unsign(m.value.toLocaleString("pl-PL")) + (m.unit === "%" ? "%" : ""));
+      wartosci.push(Math.abs(m.value));
+    }
   for (const ch of opinion.chapters)
     for (const t of chTables(ch))
-      for (const row of t.rows) for (const cell of row) numSet.add(unsign(String(cell ?? "").trim()));
-  const pctRe = /\d{1,3}(?:,\d+)?%/g;
+      for (const row of t.rows)
+        for (const cell of row) {
+          const txt = unsign(String(cell ?? "").trim());
+          numSet.add(txt);
+          dodajLiczbe(txt);
+        }
+
+  /** Czy liczba z prozy jest wiernym zaokrągleniem którejkolwiek wartości silnika. */
+  const jestZaokragleniem = (cytat: string): boolean => {
+    // Separator dziesiętny bywa przecinkiem albo kropką (starsze zapisy chronologii),
+    // a od liczby miejsc po nim zależy precyzja porównania — liczenie tylko po
+    // przecinku dawało zero miejsc i „22.42%" nie pasowało do żadnej wartości.
+    const bezProc = cytat.replace("%", "").trim();
+    const czesci = bezProc.split(/[.,]/);
+    const v = Number(bezProc.replace(",", "."));
+    if (!Number.isFinite(v)) return false;
+    const skala = 10 ** (czesci[1]?.length ?? 0);
+    return wartosci.some((w) => Math.round(w * skala) / skala === v);
+  };
+  // ⚠️ OBA SEPARATORY DZIESIĘTNE. Wzorzec przyjmował wyłącznie przecinek, więc
+  // z „22.42%" wycinał sam ogon „42%" i zgłaszał go jako liczbę bez pokrycia —
+  // fragment poprawnej wartości udawał zmyślenie. W sprawie SK Banku dawało to
+  // komplet fałszywych alarmów w rozdziale o chronologii nadzorczej.
+  // Do PIĘCIU cyfr przed separatorem i z granicą z lewej. Limit trzech cyfr obcinał
+  // realne dynamiki: „+1912,7%" (wzrost kredytów zagrożonych SK Banku dwudziestokrotny)
+  // czytało się jako „912,7%" i zgłaszało jako liczbę bez pokrycia. Granica `(?<![\d.,])`
+  // pilnuje, żeby wzorzec nie zaczynał się w środku dłuższej liczby.
+  const pctRe = /(?<![\d.,])\d{1,5}(?:[.,]\d+)?%/g;
   let numIssues = 0;
   const seenNum = new Set<string>();
   for (const ch of opinion.chapters) {
     // Rozdziały analityczne: ilościowy (zgodność wsteczna) oraz rozdział IV (analiza).
     const analytical =
       /ilościow/i.test(ch.title) || /ilościow/i.test(ch.source ?? "") || ch.no.startsWith(PREFIX_ANALIZY);
-    if (!analytical) continue;
+    // ⚠️ ROZDZIAŁ O OTOCZENIU PRAWNYM CYTUJE PROGI Z USTAWY, NIE Z SILNIKA.
+    // „4,5%" (art. 92 ust. 1 lit. a CRR) i „25%" (limit dużych ekspozycji) nie mają
+    // prawa występować w wykazie metryk — to normy prawne, a nie wynik obliczenia.
+    // Kontrola zgłaszała je jako liczby bez pokrycia w każdej opinii bankowej.
+    if (!analytical || /otoczeni\w*\s+prawn/i.test(ch.title)) continue;
     for (const c of chapText(ch).match(pctRe) ?? []) {
       const key = ch.no + "|" + c;
-      if (numSet.has(c) || seenNum.has(key)) continue;
+      if (numSet.has(c) || jestZaokragleniem(c) || seenNum.has(key)) continue;
       seenNum.add(key);
       // Odesłanie do pliku źródłowego, w którym biegły zweryfikuje niespójność:
       // dane transakcyjne (UTP) dla rozdziałów ilościowych, z override'em na

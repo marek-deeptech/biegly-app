@@ -176,7 +176,11 @@ const GLOWA = [
 
 const kwota = (v?: number) =>
   v == null ? "—" : v.toLocaleString("pl-PL", { maximumFractionDigits: 0 }).replace(/ /g, " ");
-const proc = (v?: number | null) => (v == null ? "—" : `${v.toFixed(2)} %`);
+// Zapis POLSKI — to tekst opinii dla sądu, a nie wydruk techniczny. Kropka
+// dziesiętna była też źródłem fałszywych alarmów recenzenta, który (jak reszta
+// aplikacji) rozpoznaje liczby po przecinku.
+const pl = (v: number) => v.toFixed(2).replace(".", ",");
+const proc = (v?: number | null) => (v == null ? "—" : `${pl(v)} %`);
 
 /** Udział POLICZONY, nie przepisany — moment przekroczenia progu jest ustaleniem. */
 export function udzialPoliczony(o: OkresNadzorczy): number | null {
@@ -250,9 +254,9 @@ export function zbudujChronologie(
     const u = udzialPoliczony(najswiezszy);
     findings.push(
       `Najświeższe dane dostępne na ${dzien} pochodzą z ${najswiezszy.dzien} (${zwloka} dni wcześniej)` +
-        (u != null ? `; udział kredytów z utratą wartości wynosił wówczas ${u.toFixed(2)}%` : "") +
+        (u != null ? `; udział kredytów z utratą wartości wynosił wówczas ${pl(u)}%` : "") +
         (najswiezszy.wsp_wyplacalnosci_pct != null
-          ? `, a wykazany współczynnik wypłacalności ${najswiezszy.wsp_wyplacalnosci_pct.toFixed(2)}%`
+          ? `, a wykazany współczynnik wypłacalności ${pl(najswiezszy.wsp_wyplacalnosci_pct)}%`
           : "") +
         ".",
     );
@@ -267,7 +271,7 @@ export function zbudujChronologie(
   if (trend.length >= 2)
     findings.push(
       "Udział kredytów z utratą wartości w kolejnych okresach: " +
-        trend.map((x) => `${x.d} — ${x.u!.toFixed(2)}%`).join("; ") +
+        trend.map((x) => `${x.d} — ${pl(x.u!)}%`).join("; ") +
         ".",
     );
   if (po.length)
