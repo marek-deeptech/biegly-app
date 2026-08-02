@@ -249,7 +249,10 @@ def test_wiersz_o_niezgodnej_liczbie_wartosci_nie_mapuje_sie_pozycyjnie():
     # 2 948 910) i bilans nie domykał się o 27,5%.
     o = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [1246099, 1043029, 699929, 873740, 3862797], 12))
     poz = zbuduj_pozycje(o)
-    assert poz[1].aktywa_ogolem != 1043029
+    # Wartość kwartalna nie trafia do ŻADNEGO okresu. Drugi okres nie ma z czego powstać
+    # i dlatego w ogóle nie istnieje — okres bez odczytanej pozycji nie jest okresem.
+    assert all(p.aktywa_ogolem != 1043029 for p in poz)
+    assert [p.dzien for p in poz] == ["2008-06-30"]
 
 
 def test_ostatnia_wartosc_wiersza_segmentowego_jest_suma_okresu():
@@ -290,7 +293,8 @@ def test_pozycje_wynikowe_tylko_z_odczytu_dokladnego():
     # z półroczem, mimo że nagłówek nosi datę 31.12. Wnioskowanie z układu strony
     # dałoby tu wynik półroczny podpisany jako roczny.
     o = _odczyt(Kandydat("zysk_netto", "Profit for the period", [16052, 16052, 477, 16529], 7))
-    assert zbuduj_pozycje(o)[0].zysk_netto is None
+    # Nic się nie odczytuje, więc nie zostaje ani jeden okres — a nie okres z pustym zyskiem.
+    assert zbuduj_pozycje(o) == []
     # Ta sama sytuacja dla pozycji BILANSOWEJ jest dopuszczalna — bilans to stan na dzień.
     o2 = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [1, 2, 3, 4, 3862797], 12))
     assert zbuduj_pozycje(o2)[0].aktywa_ogolem == 3862797
@@ -301,3 +305,25 @@ def test_odczyt_wywnioskowany_jest_odnotowany():
     o = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [1, 2, 3, 4, 3862797], 12))
     zbuduj_pozycje(o, uwagi=uwagi)
     assert any("wywnioskowana z układu strony" in u for u in uwagi)
+
+
+def test_data_z_przyszlosci_nie_jest_dniem_bilansowym():
+    """Sprawozdanie opisuje stan, który już zaistniał.
+
+    W informacji dodatkowej SK Banku OCR przekręcił „31.12.2018" na „31.12.2028"
+    i silnik przyjął okres sprawozdawczy oddalony o dwanaście lat — wraz z pustymi
+    wartościami poszedł do wskaźników jako pełnoprawny punkt szeregu.
+    """
+    from engine.sprawozdania import _daty_kolumn
+
+    daty = _daty_kolumn("Saldo na 31.12.2016r. 31.12.2017r. 31.12.2028r.")
+    assert daty == ["2016-12-31", "2017-12-31"]
+
+
+def test_okres_bez_ani_jednej_pozycji_jest_pomijany_z_uwaga():
+    uwagi = []
+    o = _odczyt(Kandydat("aktywa_ogolem", "Total assets", [169969, 146119], 12))
+    o.kandydaci = []          # kolumny dat są, treści nie ma
+    poz = zbuduj_pozycje(o, uwagi=uwagi)
+    assert poz == []
+    assert sum("okres pominięty" in u for u in uwagi) == 2

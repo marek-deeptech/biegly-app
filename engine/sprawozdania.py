@@ -82,6 +82,10 @@ class Odczyt:
     # pięcioletnie [2006, 2007]. Wzięcie dat z pierwszej rozpoznanej strony i wartości
     # z innej przestawiało cały szereg — Tier 1 wychodził zamieniony między latami.
     dni_stron: dict[int, list[str]] = field(default_factory=dict)
+    # Liczba znaków wyciągniętych z PDF-a. Odróżnia skan BEZ warstwy tekstowej (0)
+    # od dokumentu z tekstem, w którym po prostu nie ma tabeli bilansowej — bez tego
+    # rozróżnienia komunikat o błędzie wysyłał biegłego do OCR-u już wykonanego.
+    znakow: int = 0
 
 
 # Liczba BEZ spacji wewnatrz — spacja rozdziela KOLUMNY. Zapis polski (2 537 072)
@@ -91,6 +95,13 @@ _LICZBA = re.compile(r"\(?-?\d[\d,.']*\)?")
 _LICZBA_PL = re.compile(r"\(?-?\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d{1,2})?\)?")
 _ANG_TYSIACE = re.compile(r"\d,\d{3}")
 _DATA = re.compile(r"(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})")
+
+
+def _dzis():
+    """Dzień dzisiejszy — wydzielone, żeby test mógł podmienić bez ruszania zegara."""
+    from datetime import date
+
+    return date.today()
 
 
 def _liczba(s: str) -> float | None:
@@ -163,7 +174,12 @@ def _daty_kolumn(tekst: str) -> list[str]:
         out: list[str] = []
         for m in _DATA.finditer(linia):
             d, mies, rok = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            if 1 <= d <= 31 and 1 <= mies <= 12 and 1990 <= rok <= 2100:
+            # ⚠️ DZIEŃ BILANSOWY NIE MOŻE BYĆ W PRZYSZŁOŚCI. Górna granica 2100 wpuszczała
+            # przekręcone cyfry OCR: w informacji dodatkowej SK Banku „31.12.2018" wyszło
+            # jako „31.12.2028" i silnik założył okres sprawozdawczy oddalony o dwanaście
+            # lat. Sprawozdanie opisuje stan, który już zaistniał — data późniejsza niż
+            # dziś jest błędem odczytu, nie danymi.
+            if 1 <= d <= 31 and 1 <= mies <= 12 and 1990 <= rok <= _dzis().year:
                 iso = f"{rok:04d}-{mies:02d}-{d:02d}"
                 if iso not in out:
                     out.append(iso)
@@ -277,7 +293,9 @@ def czytaj_pdf(sciezka: str, max_stron: int = 200) -> Odczyt:
     r = PdfReader(sciezka)
     o = Odczyt()
     for nr, strona in enumerate(r.pages[:max_stron], start=1):
-        czytaj_tekst(strona.extract_text() or "", strona=nr, o=o)
+        tekst = strona.extract_text() or ""
+        o.znakow += len(tekst.strip())
+        czytaj_tekst(tekst, strona=nr, o=o)
     return o
 
 
@@ -422,7 +440,30 @@ def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None, uwagi: list[str] | N
         if idx < len(out) and getattr(out[idx], k.pole, None) is None:
             setattr(out[idx], k.pole, k.wartosci[-1])
             _uwaga(uwagi, kolumny[idx], k, k.wartosci[-1], "suma wiersza tabeli segmentowej", zrodla)
-    return out
+
+    # ⚠️ OKRES BEZ JEDNEJ LICZBY NIE JEST OKRESEM. Sama obecność daty w nagłówku nie
+    # znaczy, że stronę udało się odczytać: w aktach SK Banku informacja dodatkowa
+    # o należnościach walutowych dała DWA okresy z samą walutą i zerem wartości, a te
+    # puste okresy szły dalej do wskaźników i do wykresów jako pełnoprawny szereg.
+    # Brak danych ma być widoczny jako brak, nie jako punkt na osi czasu.
+    pelne = [p for p in out if _ma_dane(p)]
+    if uwagi is not None:
+        for p in out:
+            if not _ma_dane(p):
+                uwagi.append(
+                    f"{p.dzien}: rozpoznano kolumnę daty, ale nie odczytano z niej żadnej "
+                    f"pozycji — okres pominięty."
+                )
+    return pelne
+
+
+def _ma_dane(p: Pozycje) -> bool:
+    """Czy w okresie odczytano cokolwiek poza samą datą i walutą."""
+    return any(
+        v is not None
+        for k, v in vars(p).items()
+        if k not in ("dzien", "waluta")
+    )
 
 
 def uzupelnij_z_tozsamosci(o: Odczyt, poz: list[Pozycje], zrodla: list[dict] | None = None) -> list[str]:

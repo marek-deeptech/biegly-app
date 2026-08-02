@@ -74,6 +74,31 @@ def _zachowaj_proze(case_id, kind):
         return "", False
 
 
+def _uniewaznij(case_id, uwagi):
+    """Kasuje tabelę zapisaną przez WCZEŚNIEJSZY, udany odczyt, gdy bieżący nic nie dał.
+
+    Prozy nie rusza: jeżeli biegły zredagował rozdział, tekst zostaje wraz ze
+    znacznikiem `proza_sprzed_przeliczenia` — to on mówi, że opis dotyczy liczb,
+    których już nie ma. Skasowanie cudzej pracy byłoby gorsze niż nieaktualna tabela;
+    zmyślona tabela bez ostrzeżenia jest gorsza od obu.
+    """
+    for kind in ("wskazniki_bank", "sprawozdania"):
+        proza, byla = _zachowaj_proze(case_id, kind)
+        if not proza and not byla:
+            # Pusty szkic po nieudanym odczycie nie ma czego opisywać — usuwamy go,
+            # żeby rozdział nie figurował jako istniejący i policzony.
+            _req("DELETE", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}&kind=eq.{kind}")
+            continue
+        _req("PATCH", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}&kind=eq.{kind}",
+             json.dumps({"data": {"uwagi": uwagi, "odczyt_niepowiodl_sie": True,
+                                  "proza_sprzed_przeliczenia": True}}).encode(),
+             {"Content-Type": "application/json", "Prefer": "return=minimal"})
+    # Metryki pochodzą z tego samego odczytu — nieaktualne muszą zniknąć razem z tabelą.
+    # Klucz `bank_*` nadaje wyłącznie ten moduł (patrz `metryki.append` niżej), więc
+    # kasowanie po prefiksie nie dotyka metryk z innych kroków sprawy.
+    _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}&key=like.bank\\_%25")
+
+
 def policz(case_id, paths=None):
     """Rdzeń analizy — wspólny dla trasy HTTP i uruchomienia z konsoli.
 
@@ -122,6 +147,7 @@ def policz(case_id, paths=None):
             # Zlane w jedną listę osłabiały się nawzajem: 14 rutynowych dopełnień topiło
             # 4 realne błędy odczytu, a do Wniosków szło hurtem „nie opieraj się na tym".
             pozycje, uwagi, zastrzezenia, zrodla = [], [], [], []
+            bez_pozycji = []   # pliki, z których nie wyszedł ani jeden okres
             # Uwagi w POSTACI DANYCH: plik + strona, żeby aplikacja dała odnośnik
             # wprost do miejsca w sprawozdaniu. Numer strony w samym zdaniu zmuszał
             # biegłego do szukania pliku i kartkowania.
@@ -146,7 +172,18 @@ def policz(case_id, paths=None):
                 z_pliku = []
                 poz = zbuduj_pozycje(odczyt, uwagi=uwagi, zrodla=z_pliku)
                 if not poz:
-                    uwagi.append(f"{os.path.basename(p)}: nie rozpoznano kolumn dat — pominięto")
+                    # Rozróżnienie ma znaczenie diagnostyczne: skan bez warstwy tekstowej
+                    # wymaga OCR, a dokument Z tekstem, ale bez kolumn dat, to po prostu
+                    # nie jest sprawozdanie z tabelą bilansową (w aktach SK Banku była to
+                    # informacja dodatkowa o należnościach walutowych i opinia biegłego
+                    # rewidenta). Wspólny komunikat „skan wymaga OCR" wysyłał wtedy
+                    # biegłego do naprawiania czegoś, co było już naprawione.
+                    diagnoza = ("brak warstwy tekstowej — wymaga OCR"
+                                if odczyt.znakow < 200 else
+                                f"tekst jest ({odczyt.znakow:,} zn.".replace(",", "\u00a0")
+                                + "), ale nie ma w nim tabeli z kolumnami dat bilansowych")
+                    uwagi.append(f"{os.path.basename(p)}: {diagnoza} — pominięto")
+                    bez_pozycji.append(os.path.basename(p))
                     continue
                 uwagi += uzupelnij_z_tozsamosci(odczyt, poz, zrodla=z_pliku)
                 for u in z_pliku:
@@ -162,10 +199,25 @@ def policz(case_id, paths=None):
                 pozycje += poz
 
             if not pozycje:
+                # ⚠️ KOMUNIKAT MUSI MÓWIĆ, CO SIĘ STAŁO Z KAŻDYM PLIKIEM. Wcześniej
+                # jedno zdanie o brakującym OCR-ze padało niezależnie od przyczyny —
+                # także wtedy, gdy OCR był zrobiony, a dokumenty po prostu nie zawierały
+                # bilansu. Biegły widział wtedy wezwanie do naprawy kroku, który wykonał.
+                # ⚠️ NIEUDANY ODCZYT MUSI SPRZĄTNĄĆ PO POPRZEDNIM. Wcześniejszy przebieg
+                # zapisał w subanalizach tabelę z kolumnami „2016-12-31 | 2028-12-31"
+                # i zerem wierszy — nagłówek z daty przekręconej przez OCR wyglądał
+                # w aplikacji jak wynik analizy. Zostawiony po błędzie, poszedłby do
+                # redakcji rozdziału jako szereg czasowy sprawy.
+                _uniewaznij(case_id, uwagi)
                 return (422, {
                     "ok": False,
-                    "error": "Ze sprawozdań nie udało się odczytać pozycji. Sprawdź, czy PDF-y mają "
-                             "warstwę tekstową (skan wymaga OCR — patrz scripts/ocr_akta.py).",
+                    "error": "Z żadnego sprawozdania nie odczytano ani jednego okresu.",
+                    "uwagi": uwagi,
+                    "pliki": bez_pozycji,
+                    "podpowiedz": "Jeżeli akta nie zawierają sprawozdań z badanego okresu, wskaźniki "
+                                  "policz z chronologii nadzorczej — moduł czyta wskaźniki z narracji "
+                                  "nadzorcy (harmonogram działań, wystąpienia pokontrolne), a nie "
+                                  "z tabel sprawozdania.",
                 })
 
             # Ten sam okres w dwóch sprawozdaniach — scalamy POLE PO POLU, a nie
