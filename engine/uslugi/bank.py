@@ -460,10 +460,21 @@ def policz(case_id, paths=None):
                 "case_id": case_id,
                 "kind": "sprawozdania",
                 "chapter_no": "V",
-                "title": "Analiza sprawozdań finansowych kontrahenta",
+                # ⚠️ NAZWA ROZDZIAŁU MUSI ZGADZAĆ SIĘ ZE ŹRÓDŁEM. „Sprawozdania
+                # kontrahenta" to rama sprawy MBR, gdzie oceniano decyzję banku wobec
+                # kontrahenta zagranicznego. W sprawie o nadzór badany jest bank, a kwoty
+                # pochodzą z narracji nadzorczej — tytuł mówiący o sprawozdaniach
+                # kontrahenta wprowadzałby w błąd co do tego, skąd wzięły się liczby.
+                "title": ("Wielkości bilansowe banku w okresach sprawozdawczych"
+                          if z_chronologii else "Analiza sprawozdań finansowych kontrahenta"),
                 "status": "szkic",
                 "data": {
-                    "table": {k: zest[k] for k in ("caption", "head", "rows")},
+                    "table": {
+                        **{k: zest[k] for k in ("caption", "head", "rows")},
+                        **({"caption": "Tabela. Wielkości bilansowe banku w kolejnych okresach "
+                                       "sprawozdawczych, w postaci podanej przez organ nadzoru "
+                                       "(odczyt surowy — bez przeliczeń)"} if z_chronologii else {}),
+                    },
                     "okresy": zest["okresy"],
                     "zrodla": zrodla,
                     "uwagi": uwagi,
