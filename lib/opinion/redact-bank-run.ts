@@ -100,7 +100,9 @@ export async function zredagujRozdzialyBankowe(
   id: string,
   ktore: readonly BankRedactKind[] = ROZDZIALY_BANKOWE,
 ): Promise<WynikRedakcji[]> {
-  const { data: caseRow } = await sb.from("cases").select("name,signature,typ").eq("id", id).single();
+  // `select("*")`, a nie lista kolumn: `tryb` przychodzi migracją 0014 i do czasu jej
+  // uruchomienia nazwany SELECT zwracałby 400, psując redakcję we WSZYSTKICH sprawach.
+  const { data: caseRow } = await sb.from("cases").select("*").eq("id", id).single();
   if (!caseRow) throw new Error("Nie znaleziono sprawy.");
   if (caseRow.typ !== "ryzyko_bankowe") throw new Error("Redakcja bankowa dotyczy spraw o ryzyko bankowe.");
 
@@ -115,7 +117,7 @@ export async function zredagujRozdzialyBankowe(
 
 /** Wnioski (rozdz. III) dziedziny bankowej — osobno, bo stoją na WSZYSTKICH modułach. */
 export async function zredagujWnioskiBankowe(sb: SupabaseClient, id: string): Promise<WynikRedakcji> {
-  const { data: caseRow } = await sb.from("cases").select("name,signature,typ").eq("id", id).single();
+  const { data: caseRow } = await sb.from("cases").select("*").eq("id", id).single();
   const { data: subs } = await sb.from("subanalyses").select("kind,title,data,body_md").eq("case_id", id);
   const lista = (subs ?? []) as { kind: string; data?: Record<string, unknown> | null }[];
   const dzien =
@@ -131,6 +133,7 @@ export async function zredagujWnioskiBankowe(sb: SupabaseClient, id: string): Pr
     dzienZdarzenia: dzien,
     pytania,
     material: materialWnioskow(lista as never, dzien),
+    tryb: (caseRow as { tryb?: string | null }).tryb ?? null,
   });
   const [wiedza, wzorzec, styl] = await Promise.all([
     buildWiedzaBlock(sb, "wnioski", (caseRow as { typ: string | null }).typ),

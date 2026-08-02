@@ -89,10 +89,10 @@ describe("prompt wniosków bankowych", () => {
     // Audyt wykazał, że zakaz sformułowany szeroko („NIE PRZESĄDZASZ o winie, zamiarze
     // ani kwalifikacji") model rozciągał na CAŁĄ ocenę i uchylał się od odpowiedzi na
     // pytanie organu — a to pytanie mieści się w kompetencji biegłego i jest sednem opinii.
-    expect(p.system).toContain("MUSISZ je rozstrzygnąć jednoznacznie");
+    expect(p.system).toContain("MUSISZ rozstrzygnąć jednoznacznie");
     expect(p.system).toContain("uchylenie");
     // Poza kompetencją zostają WYŁĄCZNIE trzy rzeczy.
-    expect(p.system).toContain("wina, zamiar i kwalifikacja prawna czynu");
+    expect(p.system).toContain("kwalifikacja prawna czynu");
     expect(p.user).toContain("zdania rozstrzygającego");
   });
 

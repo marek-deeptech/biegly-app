@@ -9,6 +9,8 @@
 // Kryteria bankowe pilnują tego, co w TEJ dziedzinie psuje opinię najczęściej:
 // anachronicznego przepisu i wnioskowania wstecznego.
 
+import { trybDla } from "@/lib/domain/tryb";
+
 export type KryteriumRubryki = { id: string; waga: number; opis: string };
 
 export const RUBRYKA_BANK: KryteriumRubryki[] = [
@@ -51,9 +53,9 @@ export const RUBRYKA_BANK: KryteriumRubryki[] = [
   {
     id: "fakty_oceny",
     waga: 10,
-    opis:
-      "Ustalenia faktyczne są oddzielone od ocen; opinia nie przesądza winy ani zamiaru, " +
-      "a kwalifikacji czynu pozostawia organowi.",
+    // Treść dopisywana per tryb — w sprawie cywilnej „wina i zamiar" są kryterium
+    // bezprzedmiotowym, a granicą jest ocena odpowiedzialności odszkodowawczej.
+    opis: "Ustalenia faktyczne są oddzielone od ocen; opinia nie przesądza tego, co zastrzeżone dla organu.",
   },
   {
     id: "luki",
@@ -63,6 +65,14 @@ export const RUBRYKA_BANK: KryteriumRubryki[] = [
       "a ustalenia liczbowe mają wskazane źródło (plik, strona).",
   },
 ];
+
+/** Rubryka bankowa z kryterium „fakty_oceny" doprecyzowanym pod tryb postępowania. */
+export function rubrykaBankowa(tryb?: string | null): KryteriumRubryki[] {
+  const granica = trybDla(tryb).pozaKompetencja;
+  return RUBRYKA_BANK.map((r) =>
+    r.id === "fakty_oceny" ? { ...r, opis: `${r.opis} Poza kompetencją biegłego pozostają: ${granica}.` } : r,
+  );
+}
 
 export const SYSTEM_AUDYT_BANK =
   "Jesteś audytorem opinii biegłego sądowego z zakresu bankowości i ryzyka kredytowego. " +

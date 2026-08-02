@@ -51,7 +51,11 @@ describe("prompt redakcji rozdziałów bankowych", () => {
       ...bazowe, kind: "limity", dzienZdarzenia: null, uwagi: [],
     });
     expect(system).toContain("NIE LICZYSZ");
-    expect(system).toContain("NIE PRZESĄDZASZ");
+    // Granica kompetencji przyszła z bloku trybu — w karnym są to wina, zamiar
+    // i kwalifikacja czynu. Wcześniej była wpisana na sztywno w prompt bankowy,
+    // przez co sprawa cywilna zastrzegała się co do rzeczy, o które nikt nie pyta.
+    expect(system).toContain("POZA TWOJĄ KOMPETENCJĄ");
+    expect(system).toContain("kwalifikacja prawna czynu");
     // Wnioskowanie wsteczne — ocena z perspektywy późniejszego upadku kontrahenta.
     expect(system).toContain("wnioskowanie wsteczne");
   });

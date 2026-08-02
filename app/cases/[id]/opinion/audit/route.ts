@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { reviewOpinion } from "@/lib/opinion/review";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
-import { buildAudytPrompt, RUBRYKA_BANK, SYSTEM_AUDYT_BANK, type KryteriumRubryki } from "@/lib/opinion/audyt-bank";
+import { buildAudytPrompt, RUBRYKA_BANK, rubrykaBankowa, SYSTEM_AUDYT_BANK, type KryteriumRubryki } from "@/lib/opinion/audyt-bank";
 import { createClient } from "@/lib/supabase/server";
 
 // AGENT AUDYTORA OPINII — mierzalna kontrola jakości wyjścia.
@@ -91,7 +91,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const { data: caseRow } = await supabase
     .from("cases")
-    .select("name,signature,group_roster,typ")
+    .select("*")
     .eq("id", id)
     .single();
   if (!caseRow) return Response.json({ ok: false, reason: "not found" }, { status: 404 });
@@ -108,7 +108,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   // ── Warstwa 1: deterministyczna (istniejący recenzent) ──
   // DZIEDZINA rozstrzyga rubrykę i prompt audytu.
   const bankowa = caseRow.typ === "ryzyko_bankowe";
-  const RUBRYKA = rubrykaDla(caseRow.typ ?? null);
+  // Rubryka bankowa doprecyzowuje kryterium „fakty_oceny" pod tryb postępowania:
+  // w sprawie cywilnej „wina i zamiar" są bezprzedmiotowe.
+  const RUBRYKA = bankowa ? rubrykaBankowa(caseRow.tryb) : rubrykaDla(caseRow.typ ?? null);
   // Data zdarzenia z warsztatu (Krok 4) — audytor bez niej nie sprawdzi ani stanu
   // prawnego, ani granicy wiedzy dostępnej w dniu decyzji.
   const dzienZdarzenia =

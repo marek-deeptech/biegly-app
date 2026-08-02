@@ -62,7 +62,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // Sprawę pobieramy PRZED walidacją rozdziału: zbiór dopuszczalnych rodzajów
   // zależy od dziedziny. Rozdział „limity" jest poprawny w sprawie bankowej
   // i błędny w sprawie o manipulację — i odwrotnie dla „layering".
-  const { data: caseRow } = await supabase.from("cases").select("name,signature,typ").eq("id", id).single();
+  // `select("*")`, a nie lista kolumn: `tryb` przychodzi migracją 0014 i do czasu jej
+  // uruchomienia nazwany SELECT zwracałby 400, psując redakcję we WSZYSTKICH sprawach.
+  const { data: caseRow } = await supabase.from("cases").select("*").eq("id", id).single();
   if (!caseRow) return Response.json({ ok: false, reason: "not found" }, { status: 404 });
   const bankowa = caseRow.typ === "ryzyko_bankowe";
 
@@ -107,6 +109,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       dzienZdarzenia: dzien,
       przepisy: dzien ? przepisyNaDzien(dzien).map((x) => `${x.ref} — ${x.zakres}`) : [],
       anachroniczne: dzien ? przepisyAnachroniczne(dzien).map((x) => `${x.ref} (od ${x.od})`) : [],
+      tryb: caseRow.tryb,
       moduly: packDla(caseRow.typ)
         .moduly.filter((m) => obecne.has(m.id === "adekwatnosc" ? "wskazniki_bank" : m.id))
         .map((m) => m.tytul),
@@ -138,6 +141,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       dzienZdarzenia: dzien,
       pytania,
       material,
+      tryb: caseRow.tryb,
     });
     system = p.system;
     userPrompt = p.user;

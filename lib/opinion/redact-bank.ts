@@ -10,6 +10,7 @@
 // ZASADA WSPÓLNA obu dziedzinom i tu powtórzona: model REDAGUJE, ale NIE LICZY.
 // Liczby pochodzą z tabel silnika i mają być przepisane dokładnie.
 import type { BankModul } from "@/lib/domain/prawo-bankowe";
+import { blokTrybu } from "@/lib/domain/tryb";
 
 export const BANK_REDACT_KINDS = [
   "makro",
@@ -80,6 +81,8 @@ export type BankRedactInput = {
   uwagi?: string[];
   /** Odczyt niewiarygodny — na takiej wartości nie wolno budować oceny. */
   zastrzezenia?: string[];
+  /** Tryb postępowania — rozstrzyga o adresacie opinii i o granicy kompetencji biegłego. */
+  tryb?: string | null;
   /**
    * Pliki, z których policzono wartości — WYMAGANE przy modułach liczbowych.
    *
@@ -93,13 +96,14 @@ export type BankRedactInput = {
   zrodla?: string[];
 };
 
-const SYSTEM =
-  "Jesteś biegłym sądowym z zakresu bankowości i finansów, sporządzającym opinię w sprawie karnej " +
-  "na zlecenie prokuratury. Piszesz rzeczowo, bezosobowo, w czasie przeszłym, bez ozdobników. " +
+const system = (tryb?: string | null) =>
+  "Jesteś biegłym z zakresu bankowości i finansów. " +
+  blokTrybu(tryb) +
+  " Piszesz rzeczowo, bezosobowo, w czasie przeszłym, bez ozdobników. " +
   "ZASADY BEZWZGLĘDNE: (1) NIE LICZYSZ — wszystkie wartości liczbowe pochodzą z podanych tabel silnika " +
   "i przepisujesz je dokładnie; czego nie ma w danych, oznaczasz [do uzupełnienia] zamiast zmyślać. " +
-  "(2) NIE PRZESĄDZASZ o winie ani zamiarze — ustalasz fakty i oceniasz je wobec wymogu prawnego; " +
-  "kwalifikacja czynu należy do organu. (3) Stan prawny bierzesz z DATY ZDARZENIA, nigdy z dnia " +
+  "(2) Ustalasz fakty i zestawiasz je z wymogiem prawnym; rozstrzygnięcia zastrzeżone dla organu " +
+  "wskazanego wyżej pozostawiasz jemu. (3) Stan prawny bierzesz z DATY ZDARZENIA, nigdy z dnia " +
   "sporządzania opinii. (4) Piszesz o tym, co było dostępne w dniu decyzji — nie oceniasz z perspektywy " +
   "późniejszych zdarzeń, bo to byłoby wnioskowanie wsteczne.";
 
@@ -176,7 +180,7 @@ export function buildBankRedactPrompt(inp: BankRedactInput): { system: string; u
       "obowiązującym w dacie zdarzenia, (4) wniosek cząstkowy — co z tego wynika dla oceny procesu " +
       "identyfikacji ryzyka. Objętość: 6–12 akapitów. Zwróć samą treść rozdziału, bez nagłówka.",
   );
-  return { system: SYSTEM, user: parts.join("\n\n") };
+  return { system: system(inp.tryb), user: parts.join("\n\n") };
 }
 
 /** Moduł analizy pakietu bankowego, do którego należy dany rodzaj rozdziału. */
@@ -226,7 +230,7 @@ function tabeleModulu(data: Record<string, unknown> | null | undefined): string 
 export function wejscieBankowe(args: {
   kind: BankRedactKind;
   sub: ZapisanaSub;
-  caseRow: { name: string; signature: string | null };
+  caseRow: { name: string; signature: string | null; tryb?: string | null };
   /** Wszystkie subanalizy sprawy — z `limity` bierzemy datę zdarzenia. */
   subs: { kind: string; data?: Record<string, unknown> | null }[];
   /** doc_type → liczba dokumentów w aktach. */
@@ -260,6 +264,7 @@ export function wejscieBankowe(args: {
     anachroniczne: dzien
       ? args.przepisyAnachroniczne(dzien).map((x) => `${x.ref} (obowiązuje od ${x.od})`)
       : [],
+    tryb: caseRow.tryb ?? null,
     uwagi: (d.uwagi ?? []) as string[],
     zastrzezenia: (d.zastrzezenia ?? []) as string[],
     // Pliki źródłowe → z nich model ustala, CZYJE są liczby. Bez tego przypisywał
@@ -288,10 +293,13 @@ export function buildBankProzaIIIPrompt(inp: {
   anachroniczne: string[];
   /** Moduły analizy obecne w sprawie — wstęp ma przygotować pojęcia właśnie do nich. */
   moduly: string[];
+  /** Tryb postępowania. */
+  tryb?: string | null;
 }): { system: string; user: string } {
   const system =
-    "Jesteś biegłym sądowym z zakresu bankowości i finansów. Piszesz rozdział WSTĘPNY opinii " +
-    "w sprawie karnej — ujęcie teoretyczne, które buduje aparat pojęciowy dla dalszej analizy. " +
+    "Jesteś biegłym z zakresu bankowości i finansów. " +
+    blokTrybu(inp.tryb) +
+    " Piszesz rozdział WSTĘPNY opinii — ujęcie teoretyczne budujące aparat pojęciowy dla analizy. " +
     "ZASADY BEZWZGLĘDNE: (1) NIE PRZYTACZASZ ustaleń tej sprawy ani żadnych jej liczb — rozdział " +
     "jest ogólny, ustalenia należą do rozdziału analizy. (2) NIE PRZESĄDZASZ oceny postępowania " +
     "banku. (3) Stan prawny i standardy opisujesz z DATY OCENIANEGO ZDARZENIA; instytucje " +

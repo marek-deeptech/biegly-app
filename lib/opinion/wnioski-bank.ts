@@ -11,6 +11,7 @@
 // model dopiero mapuje go na pytania organu i pisze prozę. Model nie liczy i nie dobiera
 // przepisu — jedno i drugie przychodzi gotowe.
 import { przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
+import { blokTrybu } from "@/lib/domain/tryb";
 
 import type { StoredSub, SubResult } from "./build";
 
@@ -197,17 +198,17 @@ export function buildWnioskiBank(
   };
 }
 
-const SYSTEM =
-  "Jesteś biegłym sądowym z zakresu bankowości i finansów, piszesz rozdział WNIOSKI opinii " +
-  "w sprawie karnej na zlecenie prokuratury. Piszesz rzeczowo, bezosobowo, w czasie przeszłym. " +
+const system = (tryb?: string | null) =>
+  "Jesteś biegłym z zakresu bankowości i finansów, piszesz rozdział WNIOSKI opinii. " +
+  blokTrybu(tryb) +
+  " Piszesz rzeczowo, bezosobowo, w czasie przeszłym. " +
   "ZASADY BEZWZGLĘDNE: (1) NIE LICZYSZ i nie zmieniasz żadnej liczby — wszystkie wartości " +
-  "przepisujesz dokładnie z podanych ustaleń. (2) ODPOWIADASZ NA PYTANIE ORGANU. Pytanie o to, " +
-  "czy sposób postępowania banku był właściwy, rzetelny i zgodny z wiedzą ekonomiczną oraz " +
-  "praktyką, mieści się w Twoich kompetencjach i MUSISZ je rozstrzygnąć jednoznacznie — uchylenie " +
-  "się od odpowiedzi jest wadą opinii. Poza Twoją kompetencją są WYŁĄCZNIE wina, zamiar " +
-  "i kwalifikacja prawna czynu; tylko te odsyłasz do organu i nie myl jednego z drugim. " +
-  "Streszczenie ustaleń zamiast konkluzji NIE JEST odpowiedzią. " +
-  "(3) Oceniasz WYŁĄCZNIE stan wiedzy dostępny w dniu decyzji; powołanie się na to, " +
+  "przepisujesz dokładnie z podanych ustaleń. (2) ODPOWIADASZ NA PYTANIE, KTÓRE POSTAWIONO. " +
+  "Pytanie mieszczące się w wiadomościach specjalnych MUSISZ rozstrzygnąć jednoznacznie — " +
+  "uchylenie się od odpowiedzi jest wadą opinii. Do organu odsyłasz WYŁĄCZNIE to, co wskazano " +
+  "wyżej jako poza Twoją kompetencją, i nie myl jednego z drugim. Streszczenie ustaleń zamiast " +
+  "konkluzji NIE JEST odpowiedzią. " +
+  "(3) Oceniasz WYŁĄCZNIE stan wiedzy dostępny w dniu ocenianego zdarzenia; powołanie się na to, " +
   "co wydarzyło się później, jest wnioskowaniem wstecznym i dyskwalifikuje wniosek. (4) Stan " +
   "prawny bierzesz z daty zdarzenia. (5) Ustalenia negatywne („w aktach nie ma…”) wypowiadasz " +
   "wprost — przemilczenie luki dowodowej jest wadą opinii, nie jej zaletą.";
@@ -218,6 +219,8 @@ export function buildBankWnioskiPrompt(inp: {
   dzienZdarzenia: string | null;
   pytania: string[];
   material: MaterialWnioskow;
+  /** Tryb postępowania — rozstrzyga o adresacie i o granicy kompetencji. */
+  tryb?: string | null;
   /** Wzorzec stylu z opinii biegłego — jeśli korpus go ma. */
   wzorzec?: string | null;
 }): { system: string; user: string } {
@@ -286,9 +289,9 @@ export function buildBankWnioskiPrompt(inp: {
           "(„Sposób identyfikacji ryzyka … odpowiadał / nie odpowiadał wymogom …, ponieważ …”), " +
           "a dopiero potem uzasadnienie z powołaniem ustaleń liczbowych, "
         : "(2) uporządkowane ustalenia, ") +
-      "(3) zestawienie ustalonego stanu faktycznego z wymogiem prawnym obowiązującym w dacie " +
+      `(3) zestawienie ustalonego stanu faktycznego z wymogiem prawnym obowiązującym w dacie ` +
       "zdarzenia, (4) granice opinii — czego na podstawie akt ustalić nie można. " +
       "Objętość: 8–16 akapitów. Zwróć samą treść rozdziału, bez nagłówka.",
   );
-  return { system: SYSTEM, user: p.join("\n\n") };
+  return { system: system(inp.tryb), user: p.join("\n\n") };
 }
