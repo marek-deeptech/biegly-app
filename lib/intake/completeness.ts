@@ -225,6 +225,35 @@ export type RaportKompletnosci = {
 
 const basename = (p: string) => p.split(/[/\\]/).pop() ?? p;
 
+/**
+ * Nazwa DOKUMENTU, do którego należy plik — po odcięciu oznaczeń wariantu.
+ *
+ * ⚠️ WARIANT PO OCR BYWA PODZIELONY NA CZĘŚCI. Skan większy niż limit magazynu
+ * zapisuje się jako `X.ocr.cz1.pdf` i `X.ocr.cz2.pdf`; oryginał `X.pdf` zostaje
+ * bez warstwy tekstowej, ale DOKUMENT jest odczytany. Rozpoznanie szukające
+ * wyłącznie `X.ocr.pdf` tych części nie widziało i aplikacja wzywała biegłego
+ * do zrobienia OCR-u, który był już zrobiony — na dwóch największych dokumentach
+ * sprawy SK Banku (akty oskarżenia, 342 strony każdy).
+ */
+export const rdzenDokumentu = (rel: string) =>
+  basename(rel).normalize("NFC").replace(/\.ocr(\.cz\d+)?\.pdf$/i, ".pdf");
+
+/**
+ * Pliki bez warstwy tekstowej, dla których nie ma ŻADNEGO czytelnego wariantu.
+ * To one są realną luką: ich treść nie wchodzi do analizy.
+ */
+export function doOcr<T extends DocLite>(documents: T[]): T[] {
+  const czytelne = new Set(
+    documents.filter((d) => d.warstwa_tekstu && d.warstwa_tekstu !== "brak").map((d) => rdzenDokumentu(d.rel_path)),
+  );
+  return documents.filter(
+    (d) =>
+      d.warstwa_tekstu === "brak" &&
+      /\.pdf$/i.test(basename(d.rel_path)) &&
+      !czytelne.has(rdzenDokumentu(d.rel_path)),
+  );
+}
+
 // Wymogi zależą od dziedziny: akta bankowe niosą metodyki limitów i protokoły
 // komitetów, a nie arkusze zleceń. Brak typu → GPW, bo sprawy sprzed migracji 0010
 // nie mają ustawionego typu i ich raport musi wyglądać jak dotąd.
@@ -263,7 +292,9 @@ export function buildCompleteness(
     // Dedup po nazwie pliku — te same pliki leżą w wielu TOM-ach akt.
     const nazwy = [...new Set(trafienia.map((d) => basename(d.rel_path)))];
 
-    const bezOcr = [...new Set(wszystkie.filter((d) => d.warstwa_tekstu === "brak").map((d) => basename(d.rel_path)))];
+    // Do OCR-u kwalifikuje się plik, którego DOKUMENT nie ma żadnego czytelnego
+    // wariantu — inaczej lista wzywałaby do powtórzenia pracy już wykonanej.
+    const bezOcr = [...new Set(doOcr(wszystkie).map((d) => basename(d.rel_path)))];
     return {
       wymog: w,
       spelniony: nazwy.length > 0,

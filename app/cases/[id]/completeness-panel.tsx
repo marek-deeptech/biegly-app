@@ -3,7 +3,13 @@
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui";
-import { buildCompleteness, czyKrytyczny, pismoDoOrganu, type DocLite } from "@/lib/intake/completeness";
+import {
+  buildCompleteness,
+  czyKrytyczny,
+  doOcr as doOcrLista,
+  pismoDoOrganu,
+  type DocLite,
+} from "@/lib/intake/completeness";
 
 // Raport kompletności danych wejściowych — pokazuje, CO da się udowodnić z akt,
 // zanim biegły zacznie liczyć. Deterministyczny (bez modelu): inwentaryzacja wymogów
@@ -35,18 +41,10 @@ export default function CompletenessPanel({
   const raport = useMemo(() => buildCompleteness(documents, typ, tryb, rola), [documents, typ, tryb, rola]);
   const pismo = useMemo(() => pismoDoOrganu(raport, caseName, signature), [raport, caseName, signature]);
 
-  // Pliki nieczytelne, dla których NIE ma wersji po OCR. Oryginał skanu, którego
-  // bliźniak `.ocr.pdf` jest w aktach, luką nie jest — jego treść weszła do analizy.
+  // Pliki nieczytelne, dla których NIE ma żadnego czytelnego wariantu — JEDNA
+  // definicja wspólna z raportem kompletności, bo dwie się rozjeżdżały.
   const nazwa = (rp: string) => (rp.split("/").pop() ?? rp).normalize("NFC");
-  const poOcr = new Set(
-    documents.filter((d) => d.warstwa_tekstu === "ocr").map((d) => nazwa(d.rel_path)),
-  );
-  const doOcr = documents.filter(
-    (d) =>
-      d.warstwa_tekstu === "brak" &&
-      /\.pdf$/i.test(nazwa(d.rel_path)) &&
-      !poOcr.has(nazwa(d.rel_path).replace(/\.pdf$/i, ".ocr.pdf")),
-  );
+  const doOcr = doOcrLista(documents);
 
   const dostepne = raport.techniki.filter((t) => t.dostepna);
   const zablokowane = raport.techniki.filter((t) => !t.dostepna);

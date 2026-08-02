@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { packDla, wymaganeTypy, WSZYSTKIE_PAKIETY } from "@/lib/domain";
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { classifyPath } from "@/lib/intake/classify";
-import { buildCompleteness } from "@/lib/intake/completeness";
+import { rdzenDokumentu, doOcr, buildCompleteness } from "@/lib/intake/completeness";
 import { buildOpinionBank } from "@/lib/opinion/build-bank";
 
 // Nazwy plików pochodzą z realnych akt PO III Ds 84.2020. Są WBUDOWANE, nie czytane
@@ -275,5 +275,42 @@ describe("lista kontrolna dokumentów wymaganych", () => {
     const { required } = wymaganeTypy(null);
     expect(required.every((g) => g.kody.length === 1)).toBe(true);
     expect(required.map((g) => g.kody[0])).toContain("DANE_UTP");
+  });
+});
+
+describe("czytelność dokumentu, nie pliku", () => {
+  it("wariant po OCR podzielony na CZĘŚCI też czyni dokument czytelnym", () => {
+    // ⚠️ Skan większy niż limit magazynu zapisuje się jako `X.ocr.cz1.pdf`
+    // i `X.ocr.cz2.pdf`. Rozpoznanie szukające wyłącznie `X.ocr.pdf` tych części
+    // nie widziało i aplikacja wzywała biegłego do zrobienia OCR-u, który był
+    // już zrobiony — na dwóch największych dokumentach sprawy SK Banku
+    // (akty oskarżenia, 342 strony każdy).
+    const akta = [
+      { rel_path: "SKOK/akt.pdf", doc_type: "AKT_OSKARZENIA", warstwa_tekstu: "brak" },
+      { rel_path: "SKOK/akt.ocr.cz1.pdf", doc_type: "AKT_OSKARZENIA", warstwa_tekstu: "ocr" },
+      { rel_path: "SKOK/akt.ocr.cz2.pdf", doc_type: "AKT_OSKARZENIA", warstwa_tekstu: "ocr" },
+    ];
+    expect(doOcr(akta)).toEqual([]);
+  });
+
+  it("skan BEZ żadnego czytelnego wariantu zostaje luką", () => {
+    const akta = [{ rel_path: "SKOK/sam.pdf", doc_type: "PROTOKOL", warstwa_tekstu: "brak" }];
+    expect(doOcr(akta).map((d) => d.rel_path)).toEqual(["SKOK/sam.pdf"]);
+  });
+
+  it("rdzeń dokumentu skleja wszystkie warianty w jedną pozycję", () => {
+    const warianty = ["a/x.pdf", "a/x.ocr.pdf", "a/x.ocr.cz1.pdf", "a/x.ocr.cz2.pdf"];
+    expect(new Set(warianty.map(rdzenDokumentu)).size).toBe(1);
+    expect(rdzenDokumentu("a/x.ocr.cz2.pdf")).toBe("x.pdf");
+  });
+
+  it("wymóg nie wypisuje do OCR pliku, którego dokument jest odczytany", () => {
+    const akta = [
+      { rel_path: "SKOK/spr.pdf", doc_type: "SPRAWOZDANIE_BANK", warstwa_tekstu: "brak" },
+      { rel_path: "SKOK/spr.ocr.cz1.pdf", doc_type: "SPRAWOZDANIE_BANK", warstwa_tekstu: "ocr" },
+    ];
+    const w = buildCompleteness(akta, "ryzyko_bankowe").wymogi.find((x) => x.wymog.id === "sprawozdania_kontrahenta")!;
+    expect(w.spelniony).toBe(true);
+    expect(w.bezOcr).toEqual([]);
   });
 });

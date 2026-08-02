@@ -12,6 +12,7 @@ import { AUTHORS } from "@/lib/intake/taxonomy";
 // Wcześniej lista plików sięgała po sam rdzeń, przez co dokumenty bankowe wyświetlały
 // się jako surowe kody („SPRAWOZDANIE_BANK") zamiast etykiet.
 import { docTypesDla } from "@/lib/intake/classify";
+import { rdzenDokumentu } from "@/lib/intake/completeness";
 import { cmpMainUtp, isMainUtp, utpVariantLabel } from "@/lib/intake/utp";
 import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
@@ -175,7 +176,11 @@ export default function CaseDetail({
   const stats = useMemo(() => {
     const wej = documents.filter((d) => d.provenance === "wejście").length;
     const wyj = documents.filter((d) => d.provenance === "wyjście").length;
-    return { wej, wyj };
+    // DOKUMENTY, nie pliki. Skan i jego warianty po OCR (także podzielone na części)
+    // to jeden dokument w aktach — licznik plików pokazywał w sprawie SK Banku 68
+    // przy 33 dokumentach i zawyżał obraz materiału dwukrotnie.
+    const dokumentow = new Set(documents.map((d) => rdzenDokumentu(d.rel_path))).size;
+    return { wej, wyj, dokumentow };
   }, [documents]);
 
   const checklistOk = checklist.every((c) => c.present);
@@ -190,7 +195,7 @@ export default function CaseDetail({
     label: k.klucz === "files" ? `${k.label} · ${documents.length}` : k.label,
     opis: k.opis,
     done: k.gotowy({
-      dokumentow: documents.length,
+      dokumentow: stats.dokumentow,
       metryk: metrics.length,
       subanalizy: subanalyses.map((s) => s.kind),
       zatwierdzone: subanalyses.filter((s) => s.status === "zatwierdzona").length,
