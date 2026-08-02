@@ -25,6 +25,7 @@ export const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
   { kind: "ekspozycja_sektor", litera: "C", tytul: "Skala sektora bankowego wobec gospodarki" },
   { kind: "sygnaly_rynkowe", litera: "D", tytul: "Sygnały rynkowe: CDS i ratingi" },
   { kind: "sprawozdania", litera: "E", tytul: "Analiza sprawozdań finansowych kontrahenta" },
+  { kind: "chronologia_nadzoru", litera: "F", tytul: "Chronologia nadzorcza i wskaźniki banku w czasie" },
   { kind: "wskazniki_bank", litera: "F", tytul: "Współczynniki kapitałowe i sytuacja finansowa w czasie" },
   { kind: "limity", litera: "G", tytul: "Metodyka limitów i koncentracja zaangażowania" },
   { kind: "procedury", litera: "H", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },

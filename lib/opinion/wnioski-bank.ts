@@ -22,6 +22,7 @@ const ZRODLA: { kind: string; etykieta: string }[] = [
   { kind: "ekspozycja_sektor", etykieta: "Skala sektora bankowego" },
   { kind: "sygnaly_rynkowe", etykieta: "Sygnały rynkowe (CDS, ratingi)" },
   { kind: "sprawozdania", etykieta: "Sprawozdania finansowe kontrahenta" },
+  { kind: "chronologia_nadzoru", etykieta: "Chronologia nadzorcza" },
   { kind: "wskazniki_bank", etykieta: "Współczynniki kapitałowe" },
   { kind: "limity", etykieta: "Metodyka limitów" },
   { kind: "procedury", etykieta: "Proces decyzyjny" },
@@ -36,7 +37,10 @@ const ZRODLA: { kind: string; etykieta: string }[] = [
  * rzeczowymi i sam mapuje je na pytania z postanowienia w TEJ sprawie.
  */
 const SEKCJE: { tytul: string; kinds: string[] }[] = [
-  { tytul: "Kondycja finansowa kontrahenta przed dniem decyzji", kinds: ["sprawozdania", "wskazniki_bank"] },
+  {
+    tytul: "Kondycja finansowa badanego podmiotu przed dniem decyzji",
+    kinds: ["sprawozdania", "chronologia_nadzoru", "wskazniki_bank"],
+  },
   {
     tytul: "Informacje dostępne publicznie przed dniem decyzji",
     kinds: ["makro", "media", "ekspozycja_sektor", "sygnaly_rynkowe"],

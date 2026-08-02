@@ -32,6 +32,7 @@ export type BankModul =
   | "sygnaly_rynkowe"
   | "media"
   | "ekspozycja_sektor"
+  | "chronologia_nadzoru"
   | "sprawozdania"
   | "adekwatnosc"
   | "limity"

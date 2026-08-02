@@ -18,6 +18,7 @@ export const BANK_REDACT_KINDS = [
   "media",
   "ekspozycja_sektor",
   "sprawozdania",
+  "chronologia_nadzoru",
   "wskazniki_bank",
   "limity",
   "procedury",
@@ -46,6 +47,12 @@ const CEL: Record<BankRedactKind, string> = {
     "Analiza pozycji sprawozdań finansowych kontrahenta za okresy poprzedzające zdarzenie: wynik odsetkowy, " +
     "zysk netto, struktura finansowania (depozyty wobec finansowania hurtowego), jakość portfela. " +
     "Wskaż, co dało się odczytać ze sprawozdań DOSTĘPNYCH W DNIU DECYZJI.",
+  chronologia_nadzoru:
+    "Oś czasu: co wskaźniki banku pokazywały w kolejnych okresach i jakie działania podejmował nadzór. " +
+    "Rozdział odpowiada na pytanie OD KIEDY dane pozwalały rozpoznać pogorszenie — nie na pytanie, jaki był " +
+    "stan na jeden dzień. Omawiaj wartości jako WYKAZANE przez bank albo przez nadzór; rozbieżność między " +
+    "wykazywaną a rzeczywistą (np. przy nieutworzonych rezerwach) jest ustaleniem istotnym i wymaga wskazania. " +
+    "Nie oceniaj, czy nadzór powinien był zareagować wcześniej — to należy do wniosków.",
   wskazniki_bank:
     "Współczynniki kapitałowe KONTRAHENTA w szeregu czasowym wraz z progami obowiązującymi W DANYM "
     + "OKRESIE. " +

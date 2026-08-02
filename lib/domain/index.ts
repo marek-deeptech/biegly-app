@@ -168,6 +168,11 @@ const BANK: DomainPack = {
       opis: "Relacja aktywów sektora bankowego kraju kontrahenta do jego PKB oraz zdolność banku centralnego do pełnienia roli pożyczkodawcy ostatniej instancji.",
     },
     {
+      id: "chronologia_nadzoru",
+      tytul: "Chronologia nadzorcza i wskaźniki banku w czasie",
+      opis: "Datowane działania organu nadzoru i banku zrzeszającego wraz ze wskaźnikami banku w kolejnych okresach sprawozdawczych. Moduł dla pytań o CZAS („od kiedy dało się rozpoznać”), gdzie źródłem jest narracja nadzorcza, a nie sprawozdanie finansowe.",
+    },
+    {
       id: "sprawozdania",
       tytul: "Analiza sprawozdań finansowych kontrahenta",
       opis: "Pozycje sprawozdań za okresy poprzedzające zdarzenie: wynik odsetkowy, zysk netto, struktura finansowania (depozyty vs finansowanie hurtowe), jakość portfela. Wskazuje, co dało się odczytać ze sprawozdań w dniu decyzji.",
