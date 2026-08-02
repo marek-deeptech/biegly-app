@@ -76,3 +76,53 @@ export const SYSTEM_AUDYT_BANK =
   "(4) Nie chwal. Uwaga ma wskazywać KONKRETNY brak (rozdział + czego brakuje), inaczej jest bezużyteczna. " +
   "(5) Nie rozstrzygaj, czy bank postąpił prawidłowo — to rola biegłego, a kwalifikacja czynu należy do organu. " +
   "(6) Odpowiadasz WYŁĄCZNIE wywołaniem narzędzia oceń_opinie.";
+
+
+/**
+ * Treść zadania dla audytora — wspólna dla obu dziedzin i dla uruchomienia wsadowego.
+ *
+ * W trasie dało się ją złożyć wyłącznie w żądaniu HTTP, więc audytu nie dało się
+ * puścić na sprawie bez przeglądarki. Rubryka bankowa powstała, ale przez to nigdy
+ * nie została sprawdzona na realnej opinii.
+ */
+export function buildAudytPrompt(inp: {
+  caseName: string;
+  signature: string | null;
+  rubryka: readonly KryteriumRubryki[];
+  /** Dziedzina bankowa dokłada blok o dacie zdarzenia — bez niej kryteria datowe są bezprzedmiotowe. */
+  bankowa: boolean;
+  dzienZdarzenia: string | null;
+  pytania: string[];
+  wykazMetryk: string;
+  tekstOpinii: string;
+}): string {
+  return [
+    `Sprawa: ${inp.caseName}${inp.signature ? ` (sygn. ${inp.signature})` : ""}.`,
+    "",
+    "RUBRYKA AUDYTU (oceń każde kryterium po jego `id`):",
+    inp.rubryka.map((r) => `- ${r.id} (waga ${r.waga}): ${r.opis}`).join("\n"),
+    ...(inp.bankowa
+      ? [
+          "",
+          inp.dzienZdarzenia
+            ? `DATA OCENIANEGO ZDARZENIA: ${inp.dzienZdarzenia}. Sprawdź wobec niej daty obowiązywania ` +
+              "każdego powołanego przepisu oraz każdej informacji użytej jako podstawa oceny."
+            : "DATA OCENIANEGO ZDARZENIA: nieustalona — oceń kryteria „stan_prawny” i „wsteczne” jako brak, " +
+              "bo bez daty nie da się sprawdzić ani stanu prawnego, ani granicy wiedzy.",
+        ]
+      : []),
+    "",
+    inp.pytania.length
+      ? `PYTANIA ORGANU, na które opinia MUSI odpowiedzieć (${inp.pytania.length}):\n` +
+        inp.pytania.map((q, i) => `${i + 1}. ${q}`).join("\n")
+      : "PYTANIA ORGANU: brak wyodrębnionych pytań — oceń kryterium „pytania” jako brak.",
+    "",
+    "WYKAZ METRYK SILNIKA (jedyne dopuszczalne źródło liczb — każdą liczbę z opinii sprawdź tutaj):",
+    inp.wykazMetryk || "(brak policzonych metryk)",
+    "",
+    "TEKST OPINII DO OCENY:",
+    inp.tekstOpinii,
+    "",
+    "Oceń opinię wobec rubryki — wywołaj oceń_opinie.",
+  ].join("\n");
+}

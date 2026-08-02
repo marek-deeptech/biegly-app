@@ -234,6 +234,13 @@ export async function wykonajWarsztatBankowy(
   const wlasciwe = dzien ? przepisyNaDzien(dzien) : [];
   const anachroniczne = dzien ? przepisyAnachroniczne(dzien) : [];
 
+  // Proza rozdziałów zredagowanych wcześniej — do zachowania przy ponownym przeliczeniu.
+  const { data: istniejace } = await supabase
+    .from("subanalyses")
+    .select("kind,body_md")
+    .eq("case_id", id);
+  const prozaWg = new Map((istniejace ?? []).map((s) => [s.kind as string, (s.body_md as string) ?? ""]));
+
   const zapisz = async (kind: string, title: string, chapter_no: string, data: unknown, findings: string[]) => {
     // Skrócenie dokumentu dopisujemy do UWAG każdego modułu, a nie tylko do odpowiedzi
     // HTTP: `uwagi` idą do promptu redakcji, więc model dowie się, że opisuje wycinek,
@@ -255,7 +262,12 @@ export async function wykonajWarsztatBankowy(
         title,
         chapter_no,
         status: "szkic",
-        body_md: "",
+        // ⚠️ NIE KASUJEMY PROZY. Upsert z pustym `body_md` przy każdym ponownym
+        // uruchomieniu kroku niszczył zredagowany rozdział — biegły tracił tekst
+        // bez ostrzeżenia. Zaznaczamy natomiast, że proza opisuje WCZEŚNIEJSZY
+        // odczyt: tekst opisujący nieaktualne liczby jest gorszy niż jego brak,
+        // bo wygląda na aktualny.
+        body_md: prozaWg.get(kind) ?? "",
         // `awarie` osobnym polem, nie tylko w `uwagi`: panel i audytor muszą odróżnić
         // „ekstrakcja się nie udała" od „w aktach tego nie ma".
         data: {
@@ -263,6 +275,7 @@ export async function wykonajWarsztatBankowy(
           findings,
           ...(uwagi.length ? { uwagi } : {}),
           ...(awarie.length ? { awarie } : {}),
+          ...((prozaWg.get(kind) ?? "").trim() ? { proza_sprzed_przeliczenia: true } : {}),
         },
       },
       { onConflict: "case_id,kind" },

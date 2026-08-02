@@ -21,8 +21,9 @@ const C = {
   calib: "Kalibracja sformułowań",
   scope: "Zakres = pytania postanowienia",
   complete: "Kompletność i falsyfikacja",
+  aktualnosc: "Aktualność prozy wobec danych",
 };
-export const REVIEW_CHECKS = [C.numbers, C.tables, C.legal, C.calib, C.scope, C.complete];
+export const REVIEW_CHECKS = [C.numbers, C.tables, C.legal, C.calib, C.scope, C.complete, C.aktualnosc];
 
 function chapText(ch: Chapter): string {
   return (
@@ -64,9 +65,26 @@ function placeholderSource(ctx: string, chapterNo: string): PlaceholderRef {
 }
 
 export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: StoredSub[]): ReviewFinding[] {
-  void stored;
   const out: ReviewFinding[] = [];
   const add = (check: string, severity: Severity, message: string) => out.push({ check, severity, message });
+
+  // 0. PROZA STARSZA NIŻ DANE, KTÓRE OPISUJE.
+  //    Ponowne uruchomienie kroku liczbowego kasowało wcześniej zredagowany rozdział;
+  //    dziś tekst zostaje, ale opisuje odczyt sprzed przeliczenia. Milczące zachowanie
+  //    takiej prozy jest groźniejsze niż jej skasowanie — wygląda na aktualną, a może
+  //    powoływać liczby, których w tabelach już nie ma.
+  const nieaktualne = stored
+    .filter((s) => (s.data as { proza_sprzed_przeliczenia?: boolean } | null)?.proza_sprzed_przeliczenia)
+    .filter((s) => (s.body_md ?? "").trim().length > 0)
+    .map((s) => s.kind);
+  if (nieaktualne.length)
+    add(
+      C.aktualnosc,
+      "WARN",
+      `Proza ${nieaktualne.length} rozdziałów powstała PRZED ostatnim przeliczeniem danych ` +
+        `(${nieaktualne.join(", ")}). Sprawdź, czy powołane w niej liczby zgadzają się z tabelami, ` +
+        "albo zredaguj rozdział ponownie.",
+    );
 
   // 1. Spójność liczb — wartości procentowe w rozdziale ilościowym muszą mieć
   //    pokrycie w metrykach silnika lub w komórkach tabel.
@@ -105,15 +123,27 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   if (!numIssues) add(C.numbers, "OK", "Liczby w rozdziale ilościowym zgodne z metrykami silnika.");
 
   // 2. Odniesienia do tabel — każde „Tabela N" w tekście musi istnieć.
-  const tabNums = new Set<number>();
+  //
+  // Numer bierzemy Z KOLEJNOŚCI, nie z podpisu. Podpisy dziedziny bankowej brzmią
+  // „Tabela. Pozycje sprawozdań…" — numeracja powstaje dopiero przy składaniu spisu.
+  // Wyprowadzanie zbioru numerów z podpisów dawało zbiór PUSTY, przez co każde
+  // poprawne odwołanie stawało się błędem.
+  let ileTabel = 0;
+  for (const ch of opinion.chapters) ileTabel += chTables(ch).length;
+  const tabNums = new Set<number>(Array.from({ length: ileTabel }, (_, i) => i + 1));
   for (const ch of opinion.chapters)
     for (const t of chTables(ch)) {
       const m = t.caption.match(/tabela\s*(?:nr\s*)?(\d+)/i);
       if (m) tabNums.add(+m[1]);
     }
+  // Rozdziały SPISOWE wymieniają tabele i wykresy z numerami — to jest ich treść,
+  // a nie odwołanie do czegoś innego. Skanowanie ich jako odsyłaczy dawało tyle
+  // fałszywych błędów, ile pozycji w spisie, i podważało zaufanie do kontrolera.
+  const spisowy = (t: string) => /^spis\s/i.test(t.trim());
   const refRe = /tabel\w*\s*(?:nr\s*)?(\d+)/gi;
   let tabIssues = 0;
   for (const ch of opinion.chapters) {
+    if (spisowy(ch.title)) continue;
     const t = chapText(ch);
     let m: RegExpExecArray | null;
     refRe.lastIndex = 0;

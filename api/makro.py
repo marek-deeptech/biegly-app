@@ -62,6 +62,25 @@ def _fmt(v):
     s = f"{v:,.2f}".replace(",", " ").replace(".", ",")
     return s[:-3] if s.endswith(",00") else s
 
+def _zachowaj_proze(case_id, kind):
+    """Zwraca (body_md, czy_byla_proza) dla istniejącej subanalizy.
+
+    ⚠️ POWÓD: upsert wysyłał `body_md: ""` i przy KAŻDYM ponownym przeliczeniu
+    kasował gotową prozę rozdziału. Biegły redagował rozdział, potem uruchamiał
+    krok liczbowy jeszcze raz — i tekst znikał bez ostrzeżenia. Zaobserwowane
+    wprost: trzy zredagowane rozdziały opinii MBR wyzerowały się po dodaniu metryk.
+
+    Prozy nie kasujemy, ale ZNACZYMY, że opisuje wcześniejszy odczyt: tekst opisujący
+    liczby sprzed przeliczenia jest gorszy niż brak tekstu, bo wygląda na aktualny.
+    """
+    try:
+        _, b = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}&kind=eq.{kind}&select=body_md")
+        arr = json.loads(b or b"[]")
+        tresc = (arr[0].get("body_md") or "") if arr else ""
+        return tresc, bool(tresc.strip())
+    except Exception:  # noqa: BLE001
+        return "", False
+
 
 def policz(case_id, dzien=None):
     try:
@@ -145,10 +164,40 @@ def policz(case_id, dzien=None):
             if not any(f in obecne for f in frazy)
         ]
 
+        # Szeregi rynkowe jako metryki — z tego samego powodu co pozycje sprawozdań:
+        # bez nich poziom indeksu w dniu decyzji jest w opinii liczbą nie do sprawdzenia.
+        metryki = []
+        for s_, o_ in zip(szeregi, opis):
+            st_ = statystyki(s_, dzien)
+            if st_:
+                metryki.append({
+                    "case_id": case_id, "key": "makro_zmiana_pct", "label": f"{s_.nazwa} — zmiana w okresie",
+                    "value": st_.zmiana_pct, "unit": "%", "target": None, "session_day": st_.do,
+                })
+                if st_.w_dniu and st_.szczyt.wartosc:
+                    metryki.append({
+                        "case_id": case_id, "key": "makro_od_szczytu_pct",
+                        "label": f"{s_.nazwa} — odchylenie od szczytu w dniu zdarzenia",
+                        "value": round(100.0 * (st_.w_dniu.wartosc - st_.szczyt.wartosc) / st_.szczyt.wartosc, 2),
+                        "unit": "%", "target": None, "session_day": st_.w_dniu.dzien,
+                    })
+            for kod, pkt in (("szczyt", o_["szczyt"]), ("dolek", o_["dolek"]), ("w_dniu", o_["w_dniu"])):
+                if not pkt:
+                    continue
+                metryki.append({
+                    "case_id": case_id, "key": f"makro_{kod}", "label": f"{s_.nazwa} — {kod}",
+                    "value": pkt["wartosc"], "unit": "", "target": None, "session_day": pkt["dzien"],
+                })
+        _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}&key=like.makro_*")
+        for i in range(0, len(metryki), 100):
+            _req("POST", f"{BASE}/rest/v1/metrics", json.dumps(metryki[i:i + 100]).encode(),
+                 {"Content-Type": "application/json", "Prefer": "return=minimal"})
+
+        proza, byla = _zachowaj_proze(case_id, "makro")
         sub = {
             "case_id": case_id, "kind": "makro", "chapter_no": "V",
             "title": "Otoczenie makroekonomiczne",
-            "status": "szkic", "body_md": "",
+            "status": "szkic", "body_md": proza,
             "data": {
                 "tables": tabele,
                 "table": tabele[0] if tabele else None,
@@ -157,6 +206,7 @@ def policz(case_id, dzien=None):
                 "braki": braki,
                 "odrzucone": odrzucone,
                 "dzienZdarzenia": dzien,
+                "proza_sprzed_przeliczenia": byla,
             },
         }
         _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",

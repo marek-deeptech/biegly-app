@@ -85,8 +85,15 @@ describe("prompt wniosków bankowych", () => {
     expect(p.system).toContain("wnioskowaniem wstecznym");
   });
 
-  it("zakazuje przesądzania o winie", () => {
-    expect(p.system).toContain("NIE PRZESĄDZASZ");
+  it("odróżnia obowiązek odpowiedzi od zakazu przesądzania o winie", () => {
+    // Audyt wykazał, że zakaz sformułowany szeroko („NIE PRZESĄDZASZ o winie, zamiarze
+    // ani kwalifikacji") model rozciągał na CAŁĄ ocenę i uchylał się od odpowiedzi na
+    // pytanie organu — a to pytanie mieści się w kompetencji biegłego i jest sednem opinii.
+    expect(p.system).toContain("MUSISZ je rozstrzygnąć jednoznacznie");
+    expect(p.system).toContain("uchylenie");
+    // Poza kompetencją zostają WYŁĄCZNIE trzy rzeczy.
+    expect(p.system).toContain("wina, zamiar i kwalifikacja prawna czynu");
+    expect(p.user).toContain("zdania rozstrzygającego");
   });
 
   it("zakaz opierania się dotyczy TYLKO niewiarygodnego odczytu", () => {

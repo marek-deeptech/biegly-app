@@ -81,6 +81,25 @@ def _komorki_xlsx(dane: bytes, maks: int = 60) -> list[tuple[str, str]]:
                 return out
     return out
 
+def _zachowaj_proze(case_id, kind):
+    """Zwraca (body_md, czy_byla_proza) dla istniejącej subanalizy.
+
+    ⚠️ POWÓD: upsert wysyłał `body_md: ""` i przy KAŻDYM ponownym przeliczeniu
+    kasował gotową prozę rozdziału. Biegły redagował rozdział, potem uruchamiał
+    krok liczbowy jeszcze raz — i tekst znikał bez ostrzeżenia. Zaobserwowane
+    wprost: trzy zredagowane rozdziały opinii MBR wyzerowały się po dodaniu metryk.
+
+    Prozy nie kasujemy, ale ZNACZYMY, że opisuje wcześniejszy odczyt: tekst opisujący
+    liczby sprzed przeliczenia jest gorszy niż brak tekstu, bo wygląda na aktualny.
+    """
+    try:
+        _, b = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}&kind=eq.{kind}&select=body_md")
+        arr = json.loads(b or b"[]")
+        tresc = (arr[0].get("body_md") or "") if arr else ""
+        return tresc, bool(tresc.strip())
+    except Exception:  # noqa: BLE001
+        return "", False
+
 
 def policz(case_id, dzien=None):
     try:
@@ -166,10 +185,11 @@ def policz(case_id, dzien=None):
                 "Do rozdziału potrzebne są komunikaty agencji z datami zmian ocen."
             )
 
+        proza, byla = _zachowaj_proze(case_id, "sygnaly_rynkowe")
         sub = {
             "case_id": case_id, "kind": "sygnaly_rynkowe", "chapter_no": "V",
             "title": "Sygnały rynkowe: CDS i ratingi",
-            "status": "szkic", "body_md": "",
+            "status": "szkic", "body_md": proza,
             "data": {
                 "tables": tabele,
                 "table": tabele[0] if tabele else None,
@@ -177,6 +197,7 @@ def policz(case_id, dzien=None):
                 "braki": braki,
                 "obrazy": obrazy,
                 "dzienZdarzenia": dzien,
+                "proza_sprzed_przeliczenia": byla,
             },
         }
         _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",

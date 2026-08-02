@@ -147,3 +147,39 @@ describe("moduł procedury — chronologia a dzień decyzji", () => {
     expect((p.data.table as { rows: string[][] }).rows).toHaveLength(3);
   });
 });
+
+describe("proza nie ginie przy ponownym przeliczeniu", () => {
+  it("kontroler zgłasza prozę starszą niż dane, zamiast ją przemilczeć", async () => {
+    // Kroki liczbowe zapisywały subanalizę z pustym `body_md`, kasując zredagowany
+    // rozdział. W opinii MBR wyzerowały się trzy gotowe rozdziały po samym dodaniu
+    // metryk. Dziś tekst zostaje — ale opisuje odczyt sprzed przeliczenia, więc
+    // milczenie o tym byłoby groźniejsze niż skasowanie: wygląda na aktualny.
+    const { reviewOpinion } = await import("@/lib/opinion/review");
+    const opinia = {
+      caseName: "MBR", signature: null, expert: "", generatedAt: "", legalBasis: ["x"], chapters: [],
+    } as never;
+    const stored = [
+      { kind: "wskazniki_bank", chapter_no: "V", title: "x", status: "szkic", body_md: "Treść rozdziału.", data: { proza_sprzed_przeliczenia: true } },
+      { kind: "makro", chapter_no: "V", title: "y", status: "szkic", body_md: "", data: { proza_sprzed_przeliczenia: true } },
+      { kind: "limity", chapter_no: "V", title: "z", status: "szkic", body_md: "Inna treść.", data: {} },
+    ] as never;
+    const f = reviewOpinion(opinia, [], stored);
+    const w = f.find((x) => x.check === "Aktualność prozy wobec danych");
+    expect(w?.severity).toBe("WARN");
+    expect(w?.message).toContain("wskazniki_bank");
+    // Rozdział bez prozy nie jest problemem — nie ma czego dezaktualizować.
+    expect(w?.message).not.toContain("makro");
+    expect(w?.message).not.toContain("limity");
+  });
+
+  it("bez nieaktualnej prozy kontroler milczy", async () => {
+    const { reviewOpinion } = await import("@/lib/opinion/review");
+    const pusta = {
+      caseName: "MBR", signature: null, expert: "", generatedAt: "", legalBasis: ["x"], chapters: [],
+    } as never;
+    const f = reviewOpinion(pusta, [], [
+      { kind: "limity", chapter_no: "V", title: "z", status: "szkic", body_md: "Treść.", data: {} },
+    ] as never);
+    expect(f.some((x) => x.check === "Aktualność prozy wobec danych")).toBe(false);
+  });
+});

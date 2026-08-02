@@ -13,7 +13,14 @@ import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opin
 import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
 import { buildWiedzaBlock } from "@/lib/opinion/wiedza";
-import { BANK_REDACT_KINDS, buildBankRedactPrompt, modulDla, type BankRedactKind } from "@/lib/opinion/redact-bank";
+import { packDla } from "@/lib/domain";
+import {
+  BANK_REDACT_KINDS,
+  buildBankProzaIIIPrompt,
+  buildBankRedactPrompt,
+  type BankRedactKind,
+  wejscieBankowe,
+} from "@/lib/opinion/redact-bank";
 import { buildBankWnioskiPrompt, materialWnioskow } from "@/lib/opinion/wnioski-bank";
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
@@ -64,6 +71,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // Wnioski mają OSOBNĄ ścieżkę per dziedzina. Wnioski GPW składa się z technik
   // manipulacji, zdarzeń ESPI, powiązań KRS i zbieżności IP — w sprawie o ryzyko
   // kredytowe banku nie ma żadnej z tych rzeczy, a prompt pytałby o nie modelu.
+  // Rozdziały „miękkie" (I/III/V) mają prompty GPW — zakotwiczone w MAR i sesjach
+  // giełdowych. W sprawie bankowej rozdział III (Wstęp teoretyczny) wygenerowany
+  // tą ścieżką dał 14 504 znaki wywodu o integralności rynku regulowanego i wash
+  // trades, w opinii o lokacie międzybankowej. Bank ma własny wariant.
+  const isProzaBank = bankowa && chapter === "III";
   const isWnioski = chapter === "wnioski" && !bankowa;
   const isWnioskiBank = chapter === "wnioski" && bankowa;
   if (!chapter || (!REDACT_META[chapter as RedactChapter] && !isIv && !isBank && !isWnioski && !isWnioskiBank))
@@ -83,7 +95,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let userPrompt: string;
   let meta: unknown;
 
-  if (isWnioskiBank) {
+  if (isProzaBank) {
+    // ── Wstęp teoretyczny dziedziny bankowej (rozdz. IV opinii) ──
+    const dzien =
+      ((subs ?? []).find((s) => s.kind === "limity")?.data as { dzienZdarzenia?: string | null } | undefined)
+        ?.dzienZdarzenia ?? null;
+    const obecne = new Set((subs ?? []).map((s) => s.kind));
+    const p = buildBankProzaIIIPrompt({
+      caseName: caseRow.name,
+      signature: caseRow.signature,
+      dzienZdarzenia: dzien,
+      przepisy: dzien ? przepisyNaDzien(dzien).map((x) => `${x.ref} — ${x.zakres}`) : [],
+      anachroniczne: dzien ? przepisyAnachroniczne(dzien).map((x) => `${x.ref} (od ${x.od})`) : [],
+      moduly: packDla(caseRow.typ)
+        .moduly.filter((m) => obecne.has(m.id === "adekwatnosc" ? "wskazniki_bank" : m.id))
+        .map((m) => m.tytul),
+    });
+    system = p.system;
+    userPrompt = p.user;
+    meta = { kind: "proza_iii" };
+  } else if (isWnioskiBank) {
     // ── Wnioski dziedziny bankowej ──
     const sub = (subs ?? []).find((s) => s.kind === "wnioski");
     if (!sub)
@@ -170,63 +201,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const sub = (subs ?? []).find((s) => s.kind === chapter);
     if (!sub)
       return Response.json({ ok: false, reason: "Najpierw wykonaj Krok 3 lub 4 dla tego rozdziału." });
-    type Tbl = { caption?: string; head?: string[]; rows?: string[][] };
-    // WSZYSTKIE tabele modułu, nie tylko pierwsza. Moduły zapisują ich kilka i druga
-    // bywa tą istotną: publikacje PO zdarzeniu oraz przepisy późniejsze mają w podpisie
-    // ostrzeżenie, że nie wolno ich użyć do oceny stanu z dnia decyzji. Branie samej
-    // pierwszej tabeli gubiło to ostrzeżenie i — przy kilku szeregach w module `makro` —
-    // większość danych.
-    const tabele = ((sub.data?.tables as Tbl[] | undefined)?.length
-      ? (sub.data?.tables as Tbl[])
-      : ([sub.data?.table as Tbl | undefined].filter(Boolean) as Tbl[])
-    ).filter((x) => x?.head?.length && x.rows?.length);
-    const MAX_W = 120;
-    const bloki = tabele.map((x) => {
-      const widoczne = (x.rows ?? []).slice(0, MAX_W);
-      // Ucięcie musi być WIDOCZNE w promptcie — milczące skrócenie tabeli czytałoby się
-      // jak komplet danych i model opisałby niepełny szereg jako pełny.
-      const ogon =
-        (x.rows?.length ?? 0) > MAX_W
-          ? `\n[…] pominięto ${(x.rows?.length ?? 0) - MAX_W} dalszych wierszy — omów zakres, nie każdy wiersz`
-          : "";
-      return `${x.caption ? x.caption + ":\n" : ""}${(x.head ?? []).join(" | ")}\n${widoczne
-        .map((r) => r.join(" | "))
-        .join("\n")}${ogon}`;
-    });
-    const tableText = bloki.length ? bloki.join("\n\n") : null;
     const { data: docsB } = await supabase.from("documents").select("doc_type").eq("case_id", id);
     const licz: Record<string, number> = {};
     for (const d of docsB ?? []) licz[d.doc_type as string] = (licz[d.doc_type as string] ?? 0) + 1;
-    // Data zdarzenia z warsztatu (Krok 4) — wyznacza stan prawny rozdziału.
-    const dzien =
-      ((subs ?? []).find((s) => s.kind === "limity")?.data as { dzienZdarzenia?: string | null } | undefined)
-        ?.dzienZdarzenia ?? null;
-    const modul = modulDla(chapter as BankRedactKind);
-    const p = buildBankRedactPrompt({
-      kind: chapter as BankRedactKind,
-      title: sub.title,
-      caseName: caseRow.name,
-      signature: caseRow.signature,
-      dzienZdarzenia: dzien,
-      tableText,
-      findings: (sub.data?.findings ?? []) as string[],
-      inventory: Object.entries(licz)
-        .filter(([k]) => !["UNKNOWN", "GRAFIKA"].includes(k))
-        .map(([k, v]) => `${v} × ${k}`),
-      przepisy: dzien ? przepisyNaDzien(dzien, modul as never).map((x) => `${x.ref} — ${x.zakres}`) : [],
-      anachroniczne: dzien
-        ? przepisyAnachroniczne(dzien)
-            .filter((x) => x.moduly.includes(modul as never))
-            .map((x) => `${x.ref} (obowiązuje od ${x.od})`)
-        : [],
-      uwagi: (sub.data as { uwagi?: string[] } | null)?.uwagi ?? [],
-      zastrzezenia: (sub.data as { zastrzezenia?: string[] } | null)?.zastrzezenia ?? [],
-      // Pliki źródłowe → z nich model ustala, CZYJE są liczby. Bez tego przypisywał
-      // sprawozdania kontrahenta bankowi z nazwy sprawy.
-      zrodla: ((sub.data as { zrodla?: { plik?: string }[] } | null)?.zrodla ?? [])
-        .map((z) => String(z?.plik ?? ""))
-        .filter(Boolean),
-    });
+    const p = buildBankRedactPrompt(
+      wejscieBankowe({
+        kind: chapter as BankRedactKind,
+        sub,
+        caseRow,
+        subs: (subs ?? []) as never,
+        licznikTypow: licz,
+        przepisyNaDzien,
+        przepisyAnachroniczne,
+      }),
+    );
     system = p.system;
     userPrompt = p.user;
     meta = { kind: chapter };
@@ -392,7 +380,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // Obie ścieżki wniosków (GPW i bankowa) sięgają po ten sam korpus `wnioski` —
   // wzorce stylu są zapisane wg ROLI rozdziału, nie wg dziedziny, i to jest cały
   // powód, dla którego dziedziny dzielą jedną aplikację zamiast być klonami.
-  const rodzaj = isWnioski || isWnioskiBank ? "wnioski" : (REDACT_META[chapter as RedactChapter]?.kind ?? chapter);
+  const rodzaj =
+    isWnioski || isWnioskiBank
+      ? "wnioski"
+      : isProzaBank
+        ? "proza_iii"
+        : (REDACT_META[chapter as RedactChapter]?.kind ?? chapter);
   const [wiedza, wzorzec, styl] = await Promise.all([
     buildWiedzaBlock(supabase, rodzaj, caseRow.typ),
     buildWzorzecBlock(supabase, rodzaj),
@@ -406,7 +399,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       model: "claude-opus-4-8",
       // Rozdziały z rozbiciem per sesja (akapit na każdą sesję) potrzebują zapasu.
       max_tokens:
-        isWnioski || isWnioskiBank ? 6500
+        isProzaBank ? 8000
+        : isWnioski || isWnioskiBank ? 6500
         : chapter === "layering" || chapter === "aktywnosc" ? 9000
         // Rozdziały bankowe: 6–12 akapitów gęstej analizy z omówieniem tabeli
         // okres po okresie — domyślne 2500 ucinałoby je w połowie.

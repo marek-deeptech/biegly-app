@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { reviewOpinion } from "@/lib/opinion/review";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
-import { RUBRYKA_BANK, SYSTEM_AUDYT_BANK, type KryteriumRubryki } from "@/lib/opinion/audyt-bank";
+import { buildAudytPrompt, RUBRYKA_BANK, SYSTEM_AUDYT_BANK, type KryteriumRubryki } from "@/lib/opinion/audyt-bank";
 import { createClient } from "@/lib/supabase/server";
 
 // AGENT AUDYTORA OPINII — mierzalna kontrola jakości wyjścia.
@@ -126,8 +126,20 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   // Wykaz metryk = ŹRÓDŁO PRAWDY do weryfikacji liczb w tekście. Skracamy do
   // kluczy zagregowanych + szczytów, żeby zmieścić się w kontekście.
+  // Wykaz metryk = ŹRÓDŁO PRAWDY do weryfikacji liczb w tekście.
+  //
+  // ⚠️ INNY KSZTAŁT PER DZIEDZINA. W GPW metryk są tysiące (klucz × sesja), więc
+  // podajemy szczyt na klucz. W dziedzinie bankowej jest ich kilkadziesiąt, ale KAŻDA
+  // niesie okres — i to okres jest przedmiotem oceny. Szczyt na klucz pokazywałby dla
+  // CET1 wyłącznie 8,17% z 2006 r., przez co audytor nie mógł potwierdzić ani jednej
+  // wartości z dnia decyzji i uznawał całą warstwę liczbową opinii za niepotwierdzoną.
   const wykazMetryk = (() => {
     const m = metrics ?? [];
+    if (bankowa)
+      return m
+        .slice(0, 300)
+        .map((x) => `${x.key}${x.session_day ? ` (${x.session_day})` : ""} = ${x.value} ${x.unit ?? ""}`.trim())
+        .join("\n");
     const single = m.filter((x) => !x.session_day).slice(0, 120);
     const peaks = new Map<string, { v: number; d: string }>();
     for (const x of m) {
@@ -149,41 +161,24 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     })
     .join("\n\n");
 
-  const userPrompt = [
-    `Sprawa: ${caseRow.name}${caseRow.signature ? ` (sygn. ${caseRow.signature})` : ""}.`,
-    "",
-    "RUBRYKA AUDYTU (oceń każde kryterium po jego `id`):",
-    RUBRYKA.map((r) => `- ${r.id} (waga ${r.waga}): ${r.opis}`).join("\n"),
-    ...(bankowa
-      ? [
-          "",
-          dzienZdarzenia
-            ? `DATA OCENIANEGO ZDARZENIA: ${dzienZdarzenia}. Sprawdź wobec niej daty obowiązywania ` +
-              "każdego powołanego przepisu oraz każdej informacji użytej jako podstawa oceny."
-            : "DATA OCENIANEGO ZDARZENIA: nieustalona — oceń kryteria „stan_prawny” i „wsteczne” jako brak, " +
-              "bo bez daty nie da się sprawdzić ani stanu prawnego, ani granicy wiedzy.",
-        ]
-      : []),
-    "",
-    pytania.length
-      ? `PYTANIA ORGANU, na które opinia MUSI odpowiedzieć (${pytania.length}):\n` +
-        pytania.map((q, i) => `${i + 1}. ${q}`).join("\n")
-      : "PYTANIA ORGANU: brak wyodrębnionych pytań — oceń kryterium „pytania” jako brak.",
-    "",
-    "WYKAZ METRYK SILNIKA (jedyne dopuszczalne źródło liczb — każdą liczbę z opinii sprawdź tutaj):",
-    wykazMetryk || "(brak policzonych metryk)",
-    "",
-    "TEKST OPINII DO OCENY:",
+  const userPrompt = buildAudytPrompt({
+    caseName: caseRow.name,
+    signature: caseRow.signature,
+    rubryka: RUBRYKA,
+    bankowa,
+    dzienZdarzenia,
+    pytania,
+    wykazMetryk,
     tekstOpinii,
-    "",
-    "Oceń opinię wobec rubryki — wywołaj oceń_opinie.",
-  ].join("\n");
+  });
 
   try {
     const client = new Anthropic();
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 3000,
+      // Siedem kryteriów z konkretnymi uwagami (uwaga bez wskazania rozdziału i braku
+      // jest bezużyteczna) nie mieści się w 3000 — audyt urywał się przed podsumowaniem.
+      max_tokens: 8000,
       system: systemDla(caseRow.typ ?? null),
       tools: [TOOL],
       tool_choice: { type: "tool", name: "ocen_opinie" },
@@ -193,6 +188,20 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       kryteria?: { id?: string; status?: string; uwaga?: string }[];
       podsumowanie?: string;
     };
+
+    // ⚠️ AUDYT, KTÓRY SIĘ NIE UDAŁ, NIE MOŻE WYGLĄDAĆ NA WYNIK 0/100.
+    // Brakujące kryterium jest niżej mapowane na „brak", więc urwana albo pusta
+    // odpowiedź modelu dawała komplet „brak" i punktację zero — czyli komunikat
+    // „opinia nie spełnia żadnego kryterium" tam, gdzie prawdą jest „nie udało się
+    // ocenić". Biegły dostawał najgorszą możliwą ocenę bez ani jednej uwagi.
+    if (msg.stop_reason === "max_tokens" || !(parsed.kryteria ?? []).length)
+      return Response.json({
+        ok: false,
+        reason:
+          msg.stop_reason === "max_tokens"
+            ? "Audyt urwał się na limicie długości odpowiedzi — oceny nie ukończono. Punktacji nie wyliczono; uruchom ponownie."
+            : "Audytor nie zwrócił oceny. Punktacji nie wyliczono; uruchom ponownie.",
+      });
 
     // ── Punktacja: rubryka modelu minus kary za twarde błędy deterministyczne ──
     const kryteria: Kryterium[] = RUBRYKA.map((r) => {

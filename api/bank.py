@@ -28,6 +28,7 @@ from engine.bank import Pozycje, szereg, wskazniki, zmiany  # noqa: E402
 POLA_POZYCJI = [f.name for f in _pola_dataclass(Pozycje) if f.name not in ("dzien", "waluta")]
 from engine.sprawozdania import (  # noqa: E402
     czytaj_pdf,
+    GRUPY,
     sprawdz_bilans,
     strony_pol,
     zestawienie,
@@ -51,6 +52,25 @@ def _fmt(v):
     """Liczba w zapisie polskim, bez zbędnych zer po przecinku."""
     s = f"{v:,.2f}".replace(",", " ").replace(".", ",")
     return s[:-3] if s.endswith(",00") else s
+
+def _zachowaj_proze(case_id, kind):
+    """Zwraca (body_md, czy_byla_proza) dla istniejącej subanalizy.
+
+    ⚠️ POWÓD: upsert wysyłał `body_md: ""` i przy KAŻDYM ponownym przeliczeniu
+    kasował gotową prozę rozdziału. Biegły redagował rozdział, potem uruchamiał
+    krok liczbowy jeszcze raz — i tekst znikał bez ostrzeżenia. Zaobserwowane
+    wprost: trzy zredagowane rozdziały opinii MBR wyzerowały się po dodaniu metryk.
+
+    Prozy nie kasujemy, ale ZNACZYMY, że opisuje wcześniejszy odczyt: tekst opisujący
+    liczby sprzed przeliczenia jest gorszy niż brak tekstu, bo wygląda na aktualny.
+    """
+    try:
+        _, b = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}&kind=eq.{kind}&select=body_md")
+        arr = json.loads(b or b"[]")
+        tresc = (arr[0].get("body_md") or "") if arr else ""
+        return tresc, bool(tresc.strip())
+    except Exception:  # noqa: BLE001
+        return "", False
 
 
 def policz(case_id, paths=None):
@@ -200,6 +220,44 @@ def policz(case_id, paths=None):
                 for w in ponizej
             ]
 
+            zest = zestawienie(unikalne, miejsca)
+            # Kontrola pozycji bilansowych — inna niż kontrola kapitału, bo bilans
+            # i wynik nie są przypięte do jednej strony i kolumna potrafi się rozjechać
+            # przy scalaniu dwóch sprawozdań. Uwagi idą do OBU rozdziałów: wskaźniki
+            # liczą się z tych samych odczytów.
+            zastrzezenia += sprawdz_bilans(unikalne)
+            # POZYCJE SPRAWOZDAŃ TEŻ SĄ METRYKAMI.
+            # `metrics` jest w aplikacji zadeklarowanym źródłem prawdy dla liczb — audytor
+            # i kontroler opinii sprawdzają w nim każdą wartość z tekstu. Dopóki trafiały
+            # tam wyłącznie wskaźniki procentowe, kwoty (aktywa, RWA, fundusze własne)
+            # były w opinii NIEWERYFIKOWALNE: audyt zgłaszał je hurtem jako niepotwierdzone,
+            # choć pochodziły wprost z odczytu sprawozdań.
+            for pz in unikalne:
+                for pole, etykieta in [(f, e) for _, pola in GRUPY for f, e in pola]:
+                    v = getattr(pz, pole, None)
+                    if v is None:
+                        continue
+                    metryki.append({
+                        "case_id": case_id, "key": f"bank_poz_{pole}", "label": etykieta,
+                        "value": v, "unit": "", "target": None, "session_day": pz.dzien,
+                    })
+
+            # PRZELICZENIA TEŻ SĄ LICZBAMI, KTÓRE OPINIA CYTUJE.
+            # Audyt zgłaszał dynamiki (+72,0%, +62,2%) jako niepotwierdzone, choć składniki
+            # bazowe były w wykazie — bo `metrics` miało tylko poziomy. Liczba wyliczona
+            # przez silnik ma być tak samo sprawdzalna jak odczytana.
+            for w_ in zest["rows"]:
+                if not w_[1] or w_[-2] in ("—", ""):
+                    continue
+                try:
+                    v = float(w_[-2].replace("%", "").replace("+", "").replace(",", ".").strip())
+                except ValueError:
+                    continue
+                metryki.append({
+                    "case_id": case_id, "key": "bank_zmiana_pozycji", "label": f"{w_[0]} — zmiana",
+                    "value": v, "unit": "%", "target": None, "session_day": okresy[-1],
+                })
+
             # Metryki nadpisujemy w całości: ponowne uruchomienie ma dać ten sam stan,
             # a nie dokleić drugi komplet wierszy.
             _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}&key=like.bank_*")
@@ -208,6 +266,7 @@ def policz(case_id, paths=None):
                      json.dumps(metryki[i:i + 100]).encode(),
                      {"Content-Type": "application/json", "Prefer": "return=minimal"})
 
+            proza_w, byla_w = _zachowaj_proze(case_id, "wskazniki_bank")
             sub = {
                 "case_id": case_id,
                 "kind": "wskazniki_bank",
@@ -222,8 +281,9 @@ def policz(case_id, paths=None):
                     "uwagi": uwagi,
                     "zastrzezenia": zastrzezenia,
                     "findings": findings,
+                    "proza_sprzed_przeliczenia": byla_w,
                 },
-                "body_md": "",
+                "body_md": proza_w,
             }
             _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
                  json.dumps(sub).encode(),
@@ -234,12 +294,7 @@ def policz(case_id, paths=None):
             # Wskaźnik jest ilorazem i ukrywa skalę — udział depozytów 22% nie mówi,
             # czy bank urósł dwukrotnie, czy skurczył się o połowę. Ta sama lektura
             # PDF-ów zasila oba rozdziały, więc nie kosztuje dodatkowego odczytu.
-            zest = zestawienie(unikalne, miejsca)
-            # Kontrola pozycji bilansowych — inna niż kontrola kapitału, bo bilans
-            # i wynik nie są przypięte do jednej strony i kolumna potrafi się rozjechać
-            # przy scalaniu dwóch sprawozdań. Uwagi idą do OBU rozdziałów: wskaźniki
-            # liczą się z tych samych odczytów.
-            zastrzezenia += sprawdz_bilans(unikalne)
+            proza_s, byla_s = _zachowaj_proze(case_id, "sprawozdania")
             sub_spr = {
                 "case_id": case_id,
                 "kind": "sprawozdania",
@@ -256,8 +311,9 @@ def policz(case_id, paths=None):
                         "Odczytano pozycje sprawozdań, ale żadna nie zmieniła się o więcej niż 20% "
                         "między skrajnymi okresami."
                     ],
+                    "proza_sprzed_przeliczenia": byla_s,
                 },
-                "body_md": "",
+                "body_md": proza_s,
             }
             _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
                  json.dumps(sub_spr, ensure_ascii=False).encode(),
