@@ -180,7 +180,7 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
       if (png) {
         children.push(
           new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200 }, children: [new ImageRun({ type: "png", data: png, transformation: { width: 560, height: 235 } })] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 40, after: 20 }, children: [new TextRun({ text: `${ph.label ?? "Wykres"}. ${ph.name}`, bold: true, size: 18 })] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 40, after: 20 }, children: [new TextRun({ text: ph.label ?? `Wykres — ${ph.name}`, bold: true, size: 18 })] }),
           sourceLine(),
         );
         continue;

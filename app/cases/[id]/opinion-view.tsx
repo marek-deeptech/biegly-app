@@ -26,6 +26,7 @@ import { IV_REDACT_KINDS } from "@/lib/opinion/redact";
 import { BANK_REDACT_KINDS } from "@/lib/opinion/redact-bank";
 import { buildWnioskiBank } from "@/lib/opinion/wnioski-bank";
 import { zapiszKorekte } from "@/lib/opinion/korekty";
+import { rozdzialyDoZatwierdzenia } from "@/lib/opinion/bramka-finalna";
 import { REVIEW_CHECKS, reviewOpinion, type Severity } from "@/lib/opinion/review";
 
 type AuditKryterium = { kryterium: string; status: "spelnione" | "czesciowo" | "brak"; waga: number; uwaga: string };
@@ -923,7 +924,9 @@ export default function OpinionView({
         {(() => {
           const errN = review.filter((r) => r.severity === "ERROR").length;
           const warnN = review.filter((r) => r.severity === "WARN").length;
-          const notReady = opinion.chapters.filter((c) => c.status !== "ready").map((c) => c.no);
+          // Ta sama definicja co w bramce serwera — inaczej przycisk i odmowa
+          // rozjeżdżałyby się co do tego, czego brakuje.
+          const notReady = rozdzialyDoZatwierdzenia(opinion);
           return (
             <>
               <ul className="mb-4 space-y-1.5">
@@ -957,18 +960,32 @@ export default function OpinionView({
                     </p>
                   )}
                   <div className="flex flex-wrap items-center gap-3">
-                    <a
-                      href={`/cases/${caseId}/opinion/docx?final=1`}
-                      className="inline-block border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90"
-                    >
-                      Generuj opinię (.docx)
-                    </a>
-                    <a
-                      href={`/cases/${caseId}/opinion/pdf?final=1`}
-                      className="inline-block border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90"
-                    >
-                      Pobierz opinię (PDF)
-                    </a>
+                    {/* Wersja FINALNA wymaga zatwierdzenia rozdziałów — serwer i tak
+                        odmówi (409), ale przycisk ma o tym mówić, zanim biegły kliknie.
+                        Wersja robocza obok zostaje bez warunków. */}
+                    {notReady.length > 0 ? (
+                      <span
+                        title={`Zatwierdź rozdziały: ${notReady.join(", ")}`}
+                        className="inline-block cursor-not-allowed border border-ink/30 bg-ink/10 px-4 py-2 text-xs uppercase tracking-wider text-ink/50"
+                      >
+                        Opinia finalna — zatwierdź {notReady.length} rozdz.
+                      </span>
+                    ) : (
+                      <>
+                        <a
+                          href={`/cases/${caseId}/opinion/docx?final=1`}
+                          className="inline-block border border-ink bg-ink px-4 py-2 text-xs uppercase tracking-wider text-paper transition-opacity hover:opacity-90"
+                        >
+                          Generuj opinię (.docx)
+                        </a>
+                        <a
+                          href={`/cases/${caseId}/opinion/pdf?final=1`}
+                          className="inline-block border border-emerald-600 bg-emerald-600 px-4 py-2 text-xs uppercase tracking-wider text-white transition-opacity hover:opacity-90"
+                        >
+                          Pobierz opinię (PDF)
+                        </a>
+                      </>
+                    )}
                     <span className="text-xs text-inksoft">
                       wersja robocza (z adnotacjami „Źródło”):{" "}
                       <a href={`/cases/${caseId}/opinion/docx`} className="underline-offset-2 hover:underline">.docx</a>

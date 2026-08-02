@@ -15,7 +15,7 @@ import { packDla } from "@/lib/domain";
 import { przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { rolaDla } from "@/lib/domain/rola";
 
-import { chapterFromStored, type Chapter, type Doc, type Metric, type Opinion, type StoredSub } from "./build";
+import { chapterFromStored, ponumerujElementy, type Chapter, type Doc, type Metric, type Opinion, type StoredSub } from "./build";
 import { chartSvg } from "./charts";
 import { wykresyBankowe } from "./charts-bank";
 
@@ -129,7 +129,7 @@ export function buildOpinionBank(
     ];
   }
 
-  const chapters: Chapter[] = [
+  let chapters: Chapter[] = [
     {
       no: "I",
       title: "Przedmiot opinii",
@@ -178,22 +178,27 @@ export function buildOpinionBank(
       paras: [],
       evidence: inputDocs.map((d) => d.rel_path.split("/").pop() ?? d.rel_path).slice(0, 400),
     },
-    spis(
-      "VII",
-      "Spis tabel",
-      moduly
-        .flatMap((c) => [c.table, ...(c.tables ?? [])])
-        .filter(Boolean)
-        .map((t, n) => `Tabela ${n + 1}. ${t?.caption ?? ""}`.trim()),
-      "W opinii nie zamieszczono tabel.",
-    ),
-    spis(
-      "VIII",
-      "Spis wykresów",
-      moduly.flatMap((c) => c.placeholders ?? []).map((p, n) => `Wykres ${n + 1}. ${p.label ?? p.name}`.trim()),
-      "W opinii nie zamieszczono wykresów.",
-    ),
+    spis("VII", "Spis tabel", [], "W opinii nie zamieszczono tabel."),
+    spis("VIII", "Spis wykresów", [], "W opinii nie zamieszczono wykresów."),
   ];
+
+  // NUMERACJA PO ZŁOŻENIU CAŁOŚCI, a nie osobno w każdym spisie. Dotąd numery
+  // powstawały wyłącznie w spisach i obejmowały same moduły V — tabele z rozdziałów
+  // III i IV do spisu nie trafiały wcale, a w treści nie było ani jednego numeru.
+  const ponumerowane = ponumerujElementy(chapters, ["VII", "VIII"]);
+  chapters = ponumerowane.chapters;
+  const wstaw = (no: string, poz: { podpis: string; rozdzial: string }[], gdyPusto: string) => {
+    const i = chapters.findIndex((c) => c.no === no);
+    if (i < 0) return;
+    chapters[i] = {
+      ...chapters[i],
+      paras: poz.length
+        ? poz.map((x) => ({ text: `${x.podpis} (rozdz. ${x.rozdzial}).`, conf: "grounded" as const }))
+        : [{ text: gdyPusto, conf: "grounded" as const }],
+    };
+  };
+  wstaw("VII", ponumerowane.tabele, "W opinii nie zamieszczono tabel.");
+  wstaw("VIII", ponumerowane.wykresy, "W opinii nie zamieszczono wykresów.");
 
   // Kontrola zgodności ze szkieletem dziedziny — gdyby ktoś dodał rozdział główny
   // w pakiecie, a zapomniał tutaj, opinia po cichu odbiegłaby od wzorca biegłego.

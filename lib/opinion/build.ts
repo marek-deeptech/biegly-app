@@ -1848,6 +1848,66 @@ const SUB_LABEL: Record<string, string> = {
 };
 
 // Rozdział opinii z zapisanej subanalizy (zatwierdzona → grounded/ready).
+/**
+ * NUMERACJA CIĄGŁA TABEL I WYKRESÓW W CAŁYM DOKUMENCIE.
+ *
+ * ⚠️ POWÓD: numery istniały WYŁĄCZNIE w spisach. Spis odsyłał do „Tabeli 3",
+ * a w treści żadna tabela nie była tak podpisana — wszystkie nosiły podpis
+ * „Tabela. Wielkości bilansowe…". Podpis wykresu brzmiał zaś „Współczynnik
+ * wypłacalności. adekwatnosc_2", czyli z identyfikatorem maszynowym generatora
+ * w gotowej opinii dla sądu.
+ *
+ * Numer nadajemy RAZ, w kolejności rozdziałów, i wpisujemy go do samego podpisu.
+ * Dzięki temu każdy renderer (DOCX, PDF, podgląd) dostaje gotowy tekst i nie ma
+ * własnej wersji numeracji — a spis buduje się z tych samych napisów co treść.
+ *
+ * Rozdziały spisowe są POMIJANE: gdyby wchodziły do numeracji, spis numerowałby
+ * sam siebie.
+ *
+ * ⚠️ TYLKO DLA DZIEDZINY BANKOWEJ. Builder GPW ma własną, starszą numerację globalną
+ * („Tabela nr N", niżej w tym pliku) i jest ona poprawna — treść i spis się zgadzają.
+ * Wpięcie tego przebiegu również tam dało podpisy „Tabela nr 1. Tabela 1. Kurs (OHLC)",
+ * czyli dwa numery w jednym podpisie. Jedna dziedzina — jeden mechanizm numeracji.
+ */
+export type Ponumerowane = {
+  chapters: Chapter[];
+  tabele: { nr: number; podpis: string; rozdzial: string }[];
+  wykresy: { nr: number; podpis: string; rozdzial: string }[];
+};
+
+const BEZ_PREFIKSU = /^(Tabela|Wykres)\.?\s*\d*\.?\s*/i;
+
+export function ponumerujElementy(chapters: Chapter[], pomin: string[] = []): Ponumerowane {
+  const tabele: Ponumerowane["tabele"] = [];
+  const wykresy: Ponumerowane["wykresy"] = [];
+  let nrT = 0;
+  let nrW = 0;
+
+  const out = chapters.map((ch) => {
+    if (pomin.includes(ch.no)) return ch;
+    const przenumeruj = (t: OpTable): OpTable => {
+      nrT++;
+      const podpis = `Tabela ${nrT}. ${(t.caption ?? "").replace(BEZ_PREFIKSU, "").trim()}`.trim();
+      tabele.push({ nr: nrT, podpis, rozdzial: ch.no });
+      return { ...t, caption: podpis };
+    };
+    const tabs = ch.tables?.length ? ch.tables.map(przenumeruj) : undefined;
+    const tab = !tabs && ch.table ? przenumeruj(ch.table) : ch.table;
+
+    const phs = ch.placeholders?.map((ph) => {
+      nrW++;
+      // `name` to identyfikator generatora („adekwatnosc_2") — do dokumentu nie trafia.
+      const podpis = `Wykres ${nrW}. ${(ph.label ?? "").replace(BEZ_PREFIKSU, "").trim() || ph.name}`.trim();
+      wykresy.push({ nr: nrW, podpis, rozdzial: ch.no });
+      return { ...ph, label: podpis };
+    });
+
+    return { ...ch, ...(tabs ? { tables: tabs } : {}), ...(tab ? { table: tab } : {}), ...(phs ? { placeholders: phs } : {}) };
+  });
+
+  return { chapters: out, tabele, wykresy };
+}
+
 export function chapterFromStored(s: StoredSub, noOverride?: string, titleOverride?: string): Chapter {
   const conf: Conf = s.status === "zatwierdzona" ? "grounded" : "review";
   return {

@@ -90,7 +90,7 @@ function chapterNodes(ch: Chapter, final: boolean, sig: string | null): Pm[] {
     if (img) {
       out.push(
         { image: img, width: ph.svg ? 500 : 384, alignment: "center", margin: [0, 6, 0, 2] },
-        { text: `${ph.label ?? "Wykres"}. ${ph.name}`, bold: true, alignment: "center", fontSize: 9, margin: [0, 0, 0, 2] },
+        { text: ph.label ?? `Wykres — ${ph.name}`, bold: true, alignment: "center", fontSize: 9, margin: [0, 0, 0, 2] },
         sourceLine(sig),
       );
     } else {

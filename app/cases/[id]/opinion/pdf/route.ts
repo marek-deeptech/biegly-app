@@ -1,4 +1,5 @@
 
+import { sprawdzFinalna } from "@/lib/opinion/bramka-finalna";
 import { buildOpinionDla } from "@/lib/opinion/build-router";
 import { renderOpinionPdf } from "@/lib/opinion/pdf";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
@@ -29,6 +30,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .eq("case_id", id);
 
   const op = buildOpinionDla(caseRow, metrics ?? [], documents ?? [], subanalyses ?? []);
+
+
+  // ⚠️ „FINALNA" MA ZNACZYĆ FINALNA. `?final=1` był zwykłym parametrem w adresie
+
+  // i nie sprawdzał niczego — dawało się pobrać opinię bez adnotacji „(projekt
+
+  // roboczy)", złożoną wyłącznie ze szkiców. Wersja robocza zostaje bez warunków.
+
+  if (final) {
+
+    const bramka = sprawdzFinalna(op);
+
+    if (!bramka.ok) return new Response(bramka.powod, { status: 409 });
+
+  }
   const buf = await renderOpinionPdf(op, { final });
 
   const safe = (caseRow.name || "sprawa").replace(/[^\p{L}\p{N}]+/gu, "_").slice(0, 60);
