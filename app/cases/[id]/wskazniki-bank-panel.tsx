@@ -41,6 +41,10 @@ export default function WskaznikiBankPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const [blad, setBlad] = useState<string | null>(null);
+  // Diagnoza per plik i podpowiedź, co zrobić — silnik odsyła je przy nieudanym
+  // odczycie. Samo jedno zdanie błędu zostawiało biegłego z pytaniem, KTÓRY plik
+  // zawiódł i dlaczego, choć odpowiedź była w tej samej odpowiedzi serwera.
+  const [diagnoza, setDiagnoza] = useState<{ uwagi?: string[]; podpowiedz?: string } | null>(null);
 
   /** Otwiera sprawozdanie NA WSKAZANEJ STRONIE — `#page=` rozumie czytnik PDF przeglądarki.
    *  Bez tego biegły dostawał numer strony w zdaniu i musiał sam znaleźć plik w aktach. */
@@ -64,8 +68,13 @@ export default function WskaznikiBankPanel({
         body: JSON.stringify({ caseId }),
       });
       const j = await r.json();
-      if (!j.ok) setBlad(j.error ?? "Nie udało się policzyć wskaźników.");
-      else onDone();
+      if (!j.ok) {
+        setBlad(j.error ?? "Nie udało się policzyć wskaźników.");
+        setDiagnoza({ uwagi: j.uwagi, podpowiedz: j.podpowiedz });
+      } else {
+        setDiagnoza(null);
+        onDone();
+      }
     } catch {
       setBlad("Błąd sieci przy liczeniu wskaźników.");
     } finally {
@@ -88,7 +97,19 @@ export default function WskaznikiBankPanel({
         </Button>
       </div>
 
-      {blad && <p className="mt-3 border border-red-300 bg-red-50 p-2 text-xs text-red-800">{blad}</p>}
+      {blad && (
+        <div className="mt-3 border border-red-300 bg-red-50 p-2 text-xs text-red-800">
+          <p className="font-semibold">{blad}</p>
+          {diagnoza?.uwagi?.length ? (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {diagnoza.uwagi.map((u) => (
+                <li key={u}>{u}</li>
+              ))}
+            </ul>
+          ) : null}
+          {diagnoza?.podpowiedz ? <p className="mt-2 italic">{diagnoza.podpowiedz}</p> : null}
+        </div>
+      )}
 
       {tabela?.rows?.length ? (
         <div className="mt-4 overflow-x-auto">
