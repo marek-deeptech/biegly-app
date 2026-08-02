@@ -122,6 +122,10 @@ def policz(case_id, paths=None):
             # Zlane w jedną listę osłabiały się nawzajem: 14 rutynowych dopełnień topiło
             # 4 realne błędy odczytu, a do Wniosków szło hurtem „nie opieraj się na tym".
             pozycje, uwagi, zastrzezenia, zrodla = [], [], [], []
+            # Uwagi w POSTACI DANYCH: plik + strona, żeby aplikacja dała odnośnik
+            # wprost do miejsca w sprawozdaniu. Numer strony w samym zdaniu zmuszał
+            # biegłego do szukania pliku i kartkowania.
+            uwagi_zrodla = []
             # Miejsce odczytu każdej pozycji — do kolumny „Źródło" w rozdziale
             # o sprawozdaniach. Nazwę pliku dopisujemy tylko przy wielu sprawozdaniach,
             # bo inaczej „str. 47" nie wskazuje jednoznacznie żadnego dokumentu.
@@ -139,11 +143,16 @@ def policz(case_id, paths=None):
                         os.remove(tmp)
                     except OSError:
                         pass
-                poz = zbuduj_pozycje(odczyt, uwagi=uwagi)
+                z_pliku = []
+                poz = zbuduj_pozycje(odczyt, uwagi=uwagi, zrodla=z_pliku)
                 if not poz:
                     uwagi.append(f"{os.path.basename(p)}: nie rozpoznano kolumn dat — pominięto")
                     continue
-                uwagi += uzupelnij_z_tozsamosci(odczyt, poz)
+                uwagi += uzupelnij_z_tozsamosci(odczyt, poz, zrodla=z_pliku)
+                for u in z_pliku:
+                    u["plik"] = os.path.basename(p)
+                    u["sciezka"] = p
+                uwagi_zrodla += z_pliku
                 zastrzezenia += sprawdz_spojnosc(odczyt, poz)
                 for pole, gdzie in strony_pol(odczyt, os.path.basename(p) if len(paths) > 1 else "").items():
                     miejsca.setdefault(pole, gdzie)
@@ -221,6 +230,15 @@ def policz(case_id, paths=None):
                 for w in ponizej
             ]
 
+            # Ten sam okres bywa w dwóch sprawozdaniach, więc ta sama uwaga potrafiła
+            # pojawić się dwa razy (Tier 2 za 2007 w obu plikach Glitnira).
+            widziane_uwagi = set()
+            uwagi_zrodla = [
+                u for u in uwagi_zrodla
+                if not ((u["dzien"], u["pole"]) in widziane_uwagi or widziane_uwagi.add((u["dzien"], u["pole"])))
+            ]
+            uwagi = list(dict.fromkeys(uwagi))
+
             zest = zestawienie(unikalne, miejsca)
             # Kontrola pozycji bilansowych — inna niż kontrola kapitału, bo bilans
             # i wynik nie są przypięte do jednej strony i kolumna potrafi się rozjechać
@@ -280,6 +298,7 @@ def policz(case_id, paths=None):
                     "okresy": okresy,
                     "zrodla": zrodla,
                     "uwagi": uwagi,
+                    "uwagi_zrodla": uwagi_zrodla,
                     "zastrzezenia": zastrzezenia,
                     "findings": findings,
                     "proza_sprzed_przeliczenia": byla_w,
@@ -307,6 +326,7 @@ def policz(case_id, paths=None):
                     "okresy": zest["okresy"],
                     "zrodla": zrodla,
                     "uwagi": uwagi,
+                    "uwagi_zrodla": uwagi_zrodla,
                     "zastrzezenia": zastrzezenia,
                     "findings": zest["findings"] or [
                         "Odczytano pozycje sprawozdań, ale żadna nie zmieniła się o więcej niż 20% "

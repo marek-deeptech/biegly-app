@@ -315,18 +315,27 @@ def _dlugosc_frazy(etykieta: str) -> int:
     return len(etykieta)
 
 
-def _uwaga(uwagi: list[str] | None, dzien: str, k: Kandydat, v: float, skad: str) -> None:
+def _uwaga(uwagi: list[str] | None, dzien: str, k: Kandydat, v: float, skad: str,
+           zrodla: list[dict] | None = None) -> None:
     """Odnotowuje odczyt WYWNIOSKOWANY z układu strony — biegły ma wiedzieć, że to nie
-    jest odczyt kolumny, tylko wniosek z tego, jak tabela była złożona."""
-    if uwagi is None:
-        return
-    uwagi.append(
+    jest odczyt kolumny, tylko wniosek z tego, jak tabela była złożona.
+
+    `zrodla` dostaje ten sam komunikat W POSTACI DANYCH (dzień, pole, strona), żeby
+    aplikacja mogła podać odnośnik wprost do tej strony sprawozdania. Numer strony
+    zaszyty tylko w zdaniu zmuszał biegłego do ręcznego szukania pliku i kartkowania.
+    """
+    tekst = (
         f"{dzien}: {k.pole} = {v:,.0f} — {skad} (str. {k.strona}); wartość wywnioskowana "
         f"z układu strony, nie odczytana z kolumny.".replace(",", "\u00a0")
     )
+    if uwagi is not None:
+        uwagi.append(tekst)
+    if zrodla is not None:
+        zrodla.append({"tekst": tekst, "dzien": dzien, "pole": k.pole, "strona": k.strona})
 
 
-def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None, uwagi: list[str] | None = None) -> list[Pozycje]:
+def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None, uwagi: list[str] | None = None,
+                   zrodla: list[dict] | None = None) -> list[Pozycje]:
     """Składa `Pozycje` per dzień z odczytanych kandydatów.
 
     ⚠️ MAPOWANIE POZYCYJNE JEST UPRAWNIONE TYLKO PRZY ZGODNEJ LICZBIE WARTOŚCI.
@@ -399,7 +408,7 @@ def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None, uwagi: list[str] | N
     for k in reszta:
         if len(k.wartosci) == 1 and getattr(out[0], k.pole, None) is None:
             przypisz(k, k.wartosci)
-            _uwaga(uwagi, kolumny[0], k, k.wartosci[0], "wiersz o jednej wartości")
+            _uwaga(uwagi, kolumny[0], k, k.wartosci[0], "wiersz o jednej wartości", zrodla)
     # Przebieg 4 — tabela segmentowa/kwartalna: OSTATNIA liczba wiersza jest sumą okresu,
     # a kolejne takie wiersze opisują kolejne okresy. Sprawdzone na sześciu wierszach
     # z obu sprawozdań Glitnira; bilans policzony z tak odczytanych wartości domyka się
@@ -412,11 +421,11 @@ def zbuduj_pozycje(o: Odczyt, dni: list[str] | None = None, uwagi: list[str] | N
         licznik[k.pole] = idx + 1
         if idx < len(out) and getattr(out[idx], k.pole, None) is None:
             setattr(out[idx], k.pole, k.wartosci[-1])
-            _uwaga(uwagi, kolumny[idx], k, k.wartosci[-1], "suma wiersza tabeli segmentowej")
+            _uwaga(uwagi, kolumny[idx], k, k.wartosci[-1], "suma wiersza tabeli segmentowej", zrodla)
     return out
 
 
-def uzupelnij_z_tozsamosci(o: Odczyt, poz: list[Pozycje]) -> list[str]:
+def uzupelnij_z_tozsamosci(o: Odczyt, poz: list[Pozycje], zrodla: list[dict] | None = None) -> list[str]:
     """Dolicza składniki kapitału, których etykiety nie dało się odczytać.
 
     Wiersze składnikowe („Hybrid core capital", „Tier 2") mają w sprawozdaniach
@@ -439,12 +448,18 @@ def uzupelnij_z_tozsamosci(o: Odczyt, poz: list[Pozycje]) -> list[str]:
         if idx >= len(tier1):
             continue
         t1 = tier1[idx]
+        def zapisz(pole: str, wartosc: float, opis: str) -> None:
+            tekst = f"{p.dzien}: {opis} = {wartosc:,.0f} (nie odczytany wprost)".replace(",", "\u00a0")
+            uwagi.append(tekst)
+            if zrodla is not None:
+                zrodla.append({"tekst": tekst, "dzien": p.dzien, "pole": pole, "strona": skap})
+
         if p.kapital_at1 is None and p.kapital_cet1 is not None:
             p.kapital_at1 = round(t1 - p.kapital_cet1, 2)
-            uwagi.append(f"{p.dzien}: kapitał AT1 = {p.kapital_at1:,.0f} (Tier 1 − CET1, nie odczytany wprost)")
+            zapisz("kapital_at1", p.kapital_at1, "kapitał AT1 z tożsamości Tier 1 − CET1")
         if p.kapital_tier2 is None and p.fundusze_wlasne is not None:
             p.kapital_tier2 = round(p.fundusze_wlasne - t1, 2)
-            uwagi.append(f"{p.dzien}: kapitał Tier 2 = {p.kapital_tier2:,.0f} (fundusze własne − Tier 1, nie odczytany wprost)")
+            zapisz("kapital_tier2", p.kapital_tier2, "kapitał Tier 2 z tożsamości fundusze własne − Tier 1")
     return uwagi
 
 
