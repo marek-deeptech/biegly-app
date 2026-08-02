@@ -14,6 +14,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { keywordWindows, pdfText } from "@/lib/intake/pdf";
 
 import {
+  doZlotych,
+  skokiSkali,
   systemOkresy,
   systemZdarzenia,
   udzialPoliczony,
@@ -154,7 +156,10 @@ export async function wykonajChronologie(
     const m = txt.match(/\{[\s\S]*\}/);
     if (!m) return [];
     try {
-      return ((JSON.parse(m[0])[klucz] ?? []) as T[]).map((x) => ({ ...x, plik }));
+      const p = JSON.parse(m[0]);
+      // `jednostka` przychodzi RAZ na dokument — dopinamy ją do każdego okresu,
+      // bo przeliczenie odbywa się per wiersz i musi wiedzieć, z czego przelicza.
+      return ((p[klucz] ?? []) as T[]).map((x) => ({ ...x, plik, ...(p.jednostka ? { jednostka: p.jednostka } : {}) }));
     } catch {
       skrocone.push(`${plik}: odpowiedzi modelu (${klucz}) nie dało się odczytać jako danych.`);
       return [];
@@ -170,16 +175,24 @@ export async function wykonajChronologie(
     zdarzenia.push(...z);
   }
 
-  // Ten sam okres bywa opisany w dwóch pismach — zostawiamy wpis BOGATSZY,
-  // bo pisma stron referują wybiórczo te wskaźniki, które są im na rękę.
+  // Ten sam okres bywa opisany w kilku pismach, każde referuje inne wskaźniki —
+  // scalamy POLE PO POLU. Wybór jednego „bogatszego" wpisu gubił dane: tabela wychodziła
+  // uboższa niż ręczny odczyt z tego samego dokumentu.
+  const KWOTY = ["suma_bilansowa","portfel_kredytowy","portfel_utrata","depozyty","fundusze_wlasne","wynik_finansowy"] as const;
+  const POLA = [...KWOTY, "udzial_utrata_pct", "wsp_wyplacalnosci_pct"] as const;
   const wgDnia = new Map<string, OkresNadzorczy>();
-  const ile = (o: OkresNadzorczy) => Object.values(o).filter((v) => typeof v === "number").length;
-  for (const o of okresy) {
-    const byl = wgDnia.get(o.dzien);
-    if (!byl || ile(o) > ile(byl)) wgDnia.set(o.dzien, o);
+  for (const o of doZlotych(okresy).okresy) {
+    const cel = wgDnia.get(o.dzien);
+    if (!cel) { wgDnia.set(o.dzien, { ...o }); continue; }
+    for (const k of POLA) if (cel[k] == null && o[k] != null) Object.assign(cel, { [k]: o[k] });
+    if (!cel.kontekst?.trim() && o.kontekst?.trim()) cel.kontekst = o.kontekst;
   }
   const unikalne = [...wgDnia.values()];
-  const zastrzezenia = sprawdzOkresy(unikalne);
+  const zastrzezenia = [
+    ...doZlotych(okresy).uwagi,
+    ...sprawdzOkresy(unikalne),
+    ...skokiSkali(unikalne),
+  ];
 
   const w = zbudujChronologie(unikalne, zdarzenia, dzien, zastrzezenia);
   await sb.from("subanalyses").upsert(

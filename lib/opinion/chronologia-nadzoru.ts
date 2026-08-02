@@ -25,8 +25,85 @@ export type OkresNadzorczy = {
   fundusze_wlasne?: number;
   wsp_wyplacalnosci_pct?: number;
   wynik_finansowy?: number;
+  /** Jednostka kwot W TYM dokumencie — „zł”, „tys. zł”, „mln zł”. */
+  jednostka?: string;
   plik?: string;
 };
+
+/** Mnożnik do złotych. Nierozpoznana jednostka daje null — wtedy okres jest oznaczany, nie zgadywany. */
+export function mnoznik(jednostka?: string): number | null {
+  const j = (jednostka ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!j || /^(zł|pln)$/.test(j)) return j ? 1 : null;
+  if (/tys/.test(j)) return 1_000;
+  if (/mln|milion/.test(j)) return 1_000_000;
+  if (/mld|miliard/.test(j)) return 1_000_000_000;
+  return null;
+}
+
+const POLA_KWOTOWE = [
+  "suma_bilansowa",
+  "portfel_kredytowy",
+  "portfel_utrata",
+  "depozyty",
+  "fundusze_wlasne",
+  "wynik_finansowy",
+] as const;
+
+/**
+ * Sprowadzenie kwot do ZŁOTYCH.
+ *
+ * ⚠️ BEZ TEGO TABELA MIESZA SKALE. Harmonogram UKNF podaje kwoty w tysiącach złotych,
+ * a pisma procesowe w złotych — model przepisuje jedne i drugie wiernie, zgodnie
+ * z regułą „nie przeliczaj". W jednej kolumnie stają wtedy obok siebie 1 578 i
+ * 3 828 641 288: różnica miliona razy, wyglądająca jak eksplozja sumy bilansowej.
+ * Przeliczenie jest OBLICZENIEM, więc robi je kod, a nie model.
+ */
+export function doZlotych(okresy: OkresNadzorczy[]): { okresy: OkresNadzorczy[]; uwagi: string[] } {
+  const uwagi: string[] = [];
+  const out = okresy.map((o) => {
+    const m = mnoznik(o.jednostka);
+    const maKwoty = POLA_KWOTOWE.some((k) => o[k] != null);
+    if (!maKwoty) return o;
+    if (m == null) {
+      uwagi.push(
+        `${o.dzien}: nie podano jednostki kwot (${o.plik ?? "?"}) — wartości zostawiono bez przeliczenia; ` +
+          "porównanie z innymi okresami może wprowadzać w błąd.",
+      );
+      return o;
+    }
+    if (m === 1) return o;
+    const kopia = { ...o };
+    for (const k of POLA_KWOTOWE) if (kopia[k] != null) kopia[k] = kopia[k]! * m;
+    return kopia;
+  });
+  return { okresy: out, uwagi };
+}
+
+/**
+ * Skok skali między sąsiednimi okresami — resztkowy sygnał pomieszanych jednostek.
+ *
+ * Suma bilansowa banku nie rośnie stukrotnie w kwartał. Taki skok znaczy, że jeden
+ * z okresów jest w innej jednostce, mimo deklaracji — i jest to jedyny sygnał, jaki
+ * zostaje po tym, jak przeliczenie już się odbyło.
+ */
+export function skokiSkali(okresy: OkresNadzorczy[]): string[] {
+  const uwagi: string[] = [];
+  const posort = [...okresy].sort((a, b) => a.dzien.localeCompare(b.dzien));
+  for (const pole of POLA_KWOTOWE) {
+    const punkty = posort
+      .map((o) => ({ d: o.dzien, v: o[pole] }))
+      .filter((x): x is { d: string; v: number } => typeof x.v === "number" && x.v !== 0);
+    for (const [a, b] of punkty.map((x, i) => [x, punkty[i + 1]] as const).filter(([, y]) => y)) {
+      const iloraz = Math.abs(b.v / a.v);
+      if (iloraz > 100 || iloraz < 0.01)
+        uwagi.push(
+          `${a.d} → ${b.d}: „${pole.replace(/_/g, " ")}” zmienia się ${iloraz > 1 ? iloraz.toFixed(0) + "-krotnie" : "do " + (100 * iloraz).toFixed(1) + "%"} ` +
+            "— to skala nieosiągalna dla banku w jednym okresie; najpewniej jeden z okresów jest w innej jednostce.",
+        );
+    }
+  }
+  return uwagi;
+}
 
 export type ZdarzenieNadzorcze = { data: string; organ: string; opis: string; plik?: string };
 
