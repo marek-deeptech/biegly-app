@@ -24,6 +24,8 @@ export function buildOpinionDla(
     typ: string | null;
     tryb: string | null;
     rola: string | null;
+    organ: string | null;
+    data_powolania: string | null;
     group_roster?: unknown;
   },
   metrics: Metric[],

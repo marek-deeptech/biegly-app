@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  const { data: caseRow } = await supabase.from("cases").select("name,signature,group_roster,typ,tryb,rola").eq("id", id).single();
+  const { data: caseRow } = await supabase.from("cases").select("name,signature,group_roster,typ,tryb,rola,organ,data_powolania").eq("id", id).single();
   if (!caseRow) return new Response("Not found", { status: 404 });
 
   const metrics = await fetchAllMetrics(supabase, id);

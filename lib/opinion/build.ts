@@ -71,6 +71,10 @@ export type Opinion = {
    * w V, więc sprawdzał nie te rozdziały i wskazywał biegłemu złe numery.
    */
   typ?: string | null;
+  /** Organ powołujący biegłego — do formuły wstępnej na stronie tytułowej. */
+  organ?: string | null;
+  /** Data postanowienia o powołaniu / dopuszczeniu dowodu z opinii. */
+  dataPowolania?: string | null;
 };
 
 // Wynik generatora subanalizy (do zapisania w `subanalyses`).
@@ -2371,5 +2375,7 @@ export function buildOpinion(
     tryb: (caseRow as { tryb?: string | null }).tryb ?? null,
     rola: (caseRow as { rola?: string | null }).rola ?? null,
     typ: (caseRow as { typ?: string | null }).typ ?? null,
+    organ: (caseRow as { organ?: string | null }).organ ?? null,
+    dataPowolania: (caseRow as { data_powolania?: string | null }).data_powolania ?? null,
   };
 }

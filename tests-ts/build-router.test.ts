@@ -9,7 +9,7 @@ import { buildOpinionDla } from "@/lib/opinion/build-router";
 const sub = (kind: string, chapter_no: string, data: Record<string, unknown> = {}) =>
   ({ kind, chapter_no, title: kind, status: "szkic", body_md: "", data }) as never;
 
-const PUSTE = { name: "X", signature: null, group_roster: null, tryb: null, rola: null };
+const PUSTE = { name: "X", signature: null, group_roster: null, tryb: null, rola: null, organ: null, data_powolania: null };
 
 describe("wybór buildera wg dziedziny", () => {
   it("sprawa bankowa dostaje szkielet I–VIII, nie I–VI", () => {

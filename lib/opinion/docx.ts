@@ -45,7 +45,7 @@ const HEADBG = "F2F2F2"; // subtelne tło nagłówka tabeli
 // wyrównany do lewej i wcięty w spisie treści pod VII, jakby do niego należał.
 const isTopChapter = (no: string) => /^(I{1,3}|IV|V|VI{1,3}|IX|XI{0,2}|X)$/.test(no.trim());
 
-import { trybDla } from "@/lib/domain/tryb";
+import { formulaWstepna, trybDla } from "@/lib/domain/tryb";
 
 import type { Opinion } from "./build";
 import { chartSvg, type ChartSpec } from "./charts";
@@ -122,9 +122,28 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
       spacing: { before: 400, after: 60 },
       children: [new TextRun({ text: "w sprawie " + op.caseName, size: 26 })],
     }),
+  );
+  // FORMUŁA WSTĘPNA — kto zlecił opinię i na jakiej podstawie. Dokument milczał
+  // o tym w obu trybach, choć z tego zdania wynika umocowanie biegłego. Puste,
+  // gdy w sprawie nie zapisano organu: brak jest lepszy niż organ zmyślony.
+  const formula = formulaWstepna({
+    organ: op.organ,
+    dataPowolania: op.dataPowolania,
+    signature: op.signature,
+    tryb: op.tryb,
+  });
+  if (formula)
+    children.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 320, after: 0 },
+        children: [new TextRun({ text: formula, size: 22 })],
+      }),
+    );
+  children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { before: 1600, after: 0 },
+      spacing: { before: 1200, after: 0 },
       children: [new TextRun({ text: op.expert, italics: true, size: 22 })],
     }),
   );

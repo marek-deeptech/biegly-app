@@ -1,7 +1,7 @@
 // Renderer opinii → PDF w tej samej formie co analiza OSINT (wspólny kit pdfmake:
 // IBM Plex Sans, banery rozdziałów, spis treści z numeracją, tabele, stopka).
 // Odpowiednik renderOpinionDocx, ale wynik to PDF (bez LibreOffice — działa na Vercel).
-import { trybDla } from "@/lib/domain/tryb";
+import { formulaWstepna, trybDla } from "@/lib/domain/tryb";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -122,7 +122,14 @@ function docDefinition(op: Opinion, final: boolean): Pm {
     { text: "OPINIA BIEGŁEGO", alignment: "center", bold: true, color: BLUE, fontSize: 30, margin: [0, 70, 0, 6] },
     ...(final ? [] : [{ text: "(projekt roboczy)", alignment: "center", italics: true, fontSize: 11, color: "#808080", margin: [0, 0, 0, 0] }]),
     { text: `w sprawie ${op.caseName}`, alignment: "center", fontSize: 13, margin: [30, 24, 30, 0] },
-    { text: op.expert, alignment: "center", italics: true, fontSize: 11, margin: [0, 110, 0, 0] },
+    // Formuła wstępna — patrz komentarz w docx.ts. Pusta, gdy organu nie zapisano.
+    ...(formulaWstepna({ organ: op.organ, dataPowolania: op.dataPowolania, signature: sig, tryb: op.tryb })
+      ? [{
+          text: formulaWstepna({ organ: op.organ, dataPowolania: op.dataPowolania, signature: sig, tryb: op.tryb }),
+          alignment: "center" as const, fontSize: 11, margin: [40, 18, 40, 0] as [number, number, number, number],
+        }]
+      : []),
+    { text: op.expert, alignment: "center", italics: true, fontSize: 11, margin: [0, 80, 0, 0] },
   );
 
   // ── spis treści (osobna strona) ──

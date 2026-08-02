@@ -70,7 +70,15 @@ function spis(no: string, title: string, pozycje: string[], gdyPusto: string): C
 }
 
 export function buildOpinionBank(
-  caseRow: { name: string; signature: string | null; typ?: string | null; tryb?: string | null; rola?: string | null },
+  caseRow: {
+    name: string;
+    signature: string | null;
+    typ?: string | null;
+    tryb?: string | null;
+    rola?: string | null;
+    organ?: string | null;
+    data_powolania?: string | null;
+  },
   metrics: Metric[],
   documents: Doc[],
   stored: StoredSub[] = [],
@@ -228,5 +236,7 @@ export function buildOpinionBank(
     tryb: caseRow.tryb ?? null,
     rola: caseRow.rola ?? null,
     typ: "ryzyko_bankowe",
+    organ: caseRow.organ ?? null,
+    dataPowolania: caseRow.data_powolania ?? null,
   };
 }

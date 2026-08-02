@@ -272,6 +272,13 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
     add(C.scope, "WARN", "Brak sygnatury sprawy w opinii.");
     scopeIssues++;
   }
+  // Formuła wstępna mówi, kto zlecił opinię i na jakiej podstawie. Dokument milczał
+  // o tym w obu trybach; aplikacja nie zgaduje nazwy organu, więc jej brak musi być
+  // widoczny tutaj, a nie dopiero na wydruku.
+  if (!opinion.organ?.trim()) {
+    add(C.scope, "WARN", "Brak organu powołującego — strona tytułowa nie powie, kto zlecił opinię. Uzupełnij w nagłówku sprawy.");
+    scopeIssues++;
+  }
   if (!scopeIssues) add(C.scope, "OK", "Zakres zakotwiczony w postanowieniu.");
 
   // 6. Kompletność i falsyfikacja.

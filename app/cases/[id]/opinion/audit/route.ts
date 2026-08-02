@@ -114,6 +114,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       typ: caseRow.typ ?? null,
       tryb: caseRow.tryb ?? null,
       rola: caseRow.rola ?? null,
+      organ: caseRow.organ ?? null,
+      data_powolania: caseRow.data_powolania ?? null,
       group_roster: caseRow.group_roster,
     },
     metrics ?? [],

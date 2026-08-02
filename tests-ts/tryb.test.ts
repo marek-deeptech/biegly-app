@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { blokTrybu, trybDla, TRYBY } from "@/lib/domain/tryb";
+import { dopelniaczOrganu, dataSlownie, formulaWstepna, blokTrybu, trybDla, TRYBY } from "@/lib/domain/tryb";
 import { buildBankRedactPrompt } from "@/lib/opinion/redact-bank";
 import { buildBankWnioskiPrompt } from "@/lib/opinion/wnioski-bank";
 
@@ -105,5 +105,59 @@ describe("klauzula zamykająca dokument", () => {
     // wbrew pierwszemu wrażeniu; usunięcie jej z opinii cywilnej byłoby błędem.
     expect(trybDla("cywilne").klauzulaKoncowa).toContain("art. 233 § 4 k.k.");
     expect(trybDla("karne").klauzulaKoncowa).toContain("art. 233 § 4 k.k.");
+  });
+});
+
+describe("formuła wstępna", () => {
+  it("mówi, kto zlecił opinię i na jakiej podstawie", () => {
+    expect(
+      formulaWstepna({ organ: "Sąd Okręgowy w Warszawie", dataPowolania: "2025-02-12", signature: "II C 595/23", tryb: "cywilne" }),
+    ).toBe(
+      "Opinia sporządzona na zlecenie Sądu Okręgowego w Warszawie, na podstawie postanowienia " +
+        "o dopuszczeniu dowodu z opinii biegłego z dnia 12 lutego 2025 r., sygn. akt II C 595/23.",
+    );
+  });
+
+  it("nazywa orzeczenie właściwie dla trybu", () => {
+    // Sąd cywilny DOPUSZCZA DOWÓD z opinii; organ postępowania karnego POWOŁUJE biegłego.
+    expect(formulaWstepna({ organ: "Prokuratura Okręgowa", tryb: "karne" })).toContain("o powołaniu biegłego");
+    expect(formulaWstepna({ organ: "Sąd Okręgowy", tryb: "cywilne" })).toContain("o dopuszczeniu dowodu");
+  });
+
+  it("bez organu zwraca PUSTY napis — nie zgaduje", () => {
+    // Dokument bez formuły jest niekompletny; dokument z organem wymyślonym przez
+    // aplikację byłby dokumentem nieprawdziwym.
+    expect(formulaWstepna({ organ: null, dataPowolania: "2025-02-12", signature: "II C 595/23" })).toBe("");
+    expect(formulaWstepna({ organ: "   " })).toBe("");
+  });
+
+  it("radzi sobie bez daty postanowienia", () => {
+    const f = formulaWstepna({ organ: "Sąd Okręgowy w Warszawie", signature: "II C 595/23", tryb: "cywilne" });
+    expect(f).toContain("Sądu Okręgowego w Warszawie");
+    expect(f).not.toContain("z dnia");
+  });
+
+  it("data po polsku, w dopełniaczu", () => {
+    expect(dataSlownie("2025-02-12")).toBe("12 lutego 2025 r.");
+    expect(dataSlownie(null)).toBe("");
+  });
+});
+
+describe("odmiana nazwy organu", () => {
+  it("odmienia sądy i prokuratury", () => {
+    // „na zlecenie Sąd Okręgowy" to błąd gramatyczny na stronie tytułowej
+    // dokumentu procesowego.
+    expect(dopelniaczOrganu("Sąd Okręgowy w Warszawie")).toBe("Sądu Okręgowego w Warszawie");
+    expect(dopelniaczOrganu("Sąd Rejonowy dla m.st. Warszawy")).toBe("Sądu Rejonowego dla m.st. Warszawy");
+    expect(dopelniaczOrganu("Prokuratura Regionalna w Warszawie")).toBe("Prokuratury Regionalnej w Warszawie");
+  });
+
+  it("nieznanej nazwy NIE odmienia — zdanie układa się z dwukropkiem", () => {
+    // Ogólna odmiana polskich nazw własnych jest zawodna; lepiej niezgrabnie
+    // niż z błędem, którego biegły nie zauważy przed wysłaniem do sądu.
+    expect(dopelniaczOrganu("Komisja Nadzoru Finansowego")).toBeNull();
+    expect(formulaWstepna({ organ: "Komisja Nadzoru Finansowego", tryb: "karne" })).toContain(
+      "na zlecenie: Komisja Nadzoru Finansowego",
+    );
   });
 });

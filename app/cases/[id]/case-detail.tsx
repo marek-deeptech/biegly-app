@@ -28,7 +28,8 @@ import Albin from "./albin";
 // `typ` nie jest opcjonalny: po nim rozgałęziają się kroki procesu, builder opinii
 // i eksport. Opcjonalność sprawiała, że pominięcie pola nie było błędem kompilacji —
 // i tak właśnie trzy trasy eksportu cicho budowały opinię bankową wg szkieletu GPW.
-type CaseRow = { id: string; name: string; signature: string | null; typ: string | null; tryb: string | null; rola: string | null };
+type CaseRow = { id: string; name: string; signature: string | null; typ: string | null; tryb: string | null; rola: string | null;
+  organ: string | null; data_powolania: string | null };
 type Doc = {
   id: string;
   rel_path: string;
@@ -105,6 +106,11 @@ export default function CaseDetail({
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(caseRow.name);
   const [sigVal, setSigVal] = useState(caseRow.signature ?? "");
+  // Organ powołujący i data postanowienia — wchodzą do formuły wstępnej opinii.
+  // Nazwa organu jest w treści postanowienia, a nie w metadanych, więc musi ją
+  // podać biegły; aplikacja jej nie zgaduje.
+  const [organVal, setOrganVal] = useState(caseRow.organ ?? "");
+  const [dataVal, setDataVal] = useState(caseRow.data_powolania ?? "");
   const [confirmDelCase, setConfirmDelCase] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
@@ -521,7 +527,12 @@ export default function CaseDetail({
     const supabase = createClient();
     await supabase
       .from("cases")
-      .update({ name: nameVal.trim() || caseRow.name, signature: sigVal.trim() || null })
+      .update({
+        name: nameVal.trim() || caseRow.name,
+        signature: sigVal.trim() || null,
+        organ: organVal.trim() || null,
+        data_powolania: dataVal.trim() || null,
+      })
       .eq("id", caseRow.id);
     setEditingName(false);
     notify("Zapisano nazwę sprawy");
@@ -629,6 +640,20 @@ export default function CaseDetail({
               placeholder="sygnatura"
               className="w-56 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500"
             />
+            <input
+              value={organVal}
+              onChange={(e) => setOrganVal(e.target.value)}
+              placeholder="organ powołujący (np. Sąd Okręgowy w Warszawie)"
+              title="Wchodzi do formuły wstępnej opinii"
+              className="w-80 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            />
+            <input
+              type="date"
+              value={dataVal}
+              onChange={(e) => setDataVal(e.target.value)}
+              title="Data postanowienia o powołaniu biegłego"
+              className="w-44 rounded-lg border border-ink/30 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            />
             <button onClick={saveName} className={BTN_PRIMARY}>
               Zapisz
             </button>
@@ -637,6 +662,8 @@ export default function CaseDetail({
                 setEditingName(false);
                 setNameVal(caseRow.name);
                 setSigVal(caseRow.signature ?? "");
+                setOrganVal(caseRow.organ ?? "");
+                setDataVal(caseRow.data_powolania ?? "");
               }}
               className={BTN_SECONDARY}
             >
@@ -648,6 +675,7 @@ export default function CaseDetail({
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">{caseRow.name}</h1>
               {caseRow.signature && <p className="mt-1 text-sm text-inksoft">{caseRow.signature}</p>}
+              {caseRow.organ && <p className="text-xs text-inksoft">{caseRow.organ}</p>}
             </div>
             <button
               onClick={() => setEditingName(true)}
