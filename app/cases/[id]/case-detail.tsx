@@ -43,8 +43,18 @@ type Doc = {
   wytworca?: string | null; // kod z AUTHORS (kto sporządził/podpisał)
   karta_start?: number | null; // nr karty akt — początek
   karta_end?: number | null; // nr karty akt — koniec
+  opis?: string | null; // czym dokument JEST — jedno zdanie z klasyfikacji z treści
+  warstwa_tekstu?: string | null; // 'jest' | 'ocr' | 'brak' — czy treść jest czytelna maszynowo
 };
-type Check = { label: string; present: boolean };
+type Check = {
+  label: string;
+  present: boolean;
+  /** Czym jest dokument, który ten wymóg zamyka — z klasyfikacji z treści. */
+  dokument?: string;
+  /** Numer karty akt, pod którym leży — biegły cytuje go w opinii. */
+  karta?: number;
+  kartaDo?: number;
+};
 type Metric = {
   key: string;
   label: string;
@@ -101,6 +111,11 @@ export default function CaseDetail({
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  // Domyślnie JEDEN WIERSZ NA DOKUMENT. Ten sam dokument leży w magazynie jako skan
+  // i jako plik po OCR — to dwa pliki, ale jedna karta akt. Lista złożona z obu
+  // wariantów miała 68 pozycji przy 35 dokumentach i czytało się ją jak katalog
+  // plików, a nie jak spis akt.
+  const [pokazWarianty, setPokazWarianty] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState("");
   const [selectedUtp, setSelectedUtp] = useState("");
@@ -238,8 +253,23 @@ export default function CaseDetail({
       list = list.filter(
         (d) =>
           d.rel_path.toLowerCase().includes(q) ||
+          // Szukamy też po OPISIE — od kiedy lista pokazuje dokumenty, a nie nazwy
+          // skanów, biegły wpisuje „harmonogram" albo „uchwała", a nie „SKM_C451i…".
+          (d.opis ?? "").toLowerCase().includes(q) ||
           (qn != null && d.karta_start != null && qn >= d.karta_start && qn <= (d.karta_end ?? d.karta_start)),
       );
+    if (!pokazWarianty) {
+      // Zostawiamy wariant CZYTELNY dla analizy (z warstwą tekstową), bo to jego
+      // treść wchodzi do opinii; oryginał skanu chowamy, gdy bliźniak istnieje.
+      const rdzen = (rp: string) => basename(rp).replace(/\.ocr(\.cz\d+)?\.pdf$/i, ".pdf");
+      const grupy = new Map<string, Doc[]>();
+      for (const d of list) grupy.set(rdzen(d.rel_path), [...(grupy.get(rdzen(d.rel_path)) ?? []), d]);
+      list = [...grupy.values()].flatMap((g) => {
+        if (g.length === 1) return g;
+        const zTekstem = g.filter((x) => x.warstwa_tekstu !== "brak");
+        return zTekstem.length ? zTekstem : [g[0]];
+      });
+    }
     if (docTypeFilter) list = list.filter((d) => d.doc_type === docTypeFilter);
     if (authorFilter) list = list.filter((d) => (d.wytworca ?? "") === authorFilter);
     if (provFilter === "magazyn") list = list.filter((d) => !d.storage_path);
@@ -253,7 +283,7 @@ export default function CaseDetail({
       karta: (a, b) => (a.karta_start ?? 1e9) - (b.karta_start ?? 1e9) || a.rel_path.localeCompare(b.rel_path, "pl"),
     };
     return [...list].sort(by[docSort]);
-  }, [documents, search, docTypeFilter, authorFilter, provFilter, docSort]);
+  }, [documents, search, docTypeFilter, authorFilter, provFilter, docSort, pokazWarianty]);
 
   // Sekcje wskaźników PER INSTRUMENT (subanalizy trem_csy / trem_rsy zapisane przez api/trem
   // w trybie rozdzielonym). Gdy są — „Analiza liczbowa" pokazuje osobny blok dla każdego z nich.
@@ -833,10 +863,10 @@ export default function CaseDetail({
           </span>
         </h2>
         <div className="grid gap-x-6 sm:grid-cols-2">
-          <div>{checklist.map((c) => <Row key={c.label} label={c.label} present={c.present} strongMissing />)}</div>
+          <div>{checklist.map((c) => <Row key={c.label} {...c} strongMissing />)}</div>
           <div>
             <p className="mb-1 text-xs font-medium text-inksoft">Zalecane</p>
-            {recommended.map((c) => <Row key={c.label} label={c.label} present={c.present} />)}
+            {recommended.map((c) => <Row key={c.label} {...c} />)}
           </div>
         </div>
       </section>
@@ -928,6 +958,17 @@ export default function CaseDetail({
             <option value="status">sortuj: status</option>
             <option value="karta">sortuj: nr karty akt</option>
           </select>
+          {/* Skan i jego plik po OCR to jeden dokument w aktach. Domyślnie wiersz
+              opisuje dokument; przełącznik pokazuje warianty plików, gdy trzeba
+              sięgnąć do konkretnego pliku w magazynie. */}
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-inksoft">
+            <input
+              type="checkbox"
+              checked={pokazWarianty}
+              onChange={(e) => setPokazWarianty(e.target.checked)}
+            />
+            warianty plików (skan + OCR)
+          </label>
         </div>
         {suspectCount > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -1002,18 +1043,33 @@ export default function CaseDetail({
                   aria-label={`Zaznacz ${basename(d.rel_path)}`}
                   className="shrink-0"
                 />
+                {/* WIERSZ OPISUJE DOKUMENT, NIE PLIK. Skan jest formą przechowywania —
+                    „SKM_C451i26080211470.pdf" nie mówi biegłemu nic, a lista akt
+                    złożona z takich napisów jest nie do przeczytania. W pierwszej
+                    linii stoi więc to, CZYM dokument jest (opis z klasyfikacji
+                    z treści); nazwa pliku schodzi do drugiej linii, bo dalej jest
+                    potrzebna do odnalezienia go w magazynie. Dokument bez opisu
+                    (np. skan przed klasyfikacją) pokazuje nazwę pliku — brak opisu
+                    ma być widoczny, a nie zamaskowany pustym wierszem. */}
                 <div className="min-w-0 flex-1">
-                  <div className={`truncate text-sm ${isSuspect(d) ? "text-red-700" : ""}`}>{basename(d.rel_path)}</div>
+                  <div className={`truncate text-sm ${isSuspect(d) ? "text-red-700" : ""}`}>
+                    {d.opis?.trim() || basename(d.rel_path)}
+                  </div>
                   <div className="truncate text-xs text-inksoft">
                     {d.karta_start != null && (
                       <span
                         className="mr-1.5 rounded bg-ink/10 px-1.5 py-0.5 font-medium text-ink"
-                        title="Numer karty akt sprawy (foliacja TOM I–IX)"
+                        title="Numer karty akt sprawy — po nim biegły powołuje dokument w opinii"
                       >
                         k. {d.karta_start}{d.karta_end && d.karta_end !== d.karta_start ? `–${d.karta_end}` : ""}
                       </span>
                     )}
                     {KATALOG_TYPOW[d.doc_type]?.label ?? d.doc_type}
+                    {d.warstwa_tekstu === "brak" && (
+                      <span className="ml-2 text-amber-600" title="Skan bez warstwy tekstowej — treść niedostępna dla analizy">
+                        · bez OCR
+                      </span>
+                    )}
                     {d.wytworca && AUTHORS[d.wytworca] && (
                       <span className="ml-2 text-ink/70">· {AUTHORS[d.wytworca].label}</span>
                     )}
@@ -1024,6 +1080,11 @@ export default function CaseDetail({
                       <span className="ml-2 text-emerald-600">· zaakceptowany</span>
                     )}
                     {!d.storage_path && <span className="ml-2 text-amber-600">· nie w magazynie</span>}
+                    {d.opis?.trim() && (
+                      <span className="ml-2 font-mono text-ink/40" title="Plik w magazynie — forma przechowywania dokumentu">
+                        {basename(d.rel_path)}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${statusBadge(d.provenance).cls}`}>
@@ -1438,10 +1499,31 @@ function Stat({ n, label, color = "" }: { n: number; label: string; color?: stri
   );
 }
 
-function Row({ label, present, strongMissing = false }: { label: string; present: boolean; strongMissing?: boolean }) {
+function Row({
+  label,
+  present,
+  strongMissing = false,
+  dokument,
+  karta,
+  kartaDo,
+}: Check & { strongMissing?: boolean }) {
   return (
-    <div className="flex items-center justify-between border-b border-line py-1.5 last:border-0">
-      <span className="text-sm">{label}</span>
+    <div className="flex items-start justify-between gap-3 border-b border-line py-1.5 last:border-0">
+      {/* „Obecny" bez wskazania KTÓREGO dokumentu i pod jaką kartą zmuszało biegłego
+          do szukania po całej liście akt. Numer karty jest adresem dowodu w opinii. */}
+      <span className="min-w-0 text-sm">
+        {label}
+        {dokument && (
+          <span className="block truncate text-xs text-inksoft">
+            {karta != null && (
+              <span className="mr-1.5 rounded bg-ink/10 px-1.5 py-0.5 font-medium text-ink">
+                k. {karta}{kartaDo && kartaDo !== karta ? `–${kartaDo}` : ""}
+              </span>
+            )}
+            {dokument}
+          </span>
+        )}
+      </span>
       <span
         className={`rounded-full px-2 py-0.5 text-xs ${
           present
