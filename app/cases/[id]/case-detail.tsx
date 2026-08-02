@@ -7,7 +7,11 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { Button, ProgressBar } from "@/components/ui";
 import { classify } from "@/lib/intake/classify";
 import { wykryjWarstwe } from "@/lib/intake/warstwa";
-import { AUTHORS, DOC_TYPES } from "@/lib/intake/taxonomy";
+import { AUTHORS } from "@/lib/intake/taxonomy";
+// Katalog typów zależy od DZIEDZINY: sprawa bankowa ma własne czternaście typów.
+// Wcześniej lista plików sięgała po sam rdzeń, przez co dokumenty bankowe wyświetlały
+// się jako surowe kody („SPRAWOZDANIE_BANK") zamiast etykiet.
+import { docTypesDla } from "@/lib/intake/classify";
 import { cmpMainUtp, isMainUtp, utpVariantLabel } from "@/lib/intake/utp";
 import { createClient } from "@/lib/supabase/client";
 import { storageKey, uploadResumable } from "@/lib/upload";
@@ -172,6 +176,12 @@ export default function CaseDetail({
     }),
   }));
   const dziedzinaBankowa = pakiet.id === "ryzyko_bankowe";
+  const KATALOG_TYPOW = docTypesDla(caseRow.typ);
+  // Do listy wyboru: bez UNKNOWN (nie klasyfikuje się „na nieznany"), posortowane
+  // po etykiecie, żeby biegły szukał wzrokiem nazwy, a nie kodu.
+  const TYPY_DO_WYBORU = Object.entries(KATALOG_TYPOW)
+    .filter(([k]) => k !== "UNKNOWN")
+    .sort((a, b) => a[1].label.localeCompare(b[1].label, "pl"));
 
   const utpDocs = useMemo(
     () =>
@@ -411,6 +421,22 @@ export default function CaseDetail({
     const supabase = createClient();
     const { data } = await supabase.storage.from("case-files").createSignedUrl(doc.storage_path, 120);
     if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+  }
+
+  /** Ręczna zmiana klasyfikacji pliku — dla nierozpoznanych i dla poprawek automatu. */
+  async function setDocType(doc: Doc, code: string) {
+    if (code === doc.doc_type) return;
+    const supabase = createClient();
+    // `provenance` idzie razem z typem: to on decyduje, czy plik jest dowodem, czy
+    // wytworem biegłego, a rozjazd tych dwóch pól wpuszczał wytwory biegłego do
+    // materiału dowodowego. Typ bez znanej proweniencji jej nie zmienia.
+    const prov = KATALOG_TYPOW[code]?.provenance;
+    await supabase
+      .from("documents")
+      .update({ doc_type: code, ...(prov === "wejście" || prov === "wyjście" ? { provenance: prov } : {}) })
+      .eq("id", doc.id);
+    notify(`Zaklasyfikowano jako: ${KATALOG_TYPOW[code]?.label ?? code}`);
+    router.refresh();
   }
 
   async function acceptDoc(doc: Doc) {
@@ -689,7 +715,7 @@ export default function CaseDetail({
               }}
               className="flex items-center justify-between border-b border-line py-1.5 text-left text-sm transition-colors last:border-0 hover:text-ink"
             >
-              <span className="truncate">{DOC_TYPES[dt]?.label ?? dt}</span>
+              <span className="truncate">{KATALOG_TYPOW[dt]?.label ?? dt}</span>
               <span className="ml-2 shrink-0 rounded-full bg-ink/10 px-2 py-0.5 text-xs">{n}</span>
             </button>
           ))}
@@ -831,7 +857,7 @@ export default function CaseDetail({
             <option value="">typ: wszystkie</option>
             {typeCounts.map(([dt, n]) => (
               <option key={dt} value={dt}>
-                {(DOC_TYPES[dt]?.label ?? dt).slice(0, 34)} ({n})
+                {(KATALOG_TYPOW[dt]?.label ?? dt).slice(0, 34)} ({n})
               </option>
             ))}
           </select>
@@ -958,7 +984,7 @@ export default function CaseDetail({
                         k. {d.karta_start}{d.karta_end && d.karta_end !== d.karta_start ? `–${d.karta_end}` : ""}
                       </span>
                     )}
-                    {DOC_TYPES[d.doc_type]?.label ?? d.doc_type}
+                    {KATALOG_TYPOW[d.doc_type]?.label ?? d.doc_type}
                     {d.wytworca && AUTHORS[d.wytworca] && (
                       <span className="ml-2 text-ink/70">· {AUTHORS[d.wytworca].label}</span>
                     )}
@@ -985,7 +1011,30 @@ export default function CaseDetail({
                     </button>
                   </span>
                 ) : (
-                  <span className="flex shrink-0 gap-3 text-xs">
+                  <span className="flex shrink-0 items-center gap-3 text-xs">
+                    {/* Ręczna klasyfikacja — obok pozostałych akcji wiersza. Automat
+                        rozpoznaje po nazwie pliku i na części akt się myli albo milczy;
+                        bez tej listy jedynym wyjściem było przemianowanie pliku na dysku
+                        i wgranie go ponownie. Plik nierozpoznany dostaje wyróżnienie,
+                        bo to on wypada z analizy. */}
+                    <select
+                      value={d.doc_type}
+                      onChange={(e) => setDocType(d, e.target.value)}
+                      aria-label={`Klasyfikacja: ${basename(d.rel_path)}`}
+                      title={KATALOG_TYPOW[d.doc_type]?.label ?? d.doc_type}
+                      className={`max-w-[11rem] cursor-pointer rounded-lg border px-1.5 py-1 text-xs ${
+                        d.doc_type === "UNKNOWN"
+                          ? "border-amber-400 bg-amber-50 font-medium text-amber-800"
+                          : "border-ink/20 text-inksoft hover:border-ink/40"
+                      }`}
+                    >
+                      {d.doc_type === "UNKNOWN" && <option value="UNKNOWN">— zaklasyfikuj —</option>}
+                      {TYPY_DO_WYBORU.map(([kod, t]) => (
+                        <option key={kod} value={kod}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
                     <button onClick={() => startReplace(d)} className="text-ink/80 transition-colors hover:text-ink">
                       Podmień
                     </button>

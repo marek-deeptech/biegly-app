@@ -11,6 +11,32 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ŁAPKA NA ELEMENTACH KLIKALNYCH.
+   Tailwind v4 zmienił reset: `button` dostaje `cursor: default`, więc w całej
+   aplikacji kursor nie zmieniał się nad „Podmień", „Usuń", „Pobierz" ani nad
+   żadnym innym przyciskiem — element wyglądał na nieaktywny. Ustawiamy to
+   globalnie, a nie klasą przy 53 przyciskach: klasa przy każdym z osobna
+   gwarantuje, że kolejny dodany przycisk znowu jej nie dostanie.
+   `:disabled` wraca do kursora „niedozwolone" — przycisk zablokowany ma
+   wyglądać na zablokowany. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+summary,
+label[for],
+select:not(:disabled),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+input[type="file"]:not(:disabled),
+a[href] {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 body {
   background: #faf8f4;
   color: #1c2030;
