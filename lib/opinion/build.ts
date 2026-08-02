@@ -58,6 +58,19 @@ export type Opinion = {
   generatedAt: string;
   legalBasis: string[];
   chapters: Chapter[];
+  /**
+   * Tryb postępowania — renderer musi go znać, bo klauzula zamykająca dokument
+   * jest cechą trybu. Dotąd stała zaszyta w dwóch rendererach naraz.
+   */
+  tryb?: string | null;
+  /** Rola procesowa — czyje zachowanie oceniamy. */
+  rola?: string | null;
+  /**
+   * Dziedzina. Recenzent deterministyczny badał numery rozdziałów wprost („II"
+   * = Wnioski, „IV" = analiza) — w szkielecie bankowym Wnioski są w III, a analiza
+   * w V, więc sprawdzał nie te rozdziały i wskazywał biegłemu złe numery.
+   */
+  typ?: string | null;
 };
 
 // Wynik generatora subanalizy (do zapisania w `subanalyses`).
@@ -2295,5 +2308,8 @@ export function buildOpinion(
     generatedAt: new Date().toISOString(),
     legalBasis: LEGAL_BASIS,
     chapters: merged,
+    tryb: (caseRow as { tryb?: string | null }).tryb ?? null,
+    rola: (caseRow as { rola?: string | null }).rola ?? null,
+    typ: (caseRow as { typ?: string | null }).typ ?? null,
   };
 }

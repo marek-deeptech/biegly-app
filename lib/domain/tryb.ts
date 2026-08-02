@@ -28,7 +28,26 @@ export type OpisTrybu = {
   pozaKompetencja: string;
   /** Jak nazywać uczestników. Podsunięcie nazewnictwa, nie ustaleń. */
   strony: string;
+  /**
+   * Klauzula zamykająca dokument, nad podpisem biegłego.
+   *
+   * ⚠️ SPRAWDZONE, WBREW PIERWSZEMU WRAŻENIU: powołanie na art. 233 § 4 k.k. jest
+   * właściwe TAKŻE w sprawie cywilnej. Przepis dotyczy fałszywej opinii mającej
+   * służyć za dowód „w postępowaniu sądowym lub w innym postępowaniu prowadzonym
+   * na podstawie ustawy" (§ 1), a więc obejmuje postępowanie cywilne — nie jest to
+   * formuła zarezerwowana dla spraw karnych.
+   *
+   * Pole istnieje mimo to, bo klauzula bywa uzupełniana o powołanie na przyrzeczenie
+   * złożone przy objęciu funkcji, a podstawa tego powołania jest inna w każdym
+   * z trybów. Treść takiego uzupełnienia MUSI podać biegły — to formuła procesowa
+   * w dokumencie, który on podpisuje, a nie miejsce na domysł aplikacji.
+   */
+  klauzulaKoncowa: string;
 };
+
+const KLAUZULA_233 =
+  "Świadom odpowiedzialności karnej za złożenie fałszywej opinii (art. 233 § 4 k.k.) " +
+  "oświadczam, że opinię sporządziłem zgodnie z najlepszą wiedzą.";
 
 export const TRYBY: Record<Tryb, OpisTrybu> = {
   karne: {
@@ -41,6 +60,7 @@ export const TRYBY: Record<Tryb, OpisTrybu> = {
       "wina, zamiar i kwalifikacja prawna czynu — te należą wyłącznie do organu procesowego " +
       "i nie wolno ich przesądzać ani sugerować",
     strony: "podejrzany/oskarżony, pokrzywdzony",
+    klauzulaKoncowa: KLAUZULA_233,
   },
   cywilne: {
     label: "Cywilne",
@@ -53,6 +73,7 @@ export const TRYBY: Record<Tryb, OpisTrybu> = {
       "świadków i rozstrzygnięcie o żądaniu pozwu — to należy do sądu; biegły dostarcza " +
       "wiadomości specjalnych, a nie ocenia roszczenia",
     strony: "powód, pozwani",
+    klauzulaKoncowa: KLAUZULA_233,
   },
 };
 

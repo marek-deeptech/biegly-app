@@ -1,6 +1,7 @@
 // Renderer opinii → PDF w tej samej formie co analiza OSINT (wspólny kit pdfmake:
 // IBM Plex Sans, banery rozdziałów, spis treści z numeracją, tabele, stopka).
 // Odpowiednik renderOpinionDocx, ale wynik to PDF (bez LibreOffice — działa na Vercel).
+import { trybDla } from "@/lib/domain/tryb";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -9,7 +10,10 @@ import { BLUE, GRAY, dataTable, h1Nodes, frame, renderPdf, type Pm } from "@/lib
 import type { Opinion, Chapter, OpTable } from "./build";
 import { chartSvg, type ChartSpec } from "./charts";
 
-const isTopChapter = (no: string) => /^(I|II|III|IV|V|VI|VII)$/.test(no.trim());
+// Rzymskie I–XII. Lista kończyła się na VII, więc „VIII. Spis wykresów" —
+// ostatni rozdział szkieletu bankowego — renderował się jako PODROZDZIAŁ:
+// wyrównany do lewej i wcięty w spisie treści pod VII, jakby do niego należał.
+const isTopChapter = (no: string) => /^(I{1,3}|IV|V|VI{1,3}|IX|XI{0,2}|X)$/.test(no.trim());
 
 // Wykres z danych silnika: SVG → PNG (resvg + DejaVu, jak w DOCX) → data URL do pdfmake.
 // Identyczny wygląd co w .docx; błąd renderu → null (degradacja do ramki „do wstawienia").
@@ -137,7 +141,7 @@ function docDefinition(op: Opinion, final: boolean): Pm {
   // ── klauzula i podpis ──
   content.push(
     {
-      text: "Świadom odpowiedzialności karnej za złożenie fałszywej opinii (art. 233 § 4 k.k.) oświadczam, że opinię sporządziłem zgodnie z najlepszą wiedzą.",
+      text: trybDla(op.tryb).klauzulaKoncowa,
       italics: true, style: "body", margin: [0, 16, 0, 0],
     },
     { text: op.expert, alignment: "right", margin: [0, 34, 0, 0] },

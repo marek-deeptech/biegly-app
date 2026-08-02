@@ -9,6 +9,7 @@
 // Kryteria bankowe pilnują tego, co w TEJ dziedzinie psuje opinię najczęściej:
 // anachronicznego przepisu i wnioskowania wstecznego.
 
+import { rolaDla } from "@/lib/domain/rola";
 import { trybDla } from "@/lib/domain/tryb";
 
 export type KryteriumRubryki = { id: string; waga: number; opis: string };
@@ -25,8 +26,8 @@ export const RUBRYKA_BANK: KryteriumRubryki[] = [
     id: "pokrycie",
     waga: 20,
     opis:
-      "Każda teza o kondycji kontrahenta jest poparta konkretną wartością (współczynnik, kwota, " +
-      "udział) — a ta wartość występuje w WYKAZIE METRYK silnika.",
+      "Każda teza o kondycji PODMIOTU BADANEGO jest poparta konkretną wartością (współczynnik, " +
+      "kwota, udział) — a ta wartość występuje w WYKAZIE METRYK silnika.",
   },
   {
     id: "stan_prawny",
@@ -39,9 +40,9 @@ export const RUBRYKA_BANK: KryteriumRubryki[] = [
     id: "wsteczne",
     waga: 15,
     opis:
-      "Ocena opiera się WYŁĄCZNIE na informacjach dostępnych w dniu decyzji. Powołanie zdarzeń " +
-      "późniejszych (upadek kontrahenta, publikacje po tej dacie) jako podstawy oceny to " +
-      "wnioskowanie wsteczne.",
+      "Ocena opiera się WYŁĄCZNIE na informacjach dostępnych w ocenianym momencie. Powołanie " +
+      "zdarzeń późniejszych (upadłość podmiotu badanego, publikacje po tej dacie) jako podstawy " +
+      "oceny to wnioskowanie wsteczne.",
   },
   {
     id: "zastrzezenia",
@@ -67,11 +68,22 @@ export const RUBRYKA_BANK: KryteriumRubryki[] = [
 ];
 
 /** Rubryka bankowa z kryterium „fakty_oceny" doprecyzowanym pod tryb postępowania. */
-export function rubrykaBankowa(tryb?: string | null): KryteriumRubryki[] {
+export function rubrykaBankowa(tryb?: string | null, rola?: string | null): KryteriumRubryki[] {
   const granica = trybDla(tryb).pozaKompetencja;
-  return RUBRYKA_BANK.map((r) =>
-    r.id === "fakty_oceny" ? { ...r, opis: `${r.opis} Poza kompetencją biegłego pozostają: ${granica}.` } : r,
-  );
+  const r_ = rolaDla(rola);
+  // ⚠️ RUBRYKA MÓWIŁA O „KONTRAHENCIE" NIEZALEŻNIE OD SPRAWY. W postępowaniu o nadzór
+  // nad bankiem żaden kontrahent nie występuje — audytor oceniał opinię wobec
+  // kryterium, którego podmiot w tej sprawie nie istnieje. Podmiot badany wstawiamy
+  // z roli procesowej, a nie z pierwszej sprawy, na której rubrykę pisano.
+  return RUBRYKA_BANK.map((r) => {
+    if (r.id === "fakty_oceny")
+      return { ...r, opis: `${r.opis} Poza kompetencją biegłego pozostają: ${granica}.` };
+    if (r.id === "pokrycie")
+      return { ...r, opis: `${r.opis} Podmiotem badanym w tej sprawie jest: ${r_.podmiotLiczb}.` };
+    if (r.id === "wsteczne")
+      return { ...r, opis: `${r.opis} W tej sprawie ${r_.przedmiotOceny}.` };
+    return r;
+  });
 }
 
 export const SYSTEM_AUDYT_BANK =

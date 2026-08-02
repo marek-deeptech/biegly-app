@@ -87,7 +87,7 @@ export default function OpinionView({
   // `typ` jest częścią kontraktu, nie dodatkiem: po nim rozgałęzia się i budowniczy
   // opinii (buildOpinionDla), i generator Wniosków. Wcześniej typ propa go nie
   // deklarował, choć rodzic przekazywał — pole działało przypadkiem.
-  caseRow: { name: string; signature: string | null; typ: string | null };
+  caseRow: { name: string; signature: string | null; typ: string | null; tryb: string | null; rola: string | null };
   metrics: Metric[];
   documents: Doc[];
   subanalyses: SubRow[];

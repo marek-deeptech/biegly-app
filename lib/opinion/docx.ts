@@ -40,7 +40,12 @@ const BODY = 22; // tekst 11 pt
 const GRID = "808080"; // kolor cienkich linii tabel
 const HEADBG = "F2F2F2"; // subtelne tło nagłówka tabeli
 // Rozdział główny (I–VI) vs podrozdział (IV.1, IV.2 …) — dla hierarchii nagłówków.
-const isTopChapter = (no: string) => /^(I|II|III|IV|V|VI|VII)$/.test(no.trim());
+// Rzymskie I–XII. Lista kończyła się na VII, więc „VIII. Spis wykresów" —
+// ostatni rozdział szkieletu bankowego — renderował się jako PODROZDZIAŁ:
+// wyrównany do lewej i wcięty w spisie treści pod VII, jakby do niego należał.
+const isTopChapter = (no: string) => /^(I{1,3}|IV|V|VI{1,3}|IX|XI{0,2}|X)$/.test(no.trim());
+
+import { trybDla } from "@/lib/domain/tryb";
 
 import type { Opinion } from "./build";
 import { chartSvg, type ChartSpec } from "./charts";
@@ -203,9 +208,7 @@ export function renderOpinionDocx(op: Opinion, opts: { final?: boolean } = {}): 
   // ── Klauzula i podpis ──
   children.push(
     bodyPara([new TextRun({
-      text:
-        "Świadom odpowiedzialności karnej za złożenie fałszywej opinii (art. 233 § 4 k.k.) " +
-        "oświadczam, że opinię sporządziłem zgodnie z najlepszą wiedzą.",
+      text: trybDla(op.tryb).klauzulaKoncowa,
       italics: true,
     })]),
     new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 480 }, children: [new TextRun({ text: op.expert })] }),

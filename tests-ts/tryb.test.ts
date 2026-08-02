@@ -90,3 +90,20 @@ describe("akta mieszane", () => {
     expect(blokTrybu("karne")).toContain("AKTA MOGĄ ZAWIERAĆ MATERIAŁ Z INNEGO POSTĘPOWANIA");
   });
 });
+
+describe("klauzula zamykająca dokument", () => {
+  it("jest cechą trybu, nie stałą w rendererze", () => {
+    // Ten sam napis stał zaszyty w docx.ts i pdf.ts naraz — zmiana wymagała
+    // pamiętania o dwóch plikach, a tryb do żadnego z nich nie docierał.
+    for (const t of ["karne", "cywilne"]) expect(trybDla(t).klauzulaKoncowa).toBeTruthy();
+  });
+
+  it("powołanie na art. 233 § 4 k.k. zostaje TAKŻE w sprawie cywilnej", () => {
+    // ⚠️ SPRAWDZONE: przepis dotyczy fałszywej opinii mającej służyć za dowód
+    // „w postępowaniu sądowym lub w innym postępowaniu prowadzonym na podstawie
+    // ustawy" — obejmuje więc postępowanie cywilne. To NIE jest formuła karna,
+    // wbrew pierwszemu wrażeniu; usunięcie jej z opinii cywilnej byłoby błędem.
+    expect(trybDla("cywilne").klauzulaKoncowa).toContain("art. 233 § 4 k.k.");
+    expect(trybDla("karne").klauzulaKoncowa).toContain("art. 233 § 4 k.k.");
+  });
+});

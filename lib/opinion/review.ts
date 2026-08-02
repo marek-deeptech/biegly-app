@@ -2,6 +2,7 @@
 // Zero zgadywania przez model: same reguły nad strukturą opinii, metrykami i
 // subanalizami. Sześć kontroli adwersarialnych; każda zwraca uwagi lub „OK".
 
+import { DOC_TYPES_BANK } from "@/lib/domain/taxonomy-bank";
 import { DOC_TYPES } from "@/lib/intake/taxonomy";
 
 import type { Chapter, Opinion, StoredSub } from "./build";
@@ -41,7 +42,7 @@ function chTables(ch: Chapter) {
 // Mapowanie „[do uzupełnienia]" → źródło w aktach (załącznik), z którego biegły
 // może uzupełnić brakującą daną. Klasyfikacja po kontekście poprzedzającym lukę
 // oraz treści samego placeholdera. Etykiety z jednego źródła prawdy (taksonomia).
-function placeholderSource(ctx: string, chapterNo: string): PlaceholderRef {
+function placeholderSource(ctx: string, chapterNo: string, bank = false): PlaceholderRef {
   const s = ctx.toLowerCase();
   if (/rozdzia|rozdz\.|właściw\w*\s+rozdzia/.test(s))
     return { label: "odsyłacz wewnętrzny — wskaż właściwy rozdział opinii (np. IV.5)", internal: true };
@@ -57,6 +58,11 @@ function placeholderSource(ctx: string, chapterNo: string): PlaceholderRef {
     return { label: DOC_TYPES.DANE_BROKERSKIE.label, docType: "DANE_BROKERSKIE" };
   if (/rozlicze|\btrem\b|kdpw|rozrachun/.test(s))
     return { label: DOC_TYPES.DANE_TREM.label, docType: "DANE_TREM" };
+  // ⚠️ FALLBACK MUSI ODSYŁAĆ DO AKT TEJ DZIEDZINY. Opinia bankowa dostawała
+  // odesłanie do „źródłowych danych UTP (transakcje i zlecenia)" — pliku, którego
+  // w aktach bankowych nie ma i nigdy nie będzie. Biegły czytał wskazówkę, jak
+  // uzupełnić lukę z dokumentu z drugiej dziedziny.
+  if (bank) return { label: DOC_TYPES_BANK.SPRAWOZDANIE_BANK.label, docType: "SPRAWOZDANIE_BANK" };
   // Fallback zależny od rozdziału: identyfikacja relacji → KRS, analiza ESPI →
   // raporty bieżące; pozostałe rozdziały ilościowe → źródłowe dane transakcyjne.
   if (chapterNo === "IV.3") return { label: DOC_TYPES.KRS_REJESTR.label, docType: "KRS_REJESTR" };
@@ -66,6 +72,16 @@ function placeholderSource(ctx: string, chapterNo: string): PlaceholderRef {
 
 export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: StoredSub[]): ReviewFinding[] {
   const out: ReviewFinding[] = [];
+  // ⚠️ NUMERY ROZDZIAŁÓW SĄ CECHĄ DZIEDZINY, NIE STAŁĄ. Kontrole odwoływały się
+  // wprost do „II" (Wnioski) i „IV" (analiza) — tak wygląda szkielet opinii
+  // o manipulacji. W szkielecie bankowym Wnioski są w III, analiza w V, spisy
+  // w VII–VIII. Recenzent sprawdzał więc nie te rozdziały co trzeba, wskazywał
+  // biegłemu złe numery, a kontrola pokrycia liczb NIGDY nie oglądała modułów
+  // bankowych — mimo to jej ostrzeżenia odejmowały punkty w ocenie opinii.
+  const bank = opinion.typ === "ryzyko_bankowe";
+  const NR_WNIOSKI = bank ? "III" : "II";
+  const PREFIX_ANALIZY = bank ? "V" : "IV";
+  const NRY_SPISOW = bank ? ["VII", "VIII"] : ["VI"];
   const add = (check: string, severity: Severity, message: string) => out.push({ check, severity, message });
 
   // 0. PROZA STARSZA NIŻ DANE, KTÓRE OPISUJE.
@@ -102,7 +118,8 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   const seenNum = new Set<string>();
   for (const ch of opinion.chapters) {
     // Rozdziały analityczne: ilościowy (zgodność wsteczna) oraz rozdział IV (analiza).
-    const analytical = /ilościow/i.test(ch.title) || /ilościow/i.test(ch.source ?? "") || ch.no.startsWith("IV");
+    const analytical =
+      /ilościow/i.test(ch.title) || /ilościow/i.test(ch.source ?? "") || ch.no.startsWith(PREFIX_ANALIZY);
     if (!analytical) continue;
     for (const c of chapText(ch).match(pctRe) ?? []) {
       const key = ch.no + "|" + c;
@@ -115,7 +132,7 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
         check: C.numbers,
         severity: "WARN",
         message: `Liczba ${c} (rozdz. ${ch.no}) nie ma pokrycia w policzonych wskaźnikach ani w tabelach — zweryfikuj w źródle.`,
-        refs: [placeholderSource("", ch.no)],
+        refs: [placeholderSource("", ch.no, bank)],
       });
       numIssues++;
     }
@@ -162,7 +179,7 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
   for (const ch of opinion.chapters) {
     // Rozdział VI (spis tabel/wykresów) wymienia nazwy technik w podpisach tabel —
     // to indeks, nie analiza, więc nie wymaga powołania przepisu w treści.
-    if (ch.no === "VI" || /spis (tabel|treści)/i.test(ch.title)) continue;
+    if (NRY_SPISOW.includes(ch.no) || /spis (tabel|treści|wykres)/i.test(ch.title)) continue;
     const t = chapText(ch);
     if (techRe.test(t) && !lawRe.test(t)) {
       add(C.legal, "WARN", `Rozdz. ${ch.no} opisuje technikę manipulacji bez powołania przepisu w treści (MAR / RD 2016/522).`);
@@ -195,9 +212,9 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
     add(C.scope, "WARN", "Rozdz. I — oznacz przedmiot, spółkę, okres i pytania postanowienia.");
     scopeIssues++;
   }
-  const chII = opinion.chapters.find((c) => c.no === "II");
-  if (chII && chII.status === "todo") {
-    add(C.scope, "WARN", "Rozdz. II „Wnioski” niewygenerowany — opinia nie odpowiada wprost na pytania postanowienia.");
+  const chWnioski = opinion.chapters.find((c) => c.no === NR_WNIOSKI);
+  if (chWnioski && chWnioski.status === "todo") {
+    add(C.scope, "WARN", `Rozdz. ${NR_WNIOSKI} „Wnioski” niewygenerowany — opinia nie odpowiada wprost na pytania postanowienia.`);
     scopeIssues++;
   }
   if (!opinion.signature) {
@@ -214,7 +231,11 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
     compIssues++;
   }
   const allText = opinion.chapters.map(chapText).join("\n");
-  if (!/wyklucz|wyłącz|falsyfik|nie nosi znamion|nie wykazuj|bez znamion/i.test(allText)) {
+  // Falsyfikacja przez wskazanie podmiotów BEZ znamion manipulacji to wymóg opinii
+  // o manipulacji instrumentem. W opinii bankowej nie ma podmiotów do wykluczenia —
+  // ten WARN padał w każdej sprawie bankowej i odejmował punkty za brak czegoś,
+  // czego ta dziedzina w ogóle nie zna.
+  if (!bank && !/wyklucz|wyłącz|falsyfik|nie nosi znamion|nie wykazuj|bez znamion/i.test(allText)) {
     add(C.complete, "WARN", "Brak elementu falsyfikacji — wskaż podmioty/osoby, których aktywność nie nosi znamion manipulacji.");
     compIssues++;
   }
@@ -234,7 +255,7 @@ export function reviewOpinion(opinion: Opinion, metrics: Metric[], stored: Store
       const dedup = ch.no + "|" + before.slice(-40) + "|" + m[0];
       if (seenPh.has(dedup)) continue;
       seenPh.add(dedup);
-      phItems.push({ ch: ch.no, snippet: before.slice(-58), ref: placeholderSource(before + " " + m[0], ch.no) });
+      phItems.push({ ch: ch.no, snippet: before.slice(-58), ref: placeholderSource(before + " " + m[0], ch.no, bank) });
     }
   }
   if (phItems.length) {

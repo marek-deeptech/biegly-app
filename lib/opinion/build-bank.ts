@@ -13,10 +13,21 @@
 // powtórzenie kilku bloków i kupuje pewność, że jedna dziedzina nie ruszy drugiej.
 import { packDla } from "@/lib/domain";
 import { przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
+import { rolaDla } from "@/lib/domain/rola";
 
 import { chapterFromStored, type Chapter, type Doc, type Metric, type Opinion, type StoredSub } from "./build";
 import { chartSvg } from "./charts";
 import { wykresyBankowe } from "./charts-bank";
+
+/**
+ * Tytuł modułu z uwzględnieniem ROLI PROCESOWEJ.
+ *
+ * Tylko rozdział o wielkościach finansowych zmienia nazwę wraz z rolą — reszta
+ * modułów opisuje to samo niezależnie od tego, czyje zachowanie jest oceniane.
+ */
+export function tytulModulu(m: { kind: string; tytul: string }, rola?: string | null): string {
+  return m.kind === "sprawozdania" ? rolaDla(rola).tytulKwot : m.tytul;
+}
 
 /** Moduły rozdziału V w kolejności, w jakiej występują w opinii wzorcowej (MBR, A–L). */
 export const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
@@ -24,16 +35,42 @@ export const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
   { kind: "media", litera: "B", tytul: "Publikacje prasowe i komunikaty" },
   { kind: "ekspozycja_sektor", litera: "C", tytul: "Skala sektora bankowego wobec gospodarki" },
   { kind: "sygnaly_rynkowe", litera: "D", tytul: "Sygnały rynkowe: CDS i ratingi" },
+  // ⚠️ TYTUŁ TEGO MODUŁU ZALEŻY OD ROLI PROCESOWEJ — patrz `tytulModulu` niżej.
+  // Wpisany tu na stałe brzmiał „…kontrahenta" i NADPISYWAŁ tytuł zapisany przez
+  // silnik, bo `chapterFromStored` daje pierwszeństwo `titleOverride`. W opinii
+  // SK Banku dawało to nagłówek o kontrahencie nad tabelą podpisaną „Wielkości
+  // bilansowe banku" — rozdział przeczył sam sobie, a kontrahenta w tej sprawie nie ma.
   { kind: "sprawozdania", litera: "E", tytul: "Analiza sprawozdań finansowych kontrahenta" },
   { kind: "chronologia_nadzoru", litera: "F", tytul: "Chronologia nadzorcza i wskaźniki banku w czasie" },
-  { kind: "wskazniki_bank", litera: "F", tytul: "Współczynniki kapitałowe i sytuacja finansowa w czasie" },
-  { kind: "limity", litera: "G", tytul: "Metodyka limitów i koncentracja zaangażowania" },
-  { kind: "procedury", litera: "H", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },
-  { kind: "otoczenie_prawne", litera: "I", tytul: "Otoczenie prawne i standardy identyfikacji ryzyka" },
+  // Litera G, nie F — dwa moduły z tym samym oznaczeniem. Renumeracja niżej to
+  // maskowała, więc błąd przeżył do trzeciej sprawy.
+  { kind: "wskazniki_bank", litera: "G", tytul: "Współczynniki kapitałowe i sytuacja finansowa w czasie" },
+  { kind: "limity", litera: "H", tytul: "Metodyka limitów i koncentracja zaangażowania" },
+  { kind: "procedury", litera: "I", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },
+  { kind: "otoczenie_prawne", litera: "J", tytul: "Otoczenie prawne i standardy identyfikacji ryzyka" },
 ];
 
+/**
+ * Rozdział spisowy. Pusty spis dostaje ZDANIE, nie pustkę.
+ *
+ * ⚠️ POWÓD: rozdział bez akapitów renderował się jako goły nagłówek — „VII. Spis
+ * tabel" na środku strony i pod nim nic. W gotowym dokumencie wygląda to jak
+ * urwany eksport, a nie jak stwierdzenie faktu; czytelnik nie wie, czy tabel nie
+ * ma, czy generator się wyłożył.
+ */
+function spis(no: string, title: string, pozycje: string[], gdyPusto: string): Chapter {
+  return {
+    no,
+    title,
+    status: "draft",
+    paras: pozycje.length
+      ? pozycje.map((text) => ({ text, conf: "grounded" as const }))
+      : [{ text: gdyPusto, conf: "grounded" as const }],
+  };
+}
+
 export function buildOpinionBank(
-  caseRow: { name: string; signature: string | null; typ?: string | null },
+  caseRow: { name: string; signature: string | null; typ?: string | null; tryb?: string | null; rola?: string | null },
   metrics: Metric[],
   documents: Doc[],
   stored: StoredSub[] = [],
@@ -68,7 +105,9 @@ export function buildOpinionBank(
   for (const m of MODULY_V) {
     const s = byKind.get(m.kind);
     if (!s) continue;
-    moduly.push(chapterFromStored(s, `V.${MODULY_V[i]?.litera ?? m.litera}`, m.tytul));
+    // Litera i tak jest przeliczana niżej — bierzemy własną literę modułu, a nie
+    // `MODULY_V[i]`, bo `i` liczy ZNALEZIONE moduły i wskazywało cudzy wpis.
+    moduly.push(chapterFromStored(s, `V.${m.litera}`, tytulModulu(m, caseRow.rola)));
     i++;
   }
   // Renumeracja liter po odsianiu nieobecnych modułów — inaczej opinia miałaby
@@ -139,23 +178,21 @@ export function buildOpinionBank(
       paras: [],
       evidence: inputDocs.map((d) => d.rel_path.split("/").pop() ?? d.rel_path).slice(0, 400),
     },
-    {
-      no: "VII",
-      title: "Spis tabel",
-      status: "draft",
-      paras: moduly
+    spis(
+      "VII",
+      "Spis tabel",
+      moduly
         .flatMap((c) => [c.table, ...(c.tables ?? [])])
         .filter(Boolean)
-        .map((t, n) => ({ text: `Tabela ${n + 1}. ${t?.caption ?? ""}`.trim(), conf: "grounded" as const })),
-    },
-    {
-      no: "VIII",
-      title: "Spis wykresów",
-      status: "draft",
-      paras: moduly
-        .flatMap((c) => c.placeholders ?? [])
-        .map((p, n) => ({ text: `Wykres ${n + 1}. ${p.label ?? p.name}`.trim(), conf: "grounded" as const })),
-    },
+        .map((t, n) => `Tabela ${n + 1}. ${t?.caption ?? ""}`.trim()),
+      "W opinii nie zamieszczono tabel.",
+    ),
+    spis(
+      "VIII",
+      "Spis wykresów",
+      moduly.flatMap((c) => c.placeholders ?? []).map((p, n) => `Wykres ${n + 1}. ${p.label ?? p.name}`.trim()),
+      "W opinii nie zamieszczono wykresów.",
+    ),
   ];
 
   // Kontrola zgodności ze szkieletem dziedziny — gdyby ktoś dodał rozdział główny
@@ -183,5 +220,8 @@ export function buildOpinionBank(
     generatedAt: new Date().toISOString().slice(0, 10),
     legalBasis,
     chapters,
+    tryb: caseRow.tryb ?? null,
+    rola: caseRow.rola ?? null,
+    typ: "ryzyko_bankowe",
   };
 }

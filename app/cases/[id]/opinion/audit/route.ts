@@ -103,14 +103,30 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .select("kind,chapter_no,title,status,body_md,data")
     .eq("case_id", id);
 
-  const op = buildOpinionDla(caseRow as never, metrics ?? [], (documents ?? []) as never, (subanalyses ?? []) as never);
+  // ⚠️ BEZ `as never` NA caseRow. Rzutowanie wyłączało jedyną ochronę, jaka w tym
+  // projekcie zadziałała: wymagalność `typ`/`tryb`/`rola` w typie routera. Trasa
+  // pobiera `select("*")`, więc pola są — ale gdyby kiedyś przestały być, kompilator
+  // musi to zgłosić, zamiast pozwolić opinii cicho zmienić dziedzinę albo tryb.
+  const op = buildOpinionDla(
+    {
+      name: caseRow.name,
+      signature: caseRow.signature ?? null,
+      typ: caseRow.typ ?? null,
+      tryb: caseRow.tryb ?? null,
+      rola: caseRow.rola ?? null,
+      group_roster: caseRow.group_roster,
+    },
+    metrics ?? [],
+    (documents ?? []) as never,
+    (subanalyses ?? []) as never,
+  );
 
   // ── Warstwa 1: deterministyczna (istniejący recenzent) ──
   // DZIEDZINA rozstrzyga rubrykę i prompt audytu.
   const bankowa = caseRow.typ === "ryzyko_bankowe";
   // Rubryka bankowa doprecyzowuje kryterium „fakty_oceny" pod tryb postępowania:
   // w sprawie cywilnej „wina i zamiar" są bezprzedmiotowe.
-  const RUBRYKA = bankowa ? rubrykaBankowa(caseRow.tryb) : rubrykaDla(caseRow.typ ?? null);
+  const RUBRYKA = bankowa ? rubrykaBankowa(caseRow.tryb, caseRow.rola) : rubrykaDla(caseRow.typ ?? null);
   // Data zdarzenia z warsztatu (Krok 4) — audytor bez niej nie sprawdzi ani stanu
   // prawnego, ani granicy wiedzy dostępnej w dniu decyzji.
   const dzienZdarzenia =
