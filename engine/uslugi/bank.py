@@ -278,12 +278,12 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=(), z_ocen=None):
             "rows": wiersze_rwa,
         },
         "uwagi": ([ROZBIEZNOSC_WAGI] if punkty else []) + ([
-            f"Wartosci oznaczone gwiazdka (*) — {wykazanych} odczytow w "
-            f"{len(wykazane_kody)} wskaznikach — NIE zostaly policzone przez bieglego "
-            "z pozycji sprawozdawczych, lecz PRZEPISANE Z OCEN BANKU ZRZESZAJACEGO, ktory "
-            "liczyl je wlasna metodyka na podstawie uchwaly nr 12/14/AB/BS/2002. Sa "
-            "ustaleniem o TRESCI DOKUMENTU (zrzeszajacy wykazal X), a nie samodzielnym "
-            "pomiarem — i dziedzicza wiarygodnosc zrodla."
+            f"Wartości oznaczone gwiazdką (*) — {wykazanych} odczytów w "
+            f"{len(wykazane_kody)} wskaźnikach — NIE zostały policzone przez biegłego "
+            "z pozycji sprawozdawczych, lecz PRZEPISANE Z OCEN BANKU ZRZESZAJĄCEGO, który "
+            "liczył je własną metodyką na podstawie uchwały nr 12/14/AB/BS/2002. Są "
+            "ustaleniem o TREŚCI DOKUMENTU — zrzeszający tak wykazał — a nie samodzielnym "
+            "pomiarem biegłego, i dziedziczą wiarygodność swojego źródła."
         ] if wykazane_kody else []) + ([
             "Aktywa ważone ryzykiem odtworzono z funduszy własnych i WYKAZANEGO współczynnika "
             "wypłacalności — odtworzenie dziedziczy wiarygodność tych wartości i nie jest pomiarem "

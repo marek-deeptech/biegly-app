@@ -284,8 +284,8 @@ def test_wartosc_wykazana_przez_zrzeszajacego_wypelnia_rubryke_ale_jest_oznaczon
 
     # Legenda MUSI być, inaczej gwiazdka w opinii sądowej nic nie znaczy.
     legenda = " ".join(zwyk["uwagi"])
-    assert "gwiazdka" in legenda.lower()
-    assert "ZRZESZAJACEGO" in legenda or "zrzeszaj" in legenda.lower()
+    assert "gwiazdk" in legenda.lower()  # rdzeń — odporny na odmianę przez przypadki
+    assert "zrzeszaj" in legenda.lower()
     assert not [u for u in bez["uwagi"] if "gwiazdk" in u.lower()], (
         "legenda o gwiazdce pojawia się, choć żadnej wartości wykazanej nie ma"
     )
