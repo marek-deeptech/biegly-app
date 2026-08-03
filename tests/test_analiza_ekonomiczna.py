@@ -254,3 +254,55 @@ def test_drobna_zmiana_nie_jest_sygnalem():
 
     wart = {"2014-06-30": {"naleznosci_zagrozone": 6.0}, "2014-09-30": {"naleznosci_zagrozone": 8.0}}
     assert zestaw_oceny([], wart)["sygnaly"] == []
+
+
+def test_wartosc_wykazana_przez_zrzeszajacego_wypelnia_rubryke_ale_jest_oznaczona():
+    """Wskaźnik niepoliczalny z akt dostaje wartość z oceny BPS — z gwiazdką.
+
+    ⚠️ POWÓD: dwanaście z szesnastu wskaźników rubryki nie dawało się policzyć, bo
+    akta nie zawierają pozycji sprawozdawczych, których wymagają. Bank zrzeszający
+    policzył je jednak sam (uchwała 12/14/AB/BS/2002) i wpisał do kwartalnych ocen.
+
+    Gwiazdka NIE JEST kosmetyką: wartość policzona przez biegłego to ustalenie
+    własne, a przepisana z oceny BPS — ustalenie o treści dokumentu. W tej sprawie
+    różnica jest istotą rzeczy, bo bank wykazywał współczynnik wypłacalności 13,84%
+    przy nietworzeniu wymaganych rezerw. Tabela, która by je zlała, przypisywałaby
+    biegłemu cudze wyliczenie.
+    """
+    from engine.uslugi.bank import analiza_ekonomiczna
+
+    poz = [Pozycje(dzien="2014-06-30", kredyty_zagrozone=124_032_000, kredyty_brutto=2_037_916_000)]
+    z_ocen = {"marza_odsetkowa": {"2014-06-30": 3.11}, "roe": {"2014-06-30": 7.11}}
+
+    bez = analiza_ekonomiczna("x", poz, ["2014-06-30"])
+    zwyk = analiza_ekonomiczna("x", poz, ["2014-06-30"], z_ocen=z_ocen)
+
+    kom_bez = " ".join(" ".join(r) for r in bez["table"]["rows"])
+    kom_z = " ".join(" ".join(r) for r in zwyk["table"]["rows"])
+    assert "3,11 %*" in kom_z, "wartość wykazana nie trafiła do tabeli"
+    assert "3,11" not in kom_bez, "wartość pojawiła się bez podania jej w z_ocen"
+
+    # Legenda MUSI być, inaczej gwiazdka w opinii sądowej nic nie znaczy.
+    legenda = " ".join(zwyk["uwagi"])
+    assert "gwiazdka" in legenda.lower()
+    assert "ZRZESZAJACEGO" in legenda or "zrzeszaj" in legenda.lower()
+    assert not [u for u in bez["uwagi"] if "gwiazdk" in u.lower()], (
+        "legenda o gwiazdce pojawia się, choć żadnej wartości wykazanej nie ma"
+    )
+
+
+def test_wartosc_policzona_ma_pierwszenstwo_przed_wykazana():
+    """Gdy biegły potrafi policzyć, liczy sam — wartość BPS go NIE nadpisuje.
+
+    Odwrotna kolejność zamieniłaby ustalenie własne na cytat z dokumentu i to
+    właśnie w miejscach, w których biegły ma najmocniejszą podstawę.
+    """
+    from engine.uslugi.bank import analiza_ekonomiczna
+
+    poz = [Pozycje(dzien="2014-06-30", kredyty_zagrozone=124_032_000, kredyty_brutto=2_037_916_000)]
+    # `naleznosci_zagrozone` = 124 032 / 2 037 916 = 6,09% — policzalne z akt.
+    w = analiza_ekonomiczna("x", poz, ["2014-06-30"],
+                            z_ocen={"naleznosci_zagrozone": {"2014-06-30": 99.99}})
+    kom = " ".join(" ".join(r) for r in w["table"]["rows"])
+    assert "6,09 %" in kom, "wartość policzona zniknęła"
+    assert "99,99" not in kom, "wartość wykazana nadpisała policzoną"

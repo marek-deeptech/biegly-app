@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from dataclasses import fields as _pola_dataclass  # noqa: E402
 
 from engine.bank import Pozycje, prog_na_dzien, szereg, wskazniki, zmiany  # noqa: E402
+from engine.przeklad_bps import wartosci_wykazane  # noqa: E402
 from engine.analiza_ekonomiczna import (  # noqa: E402
     OBSZARY,
     OPIS_OCENY,
@@ -137,7 +138,7 @@ def _z_chronologii(case_id):
     return jako_pozycje(okresy), wykazane_wspolczynniki(okresy), ", ".join(sorted(strony, key=_nr))
 
 
-def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=()):
+def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=(), z_ocen=None):
     """Rubryka 16 wskaźników w 4 obszarach — z rejestrem tego, czego policzyć NIE MOŻNA.
 
     ⚠️ REJESTR BRAKÓW JEST TU RÓWNIE WAŻNY JAK TABELA. W sprawie SK Banku dziesięciu
@@ -148,7 +149,7 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=()):
     wskaźników bez powiedzenia, że brakuje dziesięciu, sugerowałaby, że analiza
     jest kompletna.
     """
-    wiersze, braki_pol, policzone = [], {}, set()
+    wiersze, braki_pol, policzone, wykazane_kody = [], {}, set(), set()
     # Ile OKRESÓW nie ma danej pozycji. Zliczanie samego faktu braku mieszało dwie
     # różne rzeczy: pozycję nieobecną w aktach w ogóle (aktywa pracujące) z pozycją
     # obecną prawie wszędzie (suma bilansowa brakuje wyłącznie na 30.09.2014).
@@ -157,12 +158,30 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=()):
     # ZBIÓR OKRESÓW, nie licznik trafień: ta sama pozycja bywa potrzebna kilku
     # wskaźnikom, więc zliczanie par (wskaźnik, okres) dawało liczby większe niż
     # liczba okresów i „brak w 5 okresach" przy dwóch okresach w sprawie.
+    # Wartości WYKAZANE PRZEZ BANK ZRZESZAJĄCY — wypełniają rubrykę tam, gdzie
+    # z pozycji sprawozdawczych policzyć się nie da (a w tej sprawie nie da się
+    # w dwunastu wierszach na szesnaście, bo akta pozycji nie zawierają).
+    #
+    # ⚠️ OZNACZONE GWIAZDKĄ, NIE WMIESZANE. Wartość policzona przez biegłego to
+    # ustalenie własne; wartość przepisana z oceny BPS to ustalenie o TREŚCI
+    # DOKUMENTU. W tej sprawie różnica jest istotą rzeczy: bank wykazywał
+    # współczynnik wypłacalności 13,84% przy nietworzeniu wymaganych rezerw, więc
+    # wartość wykazana bywa właśnie tym, co się kwestionuje. Tabela, która by je
+    # zlała, przypisywałaby biegłemu cudze wyliczenie.
+    zocen = z_ocen or {}
+    wykazanych = 0
     okresy_bez = {}
     for w in WSKAZNIKI_EF:
-        kolumny, ma = [], False
+        kolumny, ma, ma_wyk = [], False, False
         for i, pz in enumerate(unikalne):
             v = wartosc_ef(w, pz)
             if v is None:
+                zew = zocen.get(w.kod, {}).get(getattr(pz, "dzien", None))
+                if zew is not None:
+                    ma_wyk = True
+                    wykazanych += 1
+                    kolumny.append(f"{_fmt(zew)} %*")
+                    continue
                 for pole in brakujace_pozycje(w, pz):
                     braki_pol.setdefault(pole, set()).add(w.nazwa)
                     okresy_bez.setdefault(pole, set()).add(i)
@@ -172,6 +191,8 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=()):
                 kolumny.append(f"{_fmt(v)} %")
         if ma:
             policzone.add(w.kod)
+        if ma_wyk:
+            wykazane_kody.add(w.kod)
         wiersze.append([OBSZARY[w.obszar], w.nazwa, f"{w.waga:.2f}".replace(".", ","), *kolumny])
 
     # Punktacja — wyłącznie tam, gdzie uchwała podaje przedziały. Poza tym milczymy.
@@ -257,6 +278,13 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=()):
             "rows": wiersze_rwa,
         },
         "uwagi": ([ROZBIEZNOSC_WAGI] if punkty else []) + ([
+            f"Wartosci oznaczone gwiazdka (*) — {wykazanych} odczytow w "
+            f"{len(wykazane_kody)} wskaznikach — NIE zostaly policzone przez bieglego "
+            "z pozycji sprawozdawczych, lecz PRZEPISANE Z OCEN BANKU ZRZESZAJACEGO, ktory "
+            "liczyl je wlasna metodyka na podstawie uchwaly nr 12/14/AB/BS/2002. Sa "
+            "ustaleniem o TRESCI DOKUMENTU (zrzeszajacy wykazal X), a nie samodzielnym "
+            "pomiarem — i dziedzicza wiarygodnosc zrodla."
+        ] if wykazane_kody else []) + ([
             "Aktywa ważone ryzykiem odtworzono z funduszy własnych i WYKAZANEGO współczynnika "
             "wypłacalności — odtworzenie dziedziczy wiarygodność tych wartości i nie jest pomiarem "
             "niezależnym. Bufor do progu mówi, o ile mogłyby spaść fundusze własne (np. wskutek "
@@ -646,20 +674,24 @@ def policz(case_id, paths=None):
                   "Prefer": "resolution=merge-duplicates,return=minimal"})
 
             # ── Analiza ekonomiczno-finansowa wg rubryki banku zrzeszającego ──
-            aef = analiza_ekonomiczna(case_id, unikalne, okresy, wykazane)
+            # Oceny zrzeszającego wczytujemy PRZED rubryką: niosą wartości wskaźników,
+            # których z pozycji sprawozdawczych policzyć się nie da, a które BPS
+            # policzył sam własną metodyką (patrz engine/przeklad_bps.py).
+            try:
+                _, _ob = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}"
+                                     f"&kind=eq.oceny_zrzeszajacego&select=data")
+                _arr = json.loads(_ob or b"[]")
+                oceny_zrz = ((_arr[0].get("data") or {}).get("oceny") or []) if _arr else []
+            except Exception:  # noqa: BLE001
+                oceny_zrz = []
+            aef = analiza_ekonomiczna(case_id, unikalne, okresy, wykazane,
+                                      z_ocen=wartosci_wykazane(oceny_zrz))
 
             # ZESTAWIENIE Z OCENAMI BANKU ZRZESZAJĄCEGO. BPS oceniał SK Bank własną
             # rubryką kwartalnie; zestawienie tych ocen z wartościami policzonymi
             # z akt nadzorczych odpowiada na pytanie, którego żadne z tych źródeł
             # nie rozstrzyga osobno: CZY OCENA NADĄŻAŁA ZA LICZBAMI. Brak ocen
             # (sprawa bez takiego materiału) po prostu pomija sekcję.
-            try:
-                _, ob = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}"
-                                    f"&kind=eq.oceny_zrzeszajacego&select=data")
-                arr_o = json.loads(ob or b"[]")
-                oceny_zrz = ((arr_o[0].get("data") or {}).get("oceny") or []) if arr_o else []
-            except Exception:  # noqa: BLE001
-                oceny_zrz = []
             if oceny_zrz:
                 wart = {}
                 for pz in unikalne:
