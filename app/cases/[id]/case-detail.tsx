@@ -46,6 +46,11 @@ type Doc = {
   karta_end?: number | null; // nr karty akt — koniec
   opis?: string | null; // czym dokument JEST — jedno zdanie z klasyfikacji z treści
   warstwa_tekstu?: string | null; // 'jest' | 'ocr' | 'brak' — czy treść jest czytelna maszynowo
+  // Pozycja wydzielona ze skanu: własny zakres stron i wskazanie pliku-rodzica.
+  // Jeden skan mieści zwykle kilka odrębnych dokumentów akt (migracja 0017).
+  strona_od?: number | null;
+  strona_do?: number | null;
+  plik_zrodlowy?: string | null;
 };
 type Check = {
   label: string;
@@ -179,7 +184,16 @@ export default function CaseDetail({
     // DOKUMENTY, nie pliki. Skan i jego warianty po OCR (także podzielone na części)
     // to jeden dokument w aktach — licznik plików pokazywał w sprawie SK Banku 68
     // przy 33 dokumentach i zawyżał obraz materiału dwukrotnie.
-    const dokumentow = new Set(documents.map((d) => rdzenDokumentu(d.rel_path))).size;
+    // Pozycja akt = dokument wydzielony ze skanu ALBO skan, z którego nic nie wydzielono.
+    const zawierajace = new Set(documents.map((d) => d.plik_zrodlowy).filter(Boolean) as string[]);
+    const rdzenieZawierajace = new Set(
+      documents.filter((d) => zawierajace.has(d.id)).map((d) => rdzenDokumentu(d.rel_path)),
+    );
+    const dokumentow = new Set(
+      documents
+        .filter((d) => d.plik_zrodlowy || !rdzenieZawierajace.has(rdzenDokumentu(d.rel_path)))
+        .map((d) => (d.plik_zrodlowy ? d.id : rdzenDokumentu(d.rel_path))),
+    ).size;
     return { wej, wyj, dokumentow };
   }, [documents]);
 
@@ -264,9 +278,17 @@ export default function CaseDetail({
           (qn != null && d.karta_start != null && qn >= d.karta_start && qn <= (d.karta_end ?? d.karta_start)),
       );
     if (!pokazWarianty) {
-      // Zostawiamy wariant CZYTELNY dla analizy (z warstwą tekstową), bo to jego
-      // treść wchodzi do opinii; oryginał skanu chowamy, gdy bliźniak istnieje.
+      // SKAN, KTÓRY COŚ ZAWIERA, PRZESTAJE BYĆ POZYCJĄ — staje się pojemnikiem.
+      // Pokazanie i skanu, i wydzielonych z niego dokumentów liczyłoby te same
+      // strony dwa razy; biegły ma widzieć pozycje akt, nie opakowania.
+      const zawierajace = new Set(documents.map((d) => d.plik_zrodlowy).filter(Boolean) as string[]);
       const rdzen = (rp: string) => basename(rp).replace(/\.ocr(\.cz\d+)?\.pdf$/i, ".pdf");
+      // Rodzicem jest wiersz oryginału; jego warianty po OCR też schodzą z listy.
+      const rdzenieZawierajace = new Set(
+        documents.filter((d) => zawierajace.has(d.id)).map((d) => rdzen(d.rel_path)),
+      );
+      list = list.filter((d) => d.plik_zrodlowy || !rdzenieZawierajace.has(rdzen(d.rel_path)));
+
       const grupy = new Map<string, Doc[]>();
       for (const d of list) grupy.set(rdzen(d.rel_path), [...(grupy.get(rdzen(d.rel_path)) ?? []), d]);
       list = [...grupy.values()].flatMap((g) => {
@@ -1070,6 +1092,12 @@ export default function CaseDetail({
                       </span>
                     )}
                     {KATALOG_TYPOW[d.doc_type]?.label ?? d.doc_type}
+                    {d.strona_od != null && (
+                      <span className="ml-2 text-ink/60" title="Zakres stron w pliku skanu">
+                        · str. {d.strona_od}
+                        {d.strona_do && d.strona_do !== d.strona_od ? `–${d.strona_do}` : ""}
+                      </span>
+                    )}
                     {d.warstwa_tekstu === "brak" && (
                       <span className="ml-2 text-amber-600" title="Skan bez warstwy tekstowej — treść niedostępna dla analizy">
                         · bez OCR
@@ -1087,7 +1115,10 @@ export default function CaseDetail({
                     {!d.storage_path && <span className="ml-2 text-amber-600">· nie w magazynie</span>}
                     {d.opis?.trim() && (
                       <span className="ml-2 font-mono text-ink/40" title="Plik w magazynie — forma przechowywania dokumentu">
-                        {basename(d.rel_path)}
+                        {/* Pozycja wydzielona ze skanu nosi w ścieżce sufiks „#strN-M";
+                            do wyświetlenia zostaje sama nazwa pliku, bo zakres stron
+                            stoi już wyżej jako osobny znacznik. */}
+                        {basename(d.rel_path).split("#")[0]}
                       </span>
                     )}
                   </div>

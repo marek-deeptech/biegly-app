@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -45,10 +46,48 @@ def _req(method, url, body=None):
         return json.loads(resp.read() or b"[]")
 
 
+# Tytuł, który NIE OPISUJE dokumentu — sama numeracja załącznika albo wprost
+# „strona rozdzielająca". W aktach SK Banku każdy załącznik poprzedza niebieska
+# kartka z napisem „Załącznik nr N"; detektor granic słusznie widzi na niej początek
+# czegoś nowego, ale to czegoś jest PRZEKŁADKĄ, nie pozycją akt.
+PRZEKLADKA = re.compile(
+    r"^\s*(?:za[łl]ącznik\s*(?:nr\s*)?\d+(?:\s*do\s+akt\w*(?:\s+sprawy)?)?)?"
+    r"\s*[—\-–:]?\s*(?:strona\s+(?:rozdzielająca|tytułowa)(?:\s+za[łl]ącznika)?"
+    r"|przek[łl]adka|karta\s+rozdzielająca)?\s*$",
+    re.I,
+)
+
+
+def scal_przekladki(inwentarz: list[dict]) -> list[dict]:
+    """Dokleja przekładkę do dokumentu, który wprowadza.
+
+    ⚠️ INACZEJ LICZNIK AKT ROŚNIE O KARTKI BEZ TREŚCI. Przekładka ma jedną–dwie strony
+    i tytuł bez opisu; dokument zaczyna się dopiero za nią. Zliczona osobno, zawyżałaby
+    liczbę pozycji i podsuwałaby biegłemu do zacytowania kartkę z napisem „Załącznik nr 14".
+    """
+    out: list[dict] = []
+    scalono = 0
+    for i, x in enumerate(inwentarz):
+        nast = inwentarz[i + 1] if i + 1 < len(inwentarz) else None
+        czy = PRZEKLADKA.match((x.get("tytul") or "").strip()) and x.get("stron", 0) <= 2
+        if czy and nast and nast["skan"] == x["skan"]:
+            # Przekładka wchodzi w zakres NASTĘPNEGO dokumentu — razem z jego kartą.
+            nast["strona_od"] = x["strona_od"]
+            nast["stron"] = nast["strona_do"] - x["strona_od"] + 1
+            if x.get("karta"):
+                nast["karta"] = x["karta"]
+            scalono += 1
+            continue
+        out.append(x)
+    if scalono:
+        print(f"scalono {scalono} stron rozdzielających z dokumentami, które wprowadzają")
+    return out
+
+
 def main() -> int:
     sprawa, plik = sys.argv[1], sys.argv[2]
     zapisz = "--zapisz" in sys.argv
-    inwentarz = json.loads(pathlib.Path(plik).read_text(encoding="utf8"))
+    inwentarz = scal_przekladki(json.loads(pathlib.Path(plik).read_text(encoding="utf8")))
 
     cid = _req("GET", f"/rest/v1/cases?name=eq.{urllib.parse.quote(sprawa)}&select=id")[0]["id"]
     docs = _req("GET", f"/rest/v1/documents?case_id=eq.{cid}"
