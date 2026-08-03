@@ -37,6 +37,8 @@ import tempfile
 import urllib.parse
 import urllib.request
 
+import llm
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 for _l in (ROOT / ".env.local").read_text(encoding="utf8").splitlines():
     if "=" in _l and not _l.startswith("#"):
@@ -88,15 +90,13 @@ def strony_tekstem(pdf: pathlib.Path, stron: int) -> list[str]:
     return out
 
 
-def granice(nazwa: str, strony: list[str]) -> list[dict]:
+def granice(nazwa: str, strony: list[str], sprawa: str | None = None) -> list[dict]:
     """Strony, na których zaczynają się dokumenty — łącznie z tytułem."""
-    import anthropic
-
     wynik: list[dict] = []
     for od in range(0, len(strony), STRON_W_PACZCE):
         kawalek = strony[od : od + STRON_W_PACZCE]
         opis = "\n".join(f"[str. {od + i + 1}] {t or '(strona bez tekstu)'}" for i, t in enumerate(kawalek))
-        msg = anthropic.Anthropic().messages.create(
+        msg = llm.klient("rozbij_skany", sprawa=sprawa).messages.create(
             model="claude-opus-4-8", max_tokens=4000, system=SYSTEM,
             messages=[{"role": "user", "content":
                        f"Plik: {nazwa}. Strony {od + 1}–{od + len(kawalek)} z {len(strony)}.\n\n{opis}"}],
@@ -165,7 +165,7 @@ def main() -> int:
             strony_all += strony_tekstem(plik, n)
         if not strony_all:
             continue
-        znalezione = granice(rdzen, strony_all)
+        znalezione = granice(rdzen, strony_all, cs[0]["id"])
         karta0 = czesci[0].get("karta_start")
         for i, g in enumerate(znalezione):
             nast = znalezione[i + 1]["strona"] if i + 1 < len(znalezione) else len(strony_all) + 1

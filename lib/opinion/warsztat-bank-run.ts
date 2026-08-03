@@ -13,6 +13,7 @@
 // Gdyby kwalifikację prawną zostawić modelowi, opinia powoływałaby CRR do decyzji
 // z 2008 r. — dokładnie ten błąd, przed którym chroni datowanie katalogu.
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
@@ -161,7 +162,7 @@ export async function wykonajWarsztatBankowy(
     return out;
   }
 
-  const client = new Anthropic();
+  const client = klientLLM("warsztat-bank", { sprawa: id });
   // Niepowodzenia ekstrakcji — MUSZĄ być widoczne, patrz niżej.
   const awarie: string[] = [];
 

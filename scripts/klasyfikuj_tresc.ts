@@ -11,6 +11,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 import { createClient } from "@supabase/supabase-js";
 import { docTypesDla, typyDziedzinowe, typyKlasyfikacji } from "@/lib/intake/classify";
 import { pdfText } from "@/lib/intake/pdf";
@@ -85,7 +86,7 @@ async function main() {
     wejscia.push({ id: d.id, nazwa: nazwaPliku, tekst });
   }
 
-  const ai = new Anthropic();
+  const ai = klientLLM("klasyfikuj_tresc", { sprawa: c.id, cache: true });
   const wyniki: WynikKlasyfikacji[] = [];
   for (let i = 0; i < wejscia.length; i += W_PACZCE) {
     const paczka = wejscia.slice(i, i + W_PACZCE);

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 
 import { pdfText } from "@/lib/intake/pdf";
 import { DOC_TYPES, REQUIRED } from "@/lib/intake/taxonomy";
@@ -201,7 +202,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const read: { name: string; storage_path: string | null }[] = [];
 
   try {
-    const client = new Anthropic();
+    const client = klientLLM("albin", { sprawa: id });
     for (let i = 0; i < 5; i++) {
       const resp = await client.messages.create({
         model: "claude-opus-4-8",

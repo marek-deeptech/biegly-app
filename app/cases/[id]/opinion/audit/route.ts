@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 
 
 import { buildOpinionDla } from "@/lib/opinion/build-router";
@@ -193,7 +194,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   });
 
   try {
-    const client = new Anthropic();
+    const client = klientLLM("audyt/opinia", { sprawa: id });
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
       // Siedem kryteriów z konkretnymi uwagami (uwaga bez wskazania rozdziału i braku

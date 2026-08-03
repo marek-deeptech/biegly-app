@@ -36,7 +36,7 @@ BUCKET = "case-files"
 # 2479 fragmentów literatury i aktów prawnych, których ponowne wczytanie wymaga
 # oryginalnych plików i kilku godzin. Przy dodaniu tabeli w migracji dopisz ją tutaj.
 TABELE = ["cases", "documents", "metrics", "findings", "subanalyses", "korekty", "audyty_opinii",
-          "wzorce", "wiedza_zrodla", "wiedza"]
+          "wzorce", "wiedza_zrodla", "wiedza", "llm_uzycie"]
 
 # Tabele, w których `storage_path` wskazuje plik SPOZA `documents`. Kopia chodzi po
 # wierszach `documents`, więc bez tego repozytorium wiedzy miałoby zrzut bazy, ale

@@ -9,6 +9,7 @@
 // arytmetyki, a wywołanie funkcji serverless z trasy Next.js kosztowałoby drugi przeskok
 // sieciowy i drugi slot na planie Hobby. Reguła jest jedna i ma testy po obu stronach.
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { keywordWindows, pdfText } from "@/lib/intake/pdf";
@@ -215,7 +216,7 @@ export async function wykonajChronologie(
 
   const okresy: OkresNadzorczy[] = [];
   const zdarzenia: ZdarzenieNadzorcze[] = [];
-  const ai = new Anthropic();
+  const ai = klientLLM("chronologia-nadzoru", { sprawa: id });
 
   /** Jedno wywołanie = jeden rodzaj ustaleń. Wspólne dzieliło budżet tokenów: przy
    *  136 zdarzeniach na tabelę okresów zostawało tyle, że wypadały z niej wskaźniki. */

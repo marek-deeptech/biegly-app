@@ -7,6 +7,7 @@
 // źródłem; pozycje niepewne oznaczone „(do potwierdzenia)". Finalny wynik jako
 // subanaliza `osint_analysis` (data.content = OsintContent) — renderowana do PDF.
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 
 import { pdfText } from "@/lib/intake/pdf";
 
@@ -80,7 +81,7 @@ function repairJson(raw: string): string | null {
 }
 
 async function modelJson<T>(system: string, user: string, maxTokens = 12000): Promise<T> {
-  const client = new Anthropic();
+  const client = klientLLM("osint/agent");
   const msg = await client.messages.create({ model: "claude-opus-4-8", max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] });
   const raw = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n").replace(/```json|```/g, "").trim();
   const s = raw.indexOf("{"), e = raw.lastIndexOf("}");

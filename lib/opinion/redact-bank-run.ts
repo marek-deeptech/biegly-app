@@ -11,6 +11,7 @@
 // odtwarzał je po swojemu, dodanie pola `zrodla` (po którym model przestał
 // przypisywać sprawozdania kontrahenta oskarżonemu bankowi) rozjechało obie kopie.
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
@@ -96,7 +97,7 @@ async function jedenRozdzial(
     buildWzorzecBlock(sb, kind),
     buildStyleCorpus(sb, kind),
   ]);
-  const msg = await new Anthropic().messages.create({
+  const msg = await klientLLM("redakcja-bank/proza", { sprawa: id }).messages.create({
     model: "claude-opus-4-8",
     // 6–12 akapitów gęstej analizy z omówieniem tabeli okres po okresie.
     max_tokens: 5500,
@@ -169,7 +170,7 @@ export async function zredagujWnioskiBankowe(sb: SupabaseClient, id: string): Pr
     buildWzorzecBlock(sb, "wnioski"),
     buildStyleCorpus(sb, "wnioski"),
   ]);
-  const msg = await new Anthropic().messages.create({
+  const msg = await klientLLM("redakcja-bank/wnioski", { sprawa: id }).messages.create({
     model: "claude-opus-4-8",
     max_tokens: 6500,
     system: [p.system, wiedza, wzorzec, styl].filter(Boolean).join("\n\n"),

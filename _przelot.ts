@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "./lib/llm/klient";
 import { buildIVChapter } from "./lib/opinion/build";
 import { buildIvRedactPrompt, type IvRedactKind } from "./lib/opinion/redact";
 (async () => {
@@ -8,7 +8,7 @@ import { buildIvRedactPrompt, type IvRedactKind } from "./lib/opinion/redact";
   const B=env["NEXT_PUBLIC_SUPABASE_URL"].replace(/\/$/,""),K=env["SUPABASE_SERVICE_ROLE_KEY"],H={apikey:K,Authorization:"Bearer "+K};
   const get=async(p:string)=>(await fetch(B+p,{headers:H})).json();
   const up=async(row:any)=>fetch(`${B}/rest/v1/subanalyses?on_conflict=case_id,kind`,{method:"POST",headers:{...H,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
-  const cl=new Anthropic({apiKey:env.ANTHROPIC_API_KEY});
+  const cl=klientLLM("przelot",{apiKey:env.ANTHROPIC_API_KEY});
   const c=((await get("/rest/v1/cases?select=id,name,signature")) as any[]).find(x=>x.name==="HUBTECH");
   const metrics=await get(`/rest/v1/metrics?case_id=eq.${c.id}&select=key,value,unit,session_day&limit=6000`) as any[];
   const documents=await get(`/rest/v1/documents?case_id=eq.${c.id}&select=rel_path,provenance,doc_type&limit=3000`) as any[];

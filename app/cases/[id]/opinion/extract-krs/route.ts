@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 
 import { pdfText } from "@/lib/intake/pdf";
 import { createClient } from "@/lib/supabase/server";
@@ -95,7 +96,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   ].join("\n");
 
   try {
-    const client = new Anthropic();
+    const client = klientLLM("ekstrakcja/krs", { sprawa: id });
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 3500,

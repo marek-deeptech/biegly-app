@@ -34,6 +34,8 @@ import tempfile
 import urllib.parse
 import urllib.request
 
+import llm
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 for _l in (ROOT / ".env.local").read_text(encoding="utf8").splitlines():
     if "=" in _l and not _l.startswith("#"):
@@ -106,8 +108,6 @@ def wycinek(pdf: pathlib.Path, strona: int, katalog: pathlib.Path) -> pathlib.Pa
 
 def czytaj(paczka: list[tuple[str, pathlib.Path]]) -> dict[str, int | None]:
     """Odczyt numerów z paczki wycinków — jedno wywołanie modelu na kilka obrazów."""
-    import anthropic
-
     tresc: list[dict] = []
     for ident, sciezka in paczka:
         tresc.append({"type": "text", "text": f"id={ident}"})
@@ -116,7 +116,7 @@ def czytaj(paczka: list[tuple[str, pathlib.Path]]) -> dict[str, int | None]:
             "source": {"type": "base64", "media_type": "image/png",
                        "data": base64.standard_b64encode(sciezka.read_bytes()).decode()},
         })
-    msg = anthropic.Anthropic().messages.create(
+    msg = llm.klient("karty_ze_skanu").messages.create(
         model="claude-opus-4-8", max_tokens=1000, system=SYSTEM,
         messages=[{"role": "user", "content": tresc}],
     )

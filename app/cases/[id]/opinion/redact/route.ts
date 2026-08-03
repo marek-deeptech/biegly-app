@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 
 import {
   buildIvRedactPrompt,
@@ -398,7 +399,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const systemZeStylem = [system, wiedza, wzorzec, styl].filter(Boolean).join("\n\n");
 
   try {
-    const client = new Anthropic();
+    const client = klientLLM("redakcja/rozdzial", { sprawa: id });
     const msg = await client.messages.create({
       model: "claude-opus-4-8",
       // Rozdziały z rozbiciem per sesja (akapit na każdą sesję) potrzebują zapasu.

@@ -3,6 +3,7 @@
 // podstawie nagłówka, pieczęci, podpisów, sygnatur. Evidence-only: zwraca też krótkie
 // uzasadnienie (zacytowany fragment) i — jeśli widoczny — numer karty akt.
 import Anthropic from "@anthropic-ai/sdk";
+import { klientLLM } from "@/lib/llm/klient";
 
 import { AUTHORS, DOC_TYPES } from "./taxonomy";
 
@@ -54,7 +55,7 @@ export async function classifyByContent(
   fileName: string,
   opts: { model?: string; apiKey?: string } = {},
 ): Promise<ContentClass> {
-  const client = new Anthropic({ apiKey: opts.apiKey ?? process.env.ANTHROPIC_API_KEY });
+  const client = klientLLM("klasyfikacja-tresci", { apiKey: opts.apiKey ?? process.env.ANTHROPIC_API_KEY });
   const head = ocrText.slice(0, 4500); // nagłówek/pieczęć/podpis są na początku
   const msg = await client.messages.create({
     model: opts.model ?? "claude-haiku-4-5-20251001",

@@ -32,6 +32,8 @@ import tempfile
 import urllib.parse
 import urllib.request
 
+import llm
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 for _l in (ROOT / ".env.local").read_text(encoding="utf8").splitlines():
     if "=" in _l and not _l.startswith("#"):
@@ -106,6 +108,16 @@ def tekst_zakresu(pdf: pathlib.Path, od: int, do: int) -> str:
 # w połowie (wyczerpane środki API) i cała praca modelu przepadła — mimo że dziewięć
 # dokumentów było już odczytanych. Odczyt jest funkcją treści, więc wynik da się
 # trzymać pod skrótem tej treści i nie płacić za niego drugi raz.
+#
+# ⚠️ PUŁAPKA: klucz obejmuje TYLKO tytuł i treść dokumentu — NIE obejmuje SYSTEM.
+# Po zmianie promptu ten cache odda wyniki policzone starym promptem i nie da tego
+# po sobie poznać: sprawdzalibyśmy nową instrukcję, dostając odpowiedzi na starą.
+# ZMIENIASZ SYSTEM → `rm -rf "$TMPDIR/biegly_oceny_cache"` przed uruchomieniem.
+#
+# Klucza celowo nie rozszerzamy o prompt: pod tymi skrótami leży jedenaście
+# odczytów już opłaconych, a przebudowa klucza kazałaby zapłacić za nie ponownie.
+# Wspólny cache z llm.py jest tu WYŁĄCZONY (cache=False) — ta warstwa trzyma wynik
+# po sparsowaniu, czyli taniej, a dublowanie obu nic by nie dało.
 CACHE = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / "biegly_oceny_cache"
 
 
@@ -117,9 +129,7 @@ def odczytaj(tytul: str, tresc: str) -> dict | None:
     if klucz.exists():
         return json.loads(klucz.read_text(encoding="utf8"))
 
-    import anthropic
-
-    msg = anthropic.Anthropic().messages.create(
+    msg = llm.klient("oceny_zrzeszajacego", cache=False).messages.create(
         model="claude-opus-4-8", max_tokens=3000, system=SYSTEM,
         messages=[{"role": "user", "content": f"Dokument: {tytul}\n\n{tresc[:60000]}"}],
     )

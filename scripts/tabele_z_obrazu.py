@@ -29,6 +29,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import llm
+
 SYSTEM = (
     "Jesteś asystentem biegłego sądowego. Otrzymujesz OBRAZ strony dokumentu nadzorczego. "
     "Strona bywa obrócona o 90 stopni — odczytaj ją mimo to. "
@@ -57,10 +59,8 @@ def renderuj(pdf: Path, strona: int, dpi: int, katalog: Path) -> Path:
 
 
 def czytaj_strone(obraz: Path) -> dict:
-    import anthropic
-
     dane = base64.standard_b64encode(obraz.read_bytes()).decode()
-    msg = anthropic.Anthropic().messages.create(
+    msg = llm.klient("tabele_z_obrazu").messages.create(
         model="claude-opus-4-8",
         max_tokens=4000,
         system=SYSTEM,
