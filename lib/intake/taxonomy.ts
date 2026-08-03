@@ -3,10 +3,28 @@
 
 export type Provenance = "wejście" | "wyjście" | "?";
 
+/**
+ * Kto wnosi dokument do sprawy.
+ *
+ * ⚠️ TO NIE JEST KOSMETYKA OPISU. Rozróżnienie zmienia treść ustalenia negatywnego.
+ * „Brak w aktach" znaczy: materiału nie ma i trzeba o niego WYSTĄPIĆ DO ORGANU.
+ * „Do pozyskania" znaczy: materiału w aktach nigdy nie było i BYĆ NIE MIAŁO —
+ * biegły wyszukuje go w źródłach powszechnie dostępnych i dołącza jako załącznik.
+ *
+ * Wzorzec: w opinii MBR sześć z ośmiu modułów analizy powstało z materiału
+ * pozyskanego przez biegłego (załączniki 1–6: biuletyn i raport stabilności Banku
+ * Centralnego Islandii, artykuły z Wyborcza.biz i Financial Times, sprawozdania
+ * Glitnir). W aktach nie było ich wcale. Aplikacja nazywała to „luką dowodową",
+ * co sugerowało brak nie do usunięcia, podczas gdy była to niewykonana praca.
+ */
+export type Pozyskanie = "akta" | "biegly";
+
 export type DocType = {
   label: string;
   source: string;
   provenance: Provenance;
+  /** Domyślnie „akta" — dokument przychodzi z materiałem sprawy. */
+  pozyskanie?: Pozyskanie;
 };
 
 export const DOC_TYPES: Record<string, DocType> = {

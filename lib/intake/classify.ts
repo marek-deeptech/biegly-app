@@ -43,6 +43,20 @@ export function docTypesDla(typ?: string | null): Record<string, DocType> {
  * Dla dziedziny GPW zwraca pustą listę: jej katalog JEST rdzeniem, więc prompt
  * zostaje jednolisty i klasyfikacja trzech spraw sprzed migracji 0010 się nie zmienia.
  */
+/**
+ * Kody dokumentów, które POZYSKUJE BIEGŁY, a nie przynoszą akta.
+ *
+ * Ich brak nie jest luką dowodową: w opinii MBR artykuły prasowe i raporty banku
+ * centralnego weszły jako załączniki nr 1–4, bo biegły je wyszukał w źródłach
+ * powszechnie dostępnych. Rozdział o publikacjach prasowych ma więc dwa różne
+ * stany pustki — „nie ma i nie będzie" oraz „jeszcze nie pozyskano".
+ */
+export function typyPozyskiwanePrzezBieglego(typ?: string | null): string[] {
+  return Object.entries(typyKlasyfikacji(typ))
+    .filter(([, d]) => d.pozyskanie === "biegly")
+    .map(([kod]) => kod);
+}
+
 export function typyDziedzinowe(typ?: string | null): string[] {
   return typ === "ryzyko_bankowe" ? Object.keys(DOC_TYPES_BANK) : [];
 }

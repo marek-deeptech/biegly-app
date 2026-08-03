@@ -14,6 +14,7 @@
 import { packDla } from "@/lib/domain";
 import { przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { rolaDla } from "@/lib/domain/rola";
+import { typyPozyskiwanePrzezBieglego } from "@/lib/intake/classify";
 
 import { chapterFromStored, ponumerujElementy, type Chapter, type Doc, type Metric, type Opinion, type StoredSub } from "./build";
 import { chartSvg } from "./charts";
@@ -27,6 +28,54 @@ import { wykresyBankowe } from "./charts-bank";
  */
 export function tytulModulu(m: { kind: string; tytul: string }, rola?: string | null): string {
   return m.kind === "sprawozdania" ? rolaDla(rola).tytulKwot : m.tytul;
+}
+
+/**
+ * Rozdział VI — ZAŁĄCZNIKI, czyli materiał POZYSKANY PRZEZ BIEGŁEGO.
+ *
+ * ⚠️ NIE JEST TO SPIS AKT. Poprzednia wersja wypisywała tu wszystkie dokumenty
+ * sprawy (do 400 pozycji), co jest odwrotnością wzorca: w opinii MBR załączników
+ * jest SZEŚĆ i każdy to materiał, którego w aktach nie było — biuletyn i raport
+ * stabilności Banku Centralnego Islandii, artykuły z Wyborcza.biz i Financial
+ * Times (ten drugi w tłumaczeniu biegłego) oraz dwa sprawozdania Glitnir.
+ * Załącznik jest dowodem, że biegły sięgnął poza akta; lista całych akt niczego
+ * nie dowodzi i zaśmieca opinię.
+ *
+ * Pusty rozdział dostaje ZDANIE mówiące, czego w nim brakuje i skąd to wziąć —
+ * goły nagłówek czytałoby się jak przeoczenie eksportu.
+ */
+function zalaczniki(docs: Doc[], typ: string | null | undefined): Chapter {
+  const kody = new Set(typyPozyskiwanePrzezBieglego(typ));
+  const wlasne = docs.filter((d) => d.doc_type && kody.has(d.doc_type));
+  return {
+    no: "VI",
+    title: "Załączniki",
+    status: wlasne.length ? "draft" : "todo",
+    paras: wlasne.length
+      ? [
+          {
+            text:
+              `Do opinii załączono ${wlasne.length} ${wlasne.length === 1 ? "materiał" : "materiałów"} ` +
+              "pozyskanych przez biegłego ze źródeł powszechnie dostępnych. Każdy stanowi " +
+              "integralną część opinii.",
+            conf: "grounded",
+          },
+        ]
+      : [
+          {
+            text:
+              "Do opinii nie załączono materiałów pozyskanych przez biegłego. Rozdział obejmuje " +
+              "źródła spoza akt — publikacje prasowe z okresu poprzedzającego zdarzenie, raporty " +
+              "banku centralnego o stabilności systemu finansowego, szeregi danych rynkowych oraz " +
+              "komunikaty agencji ratingowych. Ich brak nie jest luką w materiale dowodowym: " +
+              "to materiał, który biegły pozyskuje samodzielnie i dołącza do opinii.",
+            conf: "review",
+          },
+        ],
+    evidence: wlasne.map(
+      (d, i) => `Załącznik nr ${i + 1} — ${d.rel_path.split("/").pop() ?? d.rel_path}`,
+    ),
+  };
 }
 
 /** Moduły rozdziału V w kolejności, w jakiej występują w opinii wzorcowej (MBR, A–L). */
@@ -184,13 +233,7 @@ export function buildOpinionBank(
         : [{ text: "Brak modułów analizy — wykonaj Krok 3 (wskaźniki) i Krok 4 (warsztat).", conf: "review" }],
     },
     ...moduly,
-    {
-      no: "VI",
-      title: "Załączniki",
-      status: "draft",
-      paras: [],
-      evidence: inputDocs.map((d) => d.rel_path.split("/").pop() ?? d.rel_path).slice(0, 400),
-    },
+    zalaczniki(inputDocs, caseRow.typ),
     spis("VII", "Spis tabel", [], "W opinii nie zamieszczono tabel."),
     spis("VIII", "Spis wykresów", [], "W opinii nie zamieszczono wykresów."),
   ];

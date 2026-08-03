@@ -12,6 +12,7 @@
 
 import { kodRoli, type Rola } from "@/lib/domain/rola";
 import { WYMOGI_BANK } from "@/lib/domain/taxonomy-bank";
+import { typyPozyskiwanePrzezBieglego } from "./classify";
 
 export type DocLite = {
   rel_path: string;
@@ -41,6 +42,7 @@ export type Wymog = {
    * sprawy SK Banku twierdził, iż opinii nie da się wydać.
    */
   krytyczny: boolean | Rola[];
+
   /**
    * Tryb postępowania, w którym wymóg w ogóle występuje. Brak = w każdym.
    *
@@ -83,6 +85,22 @@ export const TECH_LABEL: Record<string, string> = {
   procedury: "Proces decyzyjny i dokumenty wewnętrzne",
   otoczenie_prawne: "Otoczenie prawne i standardy identyfikacji ryzyka",
 };
+
+/**
+ * Czy wymóg spełnia się materiałem POZYSKIWANYM PRZEZ BIEGŁEGO, a nie z akt.
+ *
+ * WYPROWADZANE Z TABELI TYPÓW, nie oznaczane ręcznie przy każdym wymogu: dwa
+ * miejsca prawdy rozjechałyby się przy pierwszym nowym typie dokumentu, a rozjazd
+ * objawiłby się wystąpieniem do organu o artykuł prasowy — czyli pismem
+ * bezprzedmiotowym, którego nikt by nie wychwycił przed wysłaniem.
+ *
+ * Warunek jest KONIUNKCJĄ: wymóg spełniany także dokumentem z akt (jak
+ * `chronologia`, którą zasila NADZOR_KNF) należy do organu, nie do biegłego.
+ */
+export function pozyskujeBiegly(w: Wymog): boolean {
+  const zewnetrzne = new Set(typyPozyskiwanePrzezBieglego("ryzyko_bankowe"));
+  return w.docTypes.length > 0 && w.docTypes.every((k) => zewnetrzne.has(k));
+}
 
 export const WYMOGI: Wymog[] = [
   {
@@ -222,6 +240,17 @@ export type RaportKompletnosci = {
   wymogi: WymogStatus[];
   techniki: TechnikaStatus[];
   doZamowienia: string[];
+  /**
+   * Materiał, którego w aktach NIGDY NIE BYŁO i być nie miało — biegły pozyskuje
+   * go sam ze źródeł powszechnie dostępnych i dołącza jako załącznik do opinii.
+   *
+   * ⚠️ ODDZIELONE OD `doZamowienia` ŚWIADOMIE. Wzywanie organu o artykuł prasowy
+   * albo raport NBP jest wystąpieniem bezprzedmiotowym: organ takich rzeczy nie
+   * gromadzi. We wzorcu MBR sześć z ośmiu modułów analizy stało na materiale
+   * pozyskanym przez biegłego (załączniki 1–6). Zlanie obu list w jedną kazało
+   * aplikacji nazywać niewykonaną pracę biegłego luką dowodową akt.
+   */
+  doPozyskania: string[];
   braki_krytyczne: string[];
   wynik: { spelnione: number; wszystkie: number; pct: number };
 };
@@ -329,7 +358,8 @@ export function buildCompleteness(
   return {
     wymogi,
     techniki,
-    doZamowienia: niespelnione.map((w) => w.wymog.zamow),
+    doZamowienia: niespelnione.filter((w) => !pozyskujeBiegly(w.wymog)).map((w) => w.wymog.zamow),
+    doPozyskania: niespelnione.filter((w) => pozyskujeBiegly(w.wymog)).map((w) => w.wymog.zamow),
     braki_krytyczne: niespelnione.filter((w) => czyKrytyczny(w.wymog, rola)).map((w) => w.wymog.label),
     wynik: {
       spelnione,

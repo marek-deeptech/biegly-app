@@ -46,11 +46,13 @@ export const CEL: Record<BankRedactKind, string> = {
     "uczestnikowi rynku. Omów poziomy i dynamikę, a nie samą wartość końcową.",
   media:
     "Publikacje prasowe dostępne przed dniem zdarzenia. Rozdział ustala stan wiedzy POWSZECHNIE DOSTĘPNEJ. " +
-    "Referuj treść publikacji, nie oceniaj ich trafności ani nie wnioskuj z nich o wiedzy banku.",
+    "Referuj treść publikacji, nie oceniaj ich trafności ani nie wnioskuj z nich o wiedzy banku." +
+    " GDY MATERIAŁU BRAK: nazwij to wprost jako materiał DO POZYSKANIA PRZEZ BIEGŁEGO ze źródeł powszechnie dostępnych, a NIE jako lukę w aktach ani brak, o który należy wystąpić do organu — akta takich źródeł nie zawierają z definicji i organ ich nie gromadzi.",
   ekspozycja_sektor:
     "Skala sektora bankowego kraju kontrahenta wobec jego gospodarki — relacja aktywów sektora do PKB " +
     "oraz zdolność banku centralnego do pełnienia roli pożyczkodawcy ostatniej instancji. To rozdział " +
-    "o granicy wsparcia publicznego, a nie o kondycji pojedynczego banku.",
+    "o granicy wsparcia publicznego, a nie o kondycji pojedynczego banku." +
+    " GDY MATERIAŁU BRAK: nazwij to wprost jako materiał DO POZYSKANIA PRZEZ BIEGŁEGO ze źródeł powszechnie dostępnych, a NIE jako lukę w aktach ani brak, o który należy wystąpić do organu — akta takich źródeł nie zawierają z definicji i organ ich nie gromadzi.",
   sprawozdania:
     "Analiza pozycji sprawozdań finansowych kontrahenta za okresy poprzedzające zdarzenie: wynik odsetkowy, " +
     "zysk netto, struktura finansowania (depozyty wobec finansowania hurtowego), jakość portfela. " +

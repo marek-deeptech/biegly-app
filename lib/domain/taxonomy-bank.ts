@@ -20,10 +20,16 @@ export const DOC_TYPES_BANK: Record<string, DocType> = {
   KORESPONDENCJA_WEWN: { label: "Korespondencja wewnętrzna departamentów", source: "bank", provenance: "wejście" },
   NADZOR_KNF: { label: "Materiał organu nadzoru (BION, postępowanie, raporty sektorowe)", source: "KNF / KNB", provenance: "wejście" },
   SPRAWOZDANIE_BANK: { label: "Sprawozdanie finansowe banku (emitenta lub kontrahenta)", source: "bank", provenance: "wejście" },
-  RAPORT_BANK_CENTRALNY: { label: "Raport banku centralnego (stabilność finansowa, biuletyn)", source: "bank centralny", provenance: "wejście" },
-  DANE_RYNKOWE_SZEREG: { label: "Szereg danych rynkowych (CDS, kursy, stopy, indeksy)", source: "źródło rynkowe", provenance: "wejście" },
-  RATING_AGENCJA: { label: "Rating / komunikat agencji ratingowej", source: "agencja ratingowa", provenance: "wejście" },
-  PRASA: { label: "Publikacja prasowa (dowód stanu wiedzy powszechnej)", source: "media", provenance: "wejście" },
+  // ⚠️ CZTERY TYPY POZYSKIWANE PRZEZ BIEGŁEGO, nie przychodzące z aktami. We wzorcu
+  // MBR to załączniki nr 1–4: raport stabilności i biuletyn Banku Centralnego Islandii
+  // oraz dwa artykuły prasowe. Żadnego z nich nie było w aktach — biegły je wyszukał,
+  // jeden nawet przetłumaczył, i dołączył do opinii. Oznaczenie ich `pozyskanie: "biegly"`
+  // sprawia, że ich brak jest ZADANIEM na liście biegłego, a nie luką dowodową,
+  // o którą trzeba wystąpić do organu.
+  RAPORT_BANK_CENTRALNY: { label: "Raport banku centralnego (stabilność finansowa, biuletyn)", source: "bank centralny", provenance: "wejście", pozyskanie: "biegly" },
+  DANE_RYNKOWE_SZEREG: { label: "Szereg danych rynkowych (CDS, kursy, stopy, indeksy)", source: "źródło rynkowe", provenance: "wejście", pozyskanie: "biegly" },
+  RATING_AGENCJA: { label: "Rating / komunikat agencji ratingowej", source: "agencja ratingowa", provenance: "wejście", pozyskanie: "biegly" },
+  PRASA: { label: "Publikacja prasowa (dowód stanu wiedzy powszechnej)", source: "media", provenance: "wejście", pozyskanie: "biegly" },
   // ⚠️ DWA TYPY DOPISANE PRZY SPRAWIE SK BANKU. Katalog powstał na sprawie MBR, gdzie
   // badano decyzję banku o ulokowaniu środków u kontrahenta — nie występował tam ani
   // deponent, ani upadłość. W powództwie deponenta przeciwko nadzorcy potwierdzenie
