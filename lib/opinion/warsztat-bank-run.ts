@@ -18,7 +18,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { przepisyAnachroniczne, przepisyNaDzien } from "@/lib/domain/prawo-bankowe";
 import { tekstZPliku } from "@/lib/intake/office";
-import { keywordWindows, pdfText } from "@/lib/intake/pdf";
+import { keywordWindows, pdfText, pdfTextStron } from "@/lib/intake/pdf";
 import {
   SYSTEM_MEDIA,
   SYSTEM_SEKTOR,
@@ -39,6 +39,10 @@ const TYPY_MEDIA = ["PRASA"];
 // pod tezę o kraju kontrahenta, co jest błędem trudnym do wychwycenia w tekście.
 const TYPY_SEKTOR = ["RAPORT_BANK_CENTRALNY"];
 const MAX_ZN_DOK = 24000;
+// Ile DOKUMENTÓW wchodzi do jednego modułu. Przed rozbiciem skanów było ich
+// kilkanaście i limit 12 nie bolał; po rozbiciu jeden skan daje kilkanaście
+// pozycji, więc ten sam limit odcinał większość akt — i robił to milcząco.
+const MAX_DOKUMENTOW = 60;
 // Ile tekstu w ogóle wyciągamy z pliku, zanim wybierzemy z niego fragmenty.
 const MAX_ZN_PLIK = 400_000;
 
@@ -103,7 +107,7 @@ export async function wykonajWarsztatBankowy(
 ): Promise<WynikWarsztatu> {
   const { data: docs } = await supabase
     .from("documents")
-    .select("rel_path,doc_type,storage_path,warstwa_tekstu")
+    .select("id,rel_path,doc_type,storage_path,warstwa_tekstu,strona_od,strona_do,plik_zrodlowy")
     .eq("case_id", id);
   const wszystkie = docs ?? [];
 
@@ -128,25 +132,98 @@ export async function wykonajWarsztatBankowy(
   // Dokumenty, z których model dostał tylko WYCINEK — do jawnego zaraportowania.
   const skrocone: string[] = [];
 
+  // Bufory plików trzymamy między dokumentami: jeden skan mieści kilkanaście
+  // dokumentów akt, więc bez tego pobieralibyśmy ten sam plik kilkanaście razy.
+  const bufory = new Map<string, ArrayBuffer | null>();
+  async function bufor(sciezka: string): Promise<ArrayBuffer | null> {
+    if (!bufory.has(sciezka)) {
+      const { data: blob } = await supabase.storage.from("case-files").download(sciezka);
+      bufory.set(sciezka, blob ? await blob.arrayBuffer() : null);
+    }
+    return bufory.get(sciezka) ?? null;
+  }
+
+  /**
+   * Plik, z którego czytamy treść dokumentu.
+   *
+   * Fragment skanu wskazuje `storage_path` ORYGINAŁU, a oryginał skanu nie ma
+   * warstwy tekstowej — czytany wprost daje zero znaków. Treść jest w bliźniaku
+   * po OCR, a numeracja stron między nimi się zgadza (sprawdzone na skanie
+   * SKM_…11470: str. 1–2 to uchwała, str. 3–6 jej załącznik, zgodnie z opisami).
+   */
+  function zrodloTekstu(d: (typeof wszystkie)[number]): string | null {
+    if (d.warstwa_tekstu !== "brak" && !d.strona_od) return d.storage_path ?? null;
+    const rodzic = wszystkie.find((x) => x.id === d.plik_zrodlowy) ?? d;
+    const rdzen = (rodzic.rel_path.split("/").pop() ?? "").replace(/\.pdf$/i, "");
+    const poOcrVariant = wszystkie.find(
+      (x) => (x.rel_path.split("/").pop() ?? "").startsWith(rdzen)
+        && x.rel_path.includes(".ocr.")
+        && x.storage_path,
+    );
+    return poOcrVariant?.storage_path ?? d.storage_path ?? null;
+  }
+
+  /** Dokumenty pominięte przez limit — nazwane wprost, bo cichy odsiew to luka dowodowa. */
+  const pominieteLimitem: string[] = [];
+
+  /**
+   * Rdzenie nazw plików ROZBITYCH na dokumenty.
+   *
+   * ⚠️ Rodzic i jego fragmenty niosą TĘ SAMĄ treść. Skan SKM_…11470 wchodził do
+   * modułu dwa razy: raz jako wariant `.ocr.pdf` (99 735 znaków ucięte do 24 000
+   * oknami wokół fraz) i drugi raz jako dwanaście kompletnych dokumentów. Podwaja
+   * to materiał i zjada budżet promptu — a wersja ucięta jest w dodatku gorsza.
+   *
+   * Wykluczamy po RDZENIU NAZWY, nie po `plik_zrodlowy`: ten wskazuje surowy skan
+   * bez warstwy tekstowej, podczas gdy dubluje treść osobny wiersz `.ocr.pdf`,
+   * który rodzicem formalnie nie jest (22 takie wiersze obok 20 rozbitych plików).
+   */
+  const rdzenieRozbite = new Set(
+    wszystkie
+      .filter((d) => d.strona_od && d.plik_zrodlowy)
+      .map((d) => wszystkie.find((x) => x.id === d.plik_zrodlowy))
+      .filter(Boolean)
+      .map((r) => (r!.rel_path.split("/").pop() ?? "").replace(/\.pdf$/i, "")),
+  );
+  const zastapionyFragmentami = (d: (typeof wszystkie)[number]) =>
+    !d.strona_od
+    && [...rdzenieRozbite].some((r) => r && (d.rel_path.split("/").pop() ?? "").startsWith(r));
+
   async function tekstyDla(typy: string[], frazy?: RegExp): Promise<{ plik: string; tekst: string }[]> {
     const wybrane = wszystkie.filter(
-      (d) => typy.includes(d.doc_type) && d.storage_path && d.warstwa_tekstu !== "brak",
+      (d) => typy.includes(d.doc_type) && d.storage_path && (d.warstwa_tekstu !== "brak" || d.strona_od)
+        && !zastapionyFragmentami(d),
     );
+    // Po rozbiciu skanów na dokumenty (migracja 0017) jeden skan daje kilkanaście
+    // pozycji, więc limit 12 odcinał większość materiału — i robił to po cichu.
+    const brane = wybrane.slice(0, MAX_DOKUMENTOW);
+    if (wybrane.length > brane.length)
+      pominieteLimitem.push(
+        `${typy.join("/")}: ${wybrane.length - brane.length} z ${wybrane.length} dokumentów poza limitem ${MAX_DOKUMENTOW}`,
+      );
     const out: { plik: string; tekst: string }[] = [];
-    for (const d of wybrane.slice(0, 12)) {
-      const { data: blob } = await supabase.storage.from("case-files").download(d.storage_path!);
-      if (!blob) continue;
+    for (const d of brane) {
+      const sciezka = zrodloTekstu(d);
+      if (!sciezka) continue;
+      const buf = await bufor(sciezka);
+      if (!buf) continue;
       const nazwa = d.rel_path.split("/").pop() ?? d.rel_path;
-      const buf = await blob.arrayBuffer();
       // .docx i .xlsx to archiwa ZIP — `blob.text()` dawał na nich binarne śmieci.
       // Przez to wypadły KWOTY LIMITÓW: 254 i 272 mln zł są w arkuszu, nie w PDF.
       //
       // ⚠️ LIMIT PODAJEMY JAWNIE. Domyślny `pdfText(buf)` czyta 6 000 znaków — dwie
       // strony. Trasa cięła dopiero na 24 000, więc wyglądało, że czyta cały plik,
       // a naprawdę brała 2% raportu banku centralnego i jedną trzecią protokołów.
-      const pelny = /\.pdf$/i.test(nazwa)
-        ? await pdfText(buf, MAX_ZN_PLIK).catch(() => "")
-        : await tekstZPliku(nazwa, buf);
+      // FRAGMENT SKANU czytamy po ZAKRESIE STRON — całą jego treść, bez okien.
+      // Wcześniej czytany był cały plik i wycinane z niego okna wokół fraz: przy
+      // skanie 99 735 znaków model dostawał 24% treści WYBRANEJ PRZEZ WYSZUKIWANIE
+      // zamiast 100% treści właściwego dokumentu. To różnica między ustaleniem
+      // „w aktach tego nie ma" a „nie doczytaliśmy do końca".
+      const pelny = d.strona_od
+        ? await pdfTextStron(buf, d.strona_od, d.strona_do ?? d.strona_od, MAX_ZN_DOK).catch(() => "")
+        : /\.pdf$/i.test(nazwa)
+          ? await pdfText(buf, MAX_ZN_PLIK).catch(() => "")
+          : await tekstZPliku(nazwa, buf);
       if (pelny.trim().length <= 200) continue;
       // Dokument dłuższy niż budżet promptu: zamiast ucinać początek (w raportach
       // to spis treści), wycinamy okna wokół fraz właściwych dla modułu.
@@ -253,6 +330,14 @@ export async function wykonajWarsztatBankowy(
         ? [
             "Dokumenty dłuższe niż budżet analizy odczytano fragmentami — wybrano fragmenty wokół fraz " +
               `właściwych dla modułu, nie początek pliku: ${skrocone.join("; ")}.`,
+          ]
+        : []),
+      // Cichy odsiew limitem jest gorszy od jawnej luki: rozdział twierdziłby, że
+      // czegoś w aktach nie ma, podczas gdy dokument istniał, tylko go nie wzięto.
+      ...(pominieteLimitem.length
+        ? [
+            "Część dokumentów nie weszła do analizy z powodu limitu liczby dokumentów na moduł — " +
+              `ustalenia negatywne tego modułu NIE obejmują całości akt: ${pominieteLimitem.join("; ")}.`,
           ]
         : []),
     ];

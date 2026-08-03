@@ -39,6 +39,19 @@ PLIK_LOGU = pathlib.Path(
 POROWNANIA = ["claude-sonnet-5", "claude-haiku-4-5"]
 
 
+def _czas(s: str) -> dt.datetime:
+    """Znacznik czasu z logu — obie postacie, jakie zapisują nasze wrappery.
+
+    ⚠️ TS zapisuje `Date.toISOString()`, czyli sufiks „Z"; Python zapisuje
+    `datetime.isoformat()`, czyli „+00:00". `fromisoformat` do wersji 3.10 nie
+    przyjmuje „Z" i rzuca ValueError — a pętla czytająca log łapała wyjątek i szła
+    dalej. Skutek: raport MILCZĄCO pomijał WSZYSTKIE wywołania z aplikacji i skryptów
+    TypeScriptowych. Przy pierwszym pełnym przebiegu SKOK gubił 16 z 30 wpisów,
+    czyli 2,87 z 3,77 USD — pokazywał jedną czwartą rachunku jako całość.
+    """
+    return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
 def _wczytaj_plik(od: dt.datetime) -> list[dict]:
     if not PLIK_LOGU.exists():
         return []
@@ -48,7 +61,7 @@ def _wczytaj_plik(od: dt.datetime) -> list[dict]:
             continue
         try:
             w = json.loads(linia)
-            if dt.datetime.fromisoformat(w["czas"]) >= od:
+            if _czas(w["czas"]) >= od:
                 out.append(w)
         except Exception:
             continue  # uszkodzona linia nie ma wywalać raportu z reszty

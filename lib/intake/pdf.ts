@@ -2,11 +2,56 @@
 // Używane przez trasy wyciągające dane ze źródeł w aktach (ESPI, KRS, sprawozdania).
 import { extractText, getDocumentProxy } from "unpdf";
 
+/**
+ * Kopia bajtów pod pdf.js.
+ *
+ * ⚠️ pdf.js PRZEJMUJE bufor na własność i po odczycie zostaje on ODŁĄCZONY
+ * (detached) — druga próba użycia tego samego `ArrayBuffer` rzuca
+ * „Cannot perform Construct on a detached ArrayBuffer". Boli dopiero wtedy, gdy
+ * z jednego pliku czyta się kilka razy: skan mieszczący dwanaście dokumentów akt
+ * wymaga dwunastu odczytów zakresów stron. Funkcja biblioteczna nie ma prawa
+ * niszczyć swojego wejścia, więc kopiujemy tutaj, raz, u źródła.
+ */
+const kopia = (bytes: ArrayBuffer | Uint8Array): Uint8Array =>
+  new Uint8Array(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+
 export async function pdfText(bytes: ArrayBuffer | Uint8Array, maxChars = 6000): Promise<string> {
-  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const data = kopia(bytes);
   const pdf = await getDocumentProxy(data);
   const { text } = await extractText(pdf, { mergePages: true });
   return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
+}
+
+/**
+ * Tekst WYBRANEGO ZAKRESU STRON — dla dokumentów będących fragmentem skanu.
+ *
+ * ⚠️ POWÓD: skaner produkuje pliki, a nie dokumenty. Jeden `SKM_…11470.pdf` liczy
+ * 54 strony i mieści dwanaście odrębnych dokumentów akt (migracja 0017 nadała im
+ * własne wiersze z `strona_od`/`strona_do`, wskazujące ten sam plik). Czytanie
+ * całego pliku i wycinanie okien wokół fraz dawało modelowi 24% treści wybranej
+ * przez wyszukiwanie zamiast 100% treści właściwego dokumentu — a to różnica
+ * między „w aktach tego nie ma" a „nie doczytaliśmy".
+ *
+ * Strony liczone od 1, zakres domknięty obustronnie (jak w `strona_od`/`strona_do`).
+ */
+export async function pdfTextStron(
+  bytes: ArrayBuffer | Uint8Array,
+  od: number,
+  do_: number,
+  maxChars = 60_000,
+): Promise<string> {
+  const data = kopia(bytes);
+  const pdf = await getDocumentProxy(data);
+  const { text } = await extractText(pdf, { mergePages: false });
+  const strony = Array.isArray(text) ? text : [text];
+  // Zakres spoza pliku daje pustkę, a nie wyjątek: wiersz z błędnym zakresem ma
+  // zniknąć z materiału jako brak treści, a nie wywalić cały Krok 4.
+  return strony
+    .slice(Math.max(0, od - 1), Math.min(strony.length, do_))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars);
 }
 
 // Okna tekstu wokół trafień wzorca — do długich dokumentów (sprawozdania fin.),
@@ -33,7 +78,7 @@ export function keywordWindows(text: string, pattern: RegExp, radius = 700, maxC
 // znaki do pojedynczych spacji, przez co nagłówki „IV.4. Wash trades" przestają być
 // rozpoznawalne jako osobne wiersze. Tu normalizujemy spacje TYLKO wewnątrz linii.
 export async function pdfLines(bytes: ArrayBuffer | Uint8Array, maxChars = 900_000): Promise<string> {
-  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const data = kopia(bytes);
   const pdf = await getDocumentProxy(data);
   const { text } = await extractText(pdf, { mergePages: true });
   return text

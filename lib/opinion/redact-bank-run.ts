@@ -100,7 +100,13 @@ async function jedenRozdzial(
   const msg = await klientLLM("redakcja-bank/proza", { sprawa: id }).messages.create({
     model: "claude-opus-4-8",
     // 6–12 akapitów gęstej analizy z omówieniem tabeli okres po okresie.
-    max_tokens: 5500,
+    //
+    // ⚠️ CHRONOLOGIA I RUBRYKA DOSTAJĄ WIĘCEJ. Chronologia nadzorcza w sprawie
+    // SK Banku ma 133 wiersze tabel (działania nadzoru + wskaźniki w ośmiu okresach),
+    // a rubryka — 16 wskaźników z rejestrem braków. Przy 5500 odpowiedź urywała się
+    // w połowie i CAŁY rozdział był odrzucany jako niekompletny: płaciliśmy pełną
+    // stawkę za 11 098 znaków, które nie trafiały do opinii.
+    max_tokens: kind === "chronologia_nadzoru" ? 14000 : kind === "analiza_ekonomiczna" ? 9000 : 5500,
     system: [p.system, wiedza, wzorzec, styl].filter(Boolean).join("\n\n"),
     messages: [{ role: "user", content: p.user }],
   });
