@@ -13,9 +13,52 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IvRedactKind } from "@/lib/opinion/redact";
 
-/** Ile fragmentów trafia do promptu i jak długi może być każdy. */
-const MAX_FRAGMENTOW = 4;
-const MAX_ZN_FRAGMENTU = 1400;
+/**
+ * Ile fragmentów doktryny trafia do promptu i jak długi może być każdy.
+ *
+ * ⚠️ BUDŻET JEST PER ROZDZIAŁ, NIE GLOBALNY. Rozdział o technice manipulacji
+ * potrzebuje czterech cytatów — definicji techniki i jej przesłanek. Rozdział
+ * o otoczeniu prawnym jest przeglądem CAŁEGO reżimu ostrożnościowego i przy tych
+ * samych czterech dawał 5 665 znaków, podczas gdy wzorzec (opinia MBR, rozdz. L)
+ * ma 47 347. Materiału nie brakowało: pasujących fragmentów było 412, do promptu
+ * szły cztery.
+ *
+ * Podniesienie limitu GLOBALNIE rozdęłoby prompty spraw manipulacyjnych, które
+ * toczą się w sądzie i mają dostrojone rozdziały — a przy okazji podniosłoby ich
+ * koszt. Dlatego wyjątek jest imienny.
+ *
+ * `naZrodlo` chroni przed monokulturą: bez niego jedna monografia mogłaby obsadzić
+ * cały rozdział, co w opinii sądowej wygląda jak streszczenie jednej książki
+ * zamiast przeglądu piśmiennictwa.
+ */
+/**
+ * `przegladowy` zmienia ROLĘ materiału referencyjnego w prompcie: w rozdziale
+ * przeglądowym doktryna jest treścią wykładu, a nie przypisem kontrolnym.
+ *
+ * ⚠️ ZMIERZONY EFEKT: ŻADEN. Po podniesieniu budżetu z 4 na 24 fragmenty rozdział
+ * urósł z 5 665 na ~10 100 znaków; dodanie tej flagi nie zmieniło ani długości, ani
+ * doboru cytatów. Zostaje, bo instrukcja jest merytorycznie poprawna, ale NIE JEST
+ * dźwignią — kto będzie szukał dalszego wzrostu, niech nie zaczyna stąd.
+ *
+ * Właściwe ograniczenia ustalone pomiarem, w kolejności wagi:
+ * 1. Do budżetu wchodzą prawie wyłącznie AKTY PRAWNE (ranga 5), bo sortowanie po
+ *    randze wypycha monografie (ranga 3). Bloki 2–3 wzorca MBR — teoria Bazylei II,
+ *    proces zarządzania ryzykiem, rola komitetu ALCO — stoją właśnie na monografiach,
+ *    więc przy obecnym sortowaniu nie mają jak powstać.
+ * 2. Teksty aktów w repozytorium są w wersji SKONSOLIDOWANEJ NA DZIŚ (fragment CRR
+ *    nosi nagłówek „02013R0575 — PL — 09.07.2024"), a opinia ocenia stan na
+ *    2015-03-16. Do rozdziału o stanie prawnym w dacie zdarzenia to materiał
+ *    anachroniczny i wymaga wersji na tamten dzień.
+ */
+type Budzet = { fragmentow: number; znakow: number; naZrodlo: number; przegladowy?: boolean };
+const BUDZET_DOMYSLNY: Budzet = { fragmentow: 4, znakow: 1400, naZrodlo: 2 };
+const BUDZET: Record<string, Budzet> = {
+  // Przegląd reżimu prawnego: ustrój sektora, ramy ostrożnościowe, teoria ryzyka.
+  otoczenie_prawne: { fragmentow: 24, znakow: 2200, naZrodlo: 6, przegladowy: true },
+  // Wstęp teoretyczny — ta sama rola przeglądowa, rozdział III.
+  proza_iii: { fragmentow: 16, znakow: 2000, naZrodlo: 5, przegladowy: true },
+};
+const budzetDla = (rodzaj: string): Budzet => BUDZET[rodzaj] ?? BUDZET_DOMYSLNY;
 
 /**
  * PROFIL DOKTRYNY — jakich tagów szukać dla danego rozdziału, w kolejności trafności.
@@ -111,6 +154,7 @@ type Fragment = {
 function wybierz<T extends { techniki: string[]; tresc?: string; wiedza_zrodla: Fragment["wiedza_zrodla"] }>(
   rows: T[],
   tagi: string[],
+  budzet: Budzet = BUDZET_DOMYSLNY,
 ): T[] {
   const trafnosc = (f: T) => {
     const idx = f.techniki.map((t) => tagi.indexOf(t)).filter((i) => i >= 0);
@@ -126,10 +170,10 @@ function wybierz<T extends { techniki: string[]; tresc?: string; wiedza_zrodla: 
   const wybrane: T[] = [];
   for (const f of posortowane) {
     const klucz = f.wiedza_zrodla?.tytul ?? "?";
-    if ((zeZrodla.get(klucz) ?? 0) >= 2) continue;
+    if ((zeZrodla.get(klucz) ?? 0) >= budzet.naZrodlo) continue;
     zeZrodla.set(klucz, (zeZrodla.get(klucz) ?? 0) + 1);
     wybrane.push(f);
-    if (wybrane.length >= MAX_FRAGMENTOW) break;
+    if (wybrane.length >= budzet.fragmentow) break;
   }
   return wybrane;
 }
@@ -190,6 +234,7 @@ export async function buildWiedzaBlock(
   typSprawy?: string | null,
 ): Promise<string | null> {
   const bankowa = typSprawy === "ryzyko_bankowe";
+  const budzet = budzetDla(rodzaj);
   const tagi = bankowa
     ? PROFIL_BANK[rodzaj] ?? [rodzaj, "ogolne_bank"]
     : PROFIL[rodzaj as RodzajRozdzialu] ?? [rodzaj, "ogolne"];
@@ -218,7 +263,7 @@ export async function buildWiedzaBlock(
     const meta = (data ?? []) as unknown as (Fragment & { id: string })[];
     if (!meta.length) return null;
 
-    const idy = wybierz(meta, tagi).map((m) => m.id);
+    const idy = wybierz(meta, tagi, budzet).map((m) => m.id);
     if (!idy.length) return null;
 
     const { data: pelne, error: e2 } = await supabase
@@ -234,8 +279,8 @@ export async function buildWiedzaBlock(
 
   if (!rows.length) return null;
 
-  const bloki = wybierz(rows, tagi).map((f) => {
-    const t = f.tresc.length > MAX_ZN_FRAGMENTU ? `${f.tresc.slice(0, MAX_ZN_FRAGMENTU)}…` : f.tresc;
+  const bloki = wybierz(rows, tagi, budzet).map((f) => {
+    const t = f.tresc.length > budzet.znakow ? `${f.tresc.slice(0, budzet.znakow)}…` : f.tresc;
     return `[${cytat(f)}]\n${t}`;
   });
 
@@ -243,7 +288,11 @@ export async function buildWiedzaBlock(
     "## MATERIAŁ REFERENCYJNY (doktryna i przepisy)",
     "",
     "Poniższe fragmenty pochodzą z literatury przedmiotu i materiałów organu nadzoru.",
-    "Służą WYŁĄCZNIE do poprawnego ujęcia definicji, przesłanek i kwalifikacji prawnej techniki.",
+    budzet.przegladowy
+      ? "STANOWIĄ TREŚĆ TEGO ROZDZIAŁU. Rozdział przeglądowy referuje reżim prawny i standard "
+        + "postępowania, więc doktryna nie jest tu przypisem kontrolnym, lecz materiałem "
+        + "wykładu — omów ją, a nie tylko sprawdź się z nią."
+      : "Służą WYŁĄCZNIE do poprawnego ujęcia definicji, przesłanek i kwalifikacji prawnej techniki.",
     "",
     "ZASADY UŻYCIA — bezwzględne:",
     "1. NIE są materiałem dowodowym w tej sprawie. Stany faktyczne opisane w literaturze",

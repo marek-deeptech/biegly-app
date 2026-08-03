@@ -106,7 +106,14 @@ async function jedenRozdzial(
     // a rubryka — 16 wskaźników z rejestrem braków. Przy 5500 odpowiedź urywała się
     // w połowie i CAŁY rozdział był odrzucany jako niekompletny: płaciliśmy pełną
     // stawkę za 11 098 znaków, które nie trafiały do opinii.
-    max_tokens: kind === "chronologia_nadzoru" ? 14000 : kind === "analiza_ekonomiczna" ? 9000 : 5500,
+    max_tokens:
+      kind === "chronologia_nadzoru" ? 14000
+      // Otoczenie prawne to PRZEGLĄD reżimu: ustrój sektora, ramy ostrożnościowe,
+      // teoria ryzyka i dopiero na końcu ocena praktyki. We wzorcu MBR ma 47 347
+      // znaków — przy 5500 tokenach (~15 tys. znaków) nie ma go gdzie zmieścić.
+      : kind === "otoczenie_prawne" ? 16000
+      : kind === "analiza_ekonomiczna" ? 9000
+      : 5500,
     system: [p.system, wiedza, wzorzec, styl].filter(Boolean).join("\n\n"),
     messages: [{ role: "user", content: p.user }],
   });

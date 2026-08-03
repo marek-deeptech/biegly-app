@@ -100,8 +100,25 @@ export const CEL: Record<BankRedactKind, string> = {
     "decydował, co zgłaszały jednostki ryzyka i audyt. Referuj ustalenia dokumentów; ocena prawidłowości " +
     "procesu należy do rozdziału o otoczeniu prawnym i do wniosków.",
   otoczenie_prawne:
-    "Przepisy obowiązujące W DACIE ZDARZENIA oraz wymagane standardy identyfikacji i oceny ryzyka " +
-    "kredytowego. To jest miejsce na zestawienie praktyki banku z wymogiem prawnym.",
+    "Przepisy obowiązujące W DACIE ZDARZENIA oraz wymagane standardy identyfikacji i oceny " +
+    "ryzyka kredytowego. Rozdział jest PRZEGLĄDEM REŻIMU PRAWNEGO, nie listą powołanych " +
+    "artykułów, i ma pięć następujących po sobie części. " +
+    "(1) USTRÓJ SEKTORA: podstawa prawna działania badanego rodzaju banku, definicje " +
+    "ustawowe i wynikające z nich obowiązki — kto kogo zrzesza, kto kogo kontroluje i na " +
+    "jakiej podstawie. " +
+    "(2) RAMY OSTROŻNOŚCIOWE obowiązujące w dacie zdarzenia: wymogi kapitałowe, ich źródło " +
+    "unijne i sposób przeniesienia do prawa krajowego, wraz z DATAMI wejścia w życie. " +
+    "(3) STANDARD IDENTYFIKACJI RYZYKA: czym jest ryzyko kredytowe, na czym polega proces " +
+    "zarządzania nim i jakie organy banku za co odpowiadają — z materiału referencyjnego. " +
+    "(4) ODNIESIENIE DO TEJ SPRAWY: które z powyższych wymogów są właściwe dla ocenianego " +
+    "zachowania i dlaczego akurat te. " +
+    "(5) ZESTAWIENIE PRAKTYKI Z WYMOGIEM: co dokumenty z akt pokazują o faktycznym " +
+    "postępowaniu, wobec ustalonego wyżej wzorca. " +
+    "Części 1–3 opierają się na MATERIALE REFERENCYJNYM i przepisach, nie na aktach — brak " +
+    "dokumentów w sprawie NIE jest powodem, by je skrócić. Część 5 przeciwnie: wyłącznie " +
+    "z akt, z powołaniem numeru karty. " +
+    "Każdy przepis powołuj z DATĄ obowiązywania i nie przytaczaj przepisów późniejszych " +
+    "niż zdarzenie. Nie rozstrzygaj, czy doszło do naruszenia — to należy do wniosków.",
 };
 
 export type BankRedactInput = {
