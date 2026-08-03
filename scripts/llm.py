@@ -28,14 +28,16 @@ import hashlib
 import json
 import os
 import pathlib
-import tempfile
 import time
 import urllib.request
 
 import llm_cennik
 
+# ⚠️ NIE W TMPDIR. Pierwsza wersja trzymała cache w katalogu tymczasowym i system
+# go wyczyścił — razem z jedenastoma opłaconymi odczytami ocen kwartalnych, za które
+# trzeba było zapłacić drugi raz. Cache ma przeżyć restart maszyny, bo po to jest.
 KATALOG_CACHE = pathlib.Path(
-    os.environ.get("BIEGLY_LLM_CACHE") or (pathlib.Path(tempfile.gettempdir()) / "biegly-llm-cache")
+    os.environ.get("BIEGLY_LLM_CACHE") or (pathlib.Path.home() / ".biegly-llm" / "cache")
 )
 PLIK_LOGU = pathlib.Path(
     os.environ.get("BIEGLY_LLM_LOG") or (pathlib.Path.home() / ".biegly-llm" / "uzycie.jsonl")

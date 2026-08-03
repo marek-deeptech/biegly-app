@@ -53,7 +53,9 @@ export type Wymog = {
 };
 
 // Etykiety technik — spójne z lib/opinion/chapters.ts (IV_TITLE).
-const TECH_LABEL: Record<string, string> = {
+// Eksportowane, bo tests-ts/rejestry-modulow.test.ts pilnuje, żeby każdy moduł
+// rozdziału V miał tu etykietę — inaczej kompletność pokazuje surowy klucz.
+export const TECH_LABEL: Record<string, string> = {
   wash: "Wash trades",
   layering: "Layering & spoofing",
   imo: "Improper matched orders",
@@ -74,6 +76,7 @@ const TECH_LABEL: Record<string, string> = {
   ekspozycja_sektor: "Skala sektora bankowego wobec gospodarki",
   sprawozdania: "Analiza sprawozdań finansowych kontrahenta",
   analiza_ekonomiczna: "Analiza ekonomiczno-finansowa banku (rubryka 16 wskaźników)",
+  oceny_zrzeszajacego: "Oceny banku zrzeszającego wystawione bankowi spółdzielczemu",
   adekwatnosc: "Współczynniki kapitałowe w czasie",
   chronologia_nadzoru: "Chronologia nadzorcza i wskaźniki banku w czasie",
   limity: "Metodyka limitów i koncentracja zaangażowania",

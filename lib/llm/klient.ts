@@ -57,8 +57,11 @@ export type WpisZuzycia = {
   stop_reason: string | null;
 };
 
+// ⚠️ NIE W TMPDIR. Pierwsza wersja trzymała cache w katalogu tymczasowym i system
+// go wyczyścił — razem z jedenastoma opłaconymi odczytami, za które trzeba było
+// zapłacić drugi raz. Cache ma przeżyć restart maszyny, bo po to jest.
 const KATALOG_CACHE = () =>
-  process.env.BIEGLY_LLM_CACHE ?? path.join(os.tmpdir(), "biegly-llm-cache");
+  process.env.BIEGLY_LLM_CACHE ?? path.join(os.homedir(), ".biegly-llm", "cache");
 
 const PLIK_LOGU = () =>
   process.env.BIEGLY_LLM_LOG ?? path.join(os.homedir(), ".biegly-llm", "uzycie.jsonl");

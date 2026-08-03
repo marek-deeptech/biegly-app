@@ -1838,6 +1838,7 @@ export function buildWnioskiSubanaliza(
 
 const SUB_LABEL: Record<string, string> = {
   analiza_ekonomiczna: "Analiza ekonomiczno-finansowa banku",
+  oceny_zrzeszajacego: "Oceny banku zrzeszającego",
   ekofin: "ekonomiczno-finansowa i otoczenie",
   espi: "raporty ESPI/EBI",
   aktywnosc: "aktywność Grupy (silnik faktów)",

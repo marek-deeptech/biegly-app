@@ -118,13 +118,15 @@ def tekst_zakresu(pdf: pathlib.Path, od: int, do: int) -> str:
 # odczytów już opłaconych, a przebudowa klucza kazałaby zapłacić za nie ponownie.
 # Wspólny cache z llm.py jest tu WYŁĄCZONY (cache=False) — ta warstwa trzyma wynik
 # po sparsowaniu, czyli taniej, a dublowanie obu nic by nie dało.
-CACHE = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / "biegly_oceny_cache"
+# ⚠️ NIE W TMPDIR — patrz wyżej. Pierwotna wersja trzymała ten cache w katalogu
+# tymczasowym; system go wyczyścił i jedenaście opłaconych odczytów przepadło.
+CACHE = pathlib.Path.home() / ".biegly-llm" / "oceny"
 
 
 def odczytaj(tytul: str, tresc: str) -> dict | None:
     import hashlib
 
-    CACHE.mkdir(exist_ok=True)
+    CACHE.mkdir(parents=True, exist_ok=True)
     klucz = CACHE / (hashlib.sha256((tytul + tresc).encode()).hexdigest()[:32] + ".json")
     if klucz.exists():
         return json.loads(klucz.read_text(encoding="utf8"))
@@ -148,6 +150,96 @@ def odczytaj(tytul: str, tresc: str) -> dict | None:
 
 
 OBSZARY = ["adekwatnosc", "jakosc_aktywow", "efektywnosc", "plynnosc"]
+
+
+def do_rozdzialu(wyniki: list[dict]) -> tuple[dict, list[str]]:
+    """Przekłada odczyty na kształt, który rozdział opinii potrafi wyświetlić.
+
+    Rozdział czyta z subanalizy WYŁĄCZNIE `table` i `findings` (chapterFromStored
+    w lib/opinion/build.ts). Kształt dziedzinowy (`oceny`) widzi tylko panel Analizy,
+    więc bez tego przełożenia rozdział renderuje się pusty mimo zapisanych danych.
+
+    Ustalenia budujemy TU, a nie w modelu: zmiana oceny i luka w ciągu kwartałów to
+    fakty wprost z odczytu, a nie interpretacja.
+    """
+    z_ocena = [o for o in wyniki if o.get("globalna") is not None]
+
+    tabela = {
+        "caption": "Tabela. Oceny sytuacji ekonomiczno-finansowej wystawione przez bank zrzeszający",
+        "head": ["Stan na dzień", "Karta akt", *[ETYKIETY[o] for o in OBSZARY], "Ocena globalna"],
+        "rows": [
+            [
+                str(o.get("dzien") or "—"),
+                f"k. {o['karta']}" if o.get("karta") else "—",
+                *[("—" if (o.get("oceny") or {}).get(k) is None
+                   else str((o.get("oceny") or {})[k])) for k in OBSZARY],
+                "—" if o.get("globalna") is None else str(o["globalna"]),
+            ]
+            for o in wyniki
+        ],
+    }
+
+    ustalenia: list[str] = []
+    if not z_ocena:
+        ustalenia.append(
+            "W aktach nie odnaleziono oceny sytuacji ekonomiczno-finansowej wystawionej przez "
+            "bank zrzeszający, która zawierałaby ocenę globalną."
+        )
+        return tabela, ustalenia
+
+    ustalenia.append(
+        f"W aktach znajduje się {len(z_ocena)} ocen sytuacji ekonomiczno-finansowej wystawionych "
+        f"przez bank zrzeszający, za okresy od {z_ocena[0]['dzien']} do {z_ocena[-1]['dzien']}. "
+        f"Skala jest odwrócona: 1 oznacza sytuację bardzo dobrą, 5 — zagrożenie funkcjonowania banku."
+    )
+
+    # Zmiany ocen — kwartał, w którym zrzeszający sam odnotował pogorszenie, jest
+    # mocniejszym dowodem stanu jego wiedzy niż jakikolwiek wskaźnik policzony wstecz.
+    #
+    # Etykiety w BIERNIKU („pogorszył ocenę globalną”, nie „pogorszył ocena globalna”).
+    # Mianownik z ETYKIETY dawał zdanie niegramatyczne, a ten tekst trafia do akt sądowych.
+    BIERNIK = {
+        "globalna": "ocenę globalną",
+        "adekwatnosc": "adekwatność kapitałów",
+        "jakosc_aktywow": "jakość aktywów",
+        "efektywnosc": "efektywność działania",
+        "plynnosc": "płynność finansową",
+    }
+    for pole, etykieta in [("globalna", BIERNIK["globalna"]), *[(k, BIERNIK[k]) for k in OBSZARY]]:
+        def wart(o: dict):
+            return o.get("globalna") if pole == "globalna" else (o.get("oceny") or {}).get(pole)
+        poprz = None
+        for o in z_ocena:
+            teraz = wart(o)
+            if teraz is None:
+                continue
+            if poprz is not None and teraz != poprz[1]:
+                kier = "pogorszył" if teraz > poprz[1] else "poprawił"
+                ustalenia.append(
+                    f"Bank zrzeszający {kier} {etykieta} z {poprz[1]} na {teraz} w ocenie na dzień "
+                    f"{o['dzien']}"
+                    + (f" (k. {o['karta']})" if o.get("karta") else "")
+                    + f"; poprzednia ocena tej pozycji pochodziła z {poprz[0]}."
+                )
+            poprz = (o["dzien"], teraz)
+
+    # Luka w ciągu ocen jest ustaleniem dowodowym: milczenie o niej czyta się jak
+    # twierdzenie, że ocena była.
+    ostatnia = z_ocena[-1]["dzien"]
+    ustalenia.append(
+        f"Ostatnia ocena banku zrzeszającego znajdująca się w aktach dotyczy stanu na dzień "
+        f"{ostatnia}. Za okresy późniejsze akta nie zawierają ocen tego rodzaju — ustalenie "
+        f"to ma charakter negatywny i wyznacza granicę materiału, na którym można oprzeć wniosek "
+        f"o stanie wiedzy banku zrzeszającego."
+    )
+    bez_oceny = [o for o in wyniki if o.get("globalna") is None]
+    if bez_oceny:
+        dni = ", ".join(str(o.get("dzien") or "bez daty") for o in bez_oceny)
+        ustalenia.append(
+            f"Dokumenty za okresy {dni} odczytano, lecz nie zawierają one ocen punktowych "
+            f"w rubryce — nie są ocenami w rozumieniu uchwały nr 12/14/AB/BS/2002."
+        )
+    return tabela, ustalenia
 ETYKIETY = {
     "adekwatnosc": "Adekwatność kapitałów",
     "jakosc_aktywow": "Jakość aktywów",
@@ -256,8 +348,15 @@ def main() -> int:
         for u in uwagi:
             print("   " + u)
 
+    tabela, ustalenia = do_rozdzialu(wyniki)
     dane = {
         "oceny": wyniki,
+        # ⚠️ `table` i `findings` MUSZĄ TU BYĆ. Rozdział opinii czyta wyłącznie te dwa
+        # klucze (chapterFromStored w lib/opinion/build.ts) — surowe `oceny` widzi tylko
+        # panel Analizy. Pierwsza wersja zapisywała sam kształt dziedzinowy i skrypt
+        # meldował „✓ zapisano", podczas gdy rozdział renderował się PUSTY.
+        "table": tabela,
+        "findings": ustalenia,
         "uwagi": uwagi,
         "skala": "1 = sytuacja bardzo dobra, 5 = zagrożenie funkcjonowania banku (skala odwrócona)",
         "podstawa": "Uchwała nr 12/14/AB/BS/2002 Zarządu Banku BPS S.A. — zasady monitorowania "

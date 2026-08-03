@@ -35,6 +35,7 @@ export type BankModul =
   | "chronologia_nadzoru"
   | "sprawozdania"
   | "analiza_ekonomiczna"
+  | "oceny_zrzeszajacego"
   | "adekwatnosc"
   | "limity"
   | "procedury"

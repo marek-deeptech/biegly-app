@@ -15,8 +15,14 @@ import { blokTrybu } from "@/lib/domain/tryb";
 
 import type { StoredSub, SubResult } from "./build";
 
-/** Moduły w kolejności, w jakiej ich ustalenia wchodzą do rejestru. */
-const ZRODLA: { kind: string; etykieta: string }[] = [
+/**
+ * Moduły w kolejności, w jakiej ich ustalenia wchodzą do rejestru.
+ *
+ * Eksportowane, bo brak modułu w tej liście czyni go dla wniosków NIEWIDZIALNYM —
+ * nie wnosi ustaleń i nie trafia nawet na listę niewykonanych. Pilnuje tego
+ * tests-ts/rejestry-modulow.test.ts.
+ */
+export const ZRODLA: { kind: string; etykieta: string }[] = [
   { kind: "makro", etykieta: "Otoczenie makroekonomiczne" },
   { kind: "media", etykieta: "Publikacje prasowe" },
   { kind: "ekspozycja_sektor", etykieta: "Skala sektora bankowego" },
@@ -24,6 +30,13 @@ const ZRODLA: { kind: string; etykieta: string }[] = [
   { kind: "sprawozdania", etykieta: "Sprawozdania finansowe kontrahenta" },
   { kind: "chronologia_nadzoru", etykieta: "Chronologia nadzorcza" },
   { kind: "wskazniki_bank", etykieta: "Współczynniki kapitałowe" },
+  // ⚠️ BRAKOWAŁO GO TU. Moduł nieobecny w ZRODLA nie tylko nie wnosi ustaleń do
+  // rejestru — nie trafia nawet na listę `nieWykonane`, więc dla wniosków jest
+  // niewidzialny. Akurat rubryka jest jedynym modułem prowadzącym rejestr `braki`
+  // (pozycje sprawozdawcze, których w aktach nie ma), a to rejestr wyznaczający
+  // granicę tego, co da się z materiału udowodnić. Wnioski powstawały bez niego.
+  { kind: "analiza_ekonomiczna", etykieta: "Analiza ekonomiczno-finansowa (rubryka)" },
+  { kind: "oceny_zrzeszajacego", etykieta: "Oceny banku zrzeszającego" },
   { kind: "limity", etykieta: "Metodyka limitów" },
   { kind: "procedury", etykieta: "Proces decyzyjny" },
   { kind: "otoczenie_prawne", etykieta: "Otoczenie prawne" },

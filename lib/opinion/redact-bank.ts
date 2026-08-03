@@ -22,14 +22,20 @@ export const BANK_REDACT_KINDS = [
   "chronologia_nadzoru",
   "wskazniki_bank",
   "analiza_ekonomiczna",
+  "oceny_zrzeszajacego",
   "limity",
   "procedury",
   "otoczenie_prawne",
 ] as const;
 export type BankRedactKind = (typeof BANK_REDACT_KINDS)[number];
 
-/** Cel rozdziału — co ma rozstrzygnąć, a czego nie wolno mu przesądzać. */
-const CEL: Record<BankRedactKind, string> = {
+/**
+ * Cel rozdziału — co ma rozstrzygnąć, a czego nie wolno mu przesądzać.
+ *
+ * Eksportowany dla tests-ts/rejestry-modulow.test.ts: moduł bez celu to rozdział,
+ * który model redaguje, nie wiedząc, co ma ustalić.
+ */
+export const CEL: Record<BankRedactKind, string> = {
   makro:
     "Otoczenie makroekonomiczne kraju kontrahenta w okresie poprzedzającym zdarzenie: inflacja, kursy " +
     "walutowe, stopy procentowe. Rozdział ustala, JAKIE SYGNAŁY BYŁY PUBLICZNIE DOSTĘPNE w dniu decyzji — " +
@@ -60,6 +66,19 @@ const CEL: Record<BankRedactKind, string> = {
     "Nie wystawiaj oceny cząstkowej ani globalnej tam, gdzie silnik jej nie policzył: dokument podaje " +
     "przedziały punktowe tylko dla jednego wskaźnika, a punktacja bez przedziałów byłaby zmyśleniem. " +
     "Nie rozstrzygaj, czy oceniający dopełnił obowiązku — to należy do wniosków.",
+  oceny_zrzeszajacego:
+    "Oceny, jakie bank zrzeszający WYSTAWIŁ bankowi spółdzielczemu w kolejnych kwartałach — oceny " +
+    "cząstkowe per obszar i ocena globalna, przytaczane ZA DOKUMENTEM wraz z datą i numerem karty. " +
+    "To rozdział o STANIE WIEDZY ZRZESZAJĄCEGO, a nie o kondycji banku: mówi, co zrzeszający sam " +
+    "napisał i kiedy. Rozdział ma trzy części. PIERWSZA: przebieg ocen w czasie — gdzie i kiedy " +
+    "ocena się zmieniła. DRUGA: zestawienie ocen ze wskaźnikami policzonymi przez silnik za te same " +
+    "okresy — czy ocena nadążała za danymi, czy się od nich oderwała. TRZECIA, równie istotna: " +
+    "OKRESY BEZ OCENY. Kwartał, za który oceny w aktach nie ma, jest ustaleniem dowodowym i musi " +
+    "zostać nazwany wprost z podaniem, których okresów dotyczy — milczenie o luce czyta się jak " +
+    "twierdzenie, że ocena była. " +
+    "Skala jest ODWRÓCONA: 1 oznacza sytuację bardzo dobrą, 5 zagrożenie funkcjonowania banku. " +
+    "Nie rozstrzygaj, czy zrzeszający ocenił bank prawidłowo ani czy zareagował w porę — to należy " +
+    "do wniosków.",
   chronologia_nadzoru:
     "Oś czasu: co wskaźniki banku pokazywały w kolejnych okresach i jakie działania podejmował nadzór. " +
     "Rozdział odpowiada na pytanie OD KIEDY dane pozwalały rozpoznać pogorszenie — nie na pytanie, jaki był " +

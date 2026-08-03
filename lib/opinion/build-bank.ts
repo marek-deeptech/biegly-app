@@ -46,9 +46,14 @@ export const MODULY_V: { kind: string; litera: string; tytul: string }[] = [
   // maskowała, więc błąd przeżył do trzeciej sprawy.
   { kind: "wskazniki_bank", litera: "G", tytul: "Współczynniki kapitałowe i sytuacja finansowa w czasie" },
   { kind: "analiza_ekonomiczna", litera: "H", tytul: "Analiza ekonomiczno-finansowa banku" },
-  { kind: "limity", litera: "I", tytul: "Metodyka limitów i koncentracja zaangażowania" },
-  { kind: "procedury", litera: "J", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },
-  { kind: "otoczenie_prawne", litera: "K", tytul: "Otoczenie prawne i standardy identyfikacji ryzyka" },
+  // Bezpośrednio po rubryce, bo to jej druga strona: H odtwarza metodykę, którą
+  // zrzeszający BYŁ ZOBOWIĄZANY stosować, I pokazuje, jak ją faktycznie zastosował.
+  // Rozdzielenie tych dwóch rzeczy jest istotą pytania o stan wiedzy zrzeszającego.
+  { kind: "oceny_zrzeszajacego", litera: "I",
+    tytul: "Oceny banku zrzeszającego wystawione bankowi spółdzielczemu" },
+  { kind: "limity", litera: "J", tytul: "Metodyka limitów i koncentracja zaangażowania" },
+  { kind: "procedury", litera: "K", tytul: "Proces decyzyjny i dokumenty wewnętrzne" },
+  { kind: "otoczenie_prawne", litera: "L", tytul: "Otoczenie prawne i standardy identyfikacji ryzyka" },
 ];
 
 /**
@@ -110,14 +115,13 @@ export function buildOpinionBank(
 
   // ── V. ANALIZA — moduły obecne w aktach, ponumerowane literami jak we wzorcu ──
   const moduly: Chapter[] = [];
-  let i = 0;
   for (const m of MODULY_V) {
     const s = byKind.get(m.kind);
     if (!s) continue;
     // Litera i tak jest przeliczana niżej — bierzemy własną literę modułu, a nie
-    // `MODULY_V[i]`, bo `i` liczy ZNALEZIONE moduły i wskazywało cudzy wpis.
+    // `MODULY_V[i]`, bo licznik ZNALEZIONYCH modułów wskazywał cudzy wpis. Licznik
+    // został po tamtej wersji i nikt go już nie czytał.
     moduly.push(chapterFromStored(s, `V.${m.litera}`, tytulModulu(m, caseRow.rola)));
-    i++;
   }
   // Renumeracja liter po odsianiu nieobecnych modułów — inaczej opinia miałaby
   // A, C, F zamiast A, B, C.

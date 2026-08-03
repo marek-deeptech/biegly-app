@@ -186,6 +186,17 @@ const BANK: DomainPack = {
         "to on wyznacza granicę tego, co da się z materiału udowodnić.",
     },
     {
+      id: "oceny_zrzeszajacego",
+      tytul: "Oceny banku zrzeszającego wystawione bankowi spółdzielczemu",
+      opis:
+        "Kwartalne oceny sytuacji ekonomiczno-finansowej, jakie bank zrzeszający wystawił bankowi " +
+        "spółdzielczemu w kolejnych okresach — z ocenami cząstkowymi per obszar i oceną globalną. " +
+        "Moduł odpowiada na pytanie o STAN WIEDZY ZRZESZAJĄCEGO: nie co dało się policzyć z akt, " +
+        "lecz co zrzeszający sam napisał i kiedy. Zestawienie tych ocen ze wskaźnikami policzonymi " +
+        "przez silnik pokazuje, czy ocena nadążała za danymi — a okresy BEZ oceny są tu ustaleniem " +
+        "równie istotnym jak same oceny.",
+    },
+    {
       id: "sprawozdania",
       tytul: "Analiza sprawozdań finansowych kontrahenta",
       opis: "Pozycje sprawozdań za okresy poprzedzające zdarzenie: wynik odsetkowy, zysk netto, struktura finansowania (depozyty vs finansowanie hurtowe), jakość portfela. Wskazuje, co dało się odczytać ze sprawozdań w dniu decyzji.",
