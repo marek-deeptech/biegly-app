@@ -26,8 +26,36 @@ type Dane = {
   opis_oceny?: string | null;
   braki?: Brak[];
   rwa?: { caption?: string; head?: string[]; rows?: string[][] };
+  zestawienie_ocen?: {
+    wiersze?: {
+      dzien: string;
+      oceny?: Record<string, number | null>;
+      globalna?: number | null;
+      karta?: number | null;
+      wskazniki?: Record<string, number>;
+    }[];
+    sygnaly?: {
+      dzien: string; skok_pp: number; z: number; na: number;
+      ocena_jakosci?: number | null; ocena_zmieniona: boolean;
+    }[];
+    prog_skoku_pp?: number;
+  };
   uwagi?: string[];
 };
+
+const OBSZARY_SKROT: [string, string][] = [
+  ["adekwatnosc", "adek."],
+  ["jakosc_aktywow", "jakość"],
+  ["efektywnosc", "efekt."],
+  ["plynnosc", "płynn."],
+];
+
+/** Ocena 1–5 w skali ODWRÓCONEJ: im wyżej, tym gorzej. */
+function Ocena({ v }: { v?: number | null }) {
+  if (v == null) return <span className="text-inksoft">—</span>;
+  const kolor = v <= 2 ? "bg-emerald-100 text-emerald-800" : v === 3 ? "bg-amber-100 text-amber-900" : "bg-red-100 text-red-800";
+  return <span className={`rounded px-1.5 py-0.5 font-medium ${kolor}`}>{v}</span>;
+}
 
 export default function AnalizaEfPanel({
   subanalyses,
@@ -164,6 +192,77 @@ export default function AnalizaEfPanel({
               </tbody>
             </table>
           </div>
+        </div>
+      ) : null}
+
+      {/* ZESTAWIENIE OCEN ZRZESZAJĄCEGO Z LICZBAMI. Żadne z tych źródeł nie
+          rozstrzyga osobno pytania, które w tej sprawie jest istotne: czy ocena
+          nadążała za tym, co pokazywały wskaźniki. */}
+      {dane.zestawienie_ocen?.wiersze?.length ? (
+        <div className="mt-5 border-t border-ink/15 pt-3">
+          <p className="text-xs font-medium">Oceny banku zrzeszającego wobec wskaźników policzonych z akt</p>
+          <p className="mt-0.5 text-[11px] text-inksoft">
+            Skala ocen jest odwrócona: 1 — sytuacja bardzo dobra, 5 — zagrożenie funkcjonowania banku.
+            Oceny pochodzą z kwartalnych analiz banku zrzeszającego; wskaźniki policzył silnik z danych
+            nadzorczych. Puste wiersze oznaczają okres, dla którego brakuje jednego ze źródeł.
+          </p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-ink/30 text-left">
+                  <th className="py-1 pr-2 font-medium">Dzień</th>
+                  {OBSZARY_SKROT.map(([, l]) => (
+                    <th key={l} className="py-1 pr-2 text-center font-medium">{l}</th>
+                  ))}
+                  <th className="py-1 pr-2 text-center font-medium">globalna</th>
+                  <th className="py-1 pr-2 text-right font-medium">należn. zagrożone</th>
+                  <th className="py-1 pr-2 text-right font-medium">kredyty/depozyty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dane.zestawienie_ocen.wiersze.map((w) => {
+                  const proc = (v?: number) => (v == null ? "—" : `${v.toFixed(2).replace(".", ",")} %`);
+                  return (
+                    <tr key={w.dzien} className="border-b border-ink/10">
+                      <td className="py-1 pr-2 tabular-nums">
+                        {w.dzien}
+                        {w.karta ? <span className="ml-1 text-ink/40">k. {w.karta}</span> : null}
+                      </td>
+                      {OBSZARY_SKROT.map(([kod]) => (
+                        <td key={kod} className="py-1 pr-2 text-center">
+                          <Ocena v={w.oceny?.[kod]} />
+                        </td>
+                      ))}
+                      <td className="py-1 pr-2 text-center"><Ocena v={w.globalna} /></td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{proc(w.wskazniki?.naleznosci_zagrozone)}</td>
+                      <td className="py-1 pr-2 text-right tabular-nums">{proc(w.wskazniki?.kredyty_do_depozytow)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {dane.zestawienie_ocen.sygnaly?.length ? (
+            <div className="mt-3 border-l-2 border-amber-500 pl-3">
+              <p className="text-xs font-medium">
+                Kwartały skokowego pogorszenia (≥ {dane.zestawienie_ocen.prog_skoku_pp} p.p.)
+              </p>
+              <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
+                {dane.zestawienie_ocen.sygnaly.map((s) => (
+                  <li key={s.dzien}>
+                    <strong>{s.dzien}</strong>: udział należności zagrożonych{" "}
+                    {s.z.toFixed(2).replace(".", ",")} % → {s.na.toFixed(2).replace(".", ",")} % (+
+                    {s.skok_pp.toFixed(2).replace(".", ",")} p.p.) ·{" "}
+                    {s.ocena_jakosci == null
+                      ? "brak oceny banku zrzeszającego dla tego okresu"
+                      : s.ocena_zmieniona
+                        ? `ocena jakości aktywów zmieniona na ${s.ocena_jakosci}`
+                        : `ocena jakości aktywów pozostała ${s.ocena_jakosci}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

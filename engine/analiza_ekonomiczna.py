@@ -289,3 +289,63 @@ def bufor_do_progu(
     if rwa is None or fundusze_wlasne is None:
         return None
     return round(fundusze_wlasne - (prog_pct / 100.0) * rwa, 2)
+
+
+# ── Zestawienie ocen zrzeszającego z wskaźnikami policzonymi ─────────────────
+# W aktach SK Banku leży osiem kwartalnych ocen wykonanych przez Bank BPS własną
+# rubryką. Zestawienie ich z wartościami policzonymi z danych nadzorczych odpowiada
+# na pytanie, którego żadne z tych źródeł nie rozstrzyga samodzielnie: CZY OCENA
+# NADĄŻAŁA ZA LICZBAMI.
+#
+# ⚠️ KOD NIE OCENIA, CZY BPS DOPEŁNIŁ OBOWIĄZKU. Zestawia dwa szeregi i wskazuje
+# kwartały, w których wskaźnik pogorszył się skokowo — wniosek o dopełnieniu albo
+# niedopełnieniu obowiązku należy do biegłego i do sądu.
+
+PROG_SKOKU_PP = 5.0  # skok udziału w punktach procentowych uznawany za istotny
+
+
+def zestaw_oceny(
+    oceny: list[dict],
+    wartosci: dict[str, dict[str, float]],
+) -> dict:
+    """Łączy oceny obszarów z wartościami wskaźników na te same dni.
+
+    `oceny`     — rekordy z `oceny_zrzeszajacego` (dzien, oceny{obszar: 1–5}, globalna)
+    `wartosci`  — {dzien: {kod_wskaznika: wartość}} z odczytu akt
+
+    Zwraca wiersze zestawienia oraz `sygnaly`: kwartały, w których udział należności
+    zagrożonych skoczył o próg, wraz z informacją, czy ocena obszaru wtedy się zmieniła.
+    """
+    dni = sorted({o["dzien"] for o in oceny if o.get("dzien")} | set(wartosci))
+    wg_dnia = {o["dzien"]: o for o in oceny if o.get("dzien")}
+    wiersze, sygnaly = [], []
+    poprzedni_npl = None
+    poprzednia_ocena = None
+
+    for d in dni:
+        o = wg_dnia.get(d) or {}
+        w = wartosci.get(d) or {}
+        npl = w.get("naleznosci_zagrozone")
+        jakosc = (o.get("oceny") or {}).get("jakosc_aktywow")
+        wiersze.append({
+            "dzien": d,
+            "oceny": o.get("oceny") or {},
+            "globalna": o.get("globalna"),
+            "karta": o.get("karta"),
+            "wskazniki": w,
+        })
+        if npl is not None and poprzedni_npl is not None and npl - poprzedni_npl >= PROG_SKOKU_PP:
+            sygnaly.append({
+                "dzien": d,
+                "skok_pp": round(npl - poprzedni_npl, 2),
+                "z": poprzedni_npl,
+                "na": npl,
+                "ocena_jakosci": jakosc,
+                "ocena_zmieniona": jakosc is not None and poprzednia_ocena is not None
+                                   and jakosc != poprzednia_ocena,
+            })
+        if npl is not None:
+            poprzedni_npl = npl
+        if jakosc is not None:
+            poprzednia_ocena = jakosc
+    return {"wiersze": wiersze, "sygnaly": sygnaly, "prog_skoku_pp": PROG_SKOKU_PP}

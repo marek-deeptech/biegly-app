@@ -198,3 +198,59 @@ def test_ujemny_bufor_znaczy_norme_niespelniona_juz_przy_wartosciach_wykazanych(
     from engine.analiza_ekonomiczna import bufor_do_progu
 
     assert bufor_do_progu(301_011_000, 7.5, 8.0) < 0
+
+
+# ── Zestawienie ocen zrzeszającego z policzonymi wskaźnikami ─────────────────
+
+def test_zestawienie_wiąże_oceny_z_wartosciami_na_te_same_dni():
+    from engine.analiza_ekonomiczna import zestaw_oceny
+
+    oceny = [{"dzien": "2014-06-30", "oceny": {"jakosc_aktywow": 3}, "globalna": 2, "karta": 449}]
+    wart = {"2014-06-30": {"naleznosci_zagrozone": 6.09}}
+    z = zestaw_oceny(oceny, wart)
+    assert len(z["wiersze"]) == 1
+    assert z["wiersze"][0]["wskazniki"]["naleznosci_zagrozone"] == 6.09
+    assert z["wiersze"][0]["globalna"] == 2
+
+
+def test_wykrywa_kwartal_skokowego_pogorszenia():
+    """Sedno zestawienia: czy ocena nadążała za liczbami.
+
+    Na 30.09.2014 udział należności zagrożonych SK Banku skoczył z 6,09% na 18,61% —
+    o 12,52 punktu procentowego w jednym kwartale.
+    """
+    from engine.analiza_ekonomiczna import zestaw_oceny
+
+    oceny = [
+        {"dzien": "2014-06-30", "oceny": {"jakosc_aktywow": 3}, "globalna": 2},
+        {"dzien": "2014-09-30", "oceny": {"jakosc_aktywow": 4}, "globalna": 3},
+    ]
+    wart = {"2014-06-30": {"naleznosci_zagrozone": 6.09},
+            "2014-09-30": {"naleznosci_zagrozone": 18.61}}
+    s = zestaw_oceny(oceny, wart)["sygnaly"]
+    assert len(s) == 1
+    assert s[0]["dzien"] == "2014-09-30"
+    assert s[0]["skok_pp"] == 12.52
+    assert s[0]["ocena_jakosci"] == 4
+    assert s[0]["ocena_zmieniona"] is True
+
+
+def test_skok_bez_zmiany_oceny_jest_odnotowany_jako_taki():
+    # Sytuacja odwrotna: liczby się pogarszają, ocena stoi. To jest ustalenie,
+    # nie błąd — i musi być rozpoznawalne w danych.
+    from engine.analiza_ekonomiczna import zestaw_oceny
+
+    oceny = [
+        {"dzien": "2014-06-30", "oceny": {"jakosc_aktywow": 3}},
+        {"dzien": "2014-09-30", "oceny": {"jakosc_aktywow": 3}},
+    ]
+    wart = {"2014-06-30": {"naleznosci_zagrozone": 6.0}, "2014-09-30": {"naleznosci_zagrozone": 20.0}}
+    s = zestaw_oceny(oceny, wart)["sygnaly"]
+    assert s[0]["ocena_zmieniona"] is False
+
+
+def test_drobna_zmiana_nie_jest_sygnalem():
+    from engine.analiza_ekonomiczna import zestaw_oceny
+
+    wart = {"2014-06-30": {"naleznosci_zagrozone": 6.0}, "2014-09-30": {"naleznosci_zagrozone": 8.0}}
+    assert zestaw_oceny([], wart)["sygnaly"] == []

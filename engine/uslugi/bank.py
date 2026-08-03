@@ -37,6 +37,7 @@ from engine.analiza_ekonomiczna import (  # noqa: E402
     rwa_implikowane,
     wskaznik_czastkowy,
     wskaznik_syntetyczny,
+    zestaw_oceny,
 )
 from engine.chronologia import (  # noqa: E402
     OkresNadzorczy,
@@ -646,6 +647,28 @@ def policz(case_id, paths=None):
 
             # ── Analiza ekonomiczno-finansowa wg rubryki banku zrzeszającego ──
             aef = analiza_ekonomiczna(case_id, unikalne, okresy, wykazane)
+
+            # ZESTAWIENIE Z OCENAMI BANKU ZRZESZAJĄCEGO. BPS oceniał SK Bank własną
+            # rubryką kwartalnie; zestawienie tych ocen z wartościami policzonymi
+            # z akt nadzorczych odpowiada na pytanie, którego żadne z tych źródeł
+            # nie rozstrzyga osobno: CZY OCENA NADĄŻAŁA ZA LICZBAMI. Brak ocen
+            # (sprawa bez takiego materiału) po prostu pomija sekcję.
+            try:
+                _, ob = _req("GET", f"{BASE}/rest/v1/subanalyses?case_id=eq.{case_id}"
+                                    f"&kind=eq.oceny_zrzeszajacego&select=data")
+                arr_o = json.loads(ob or b"[]")
+                oceny_zrz = ((arr_o[0].get("data") or {}).get("oceny") or []) if arr_o else []
+            except Exception:  # noqa: BLE001
+                oceny_zrz = []
+            if oceny_zrz:
+                wart = {}
+                for pz in unikalne:
+                    per = {w.kod: v for w in WSKAZNIKI_EF
+                           if (v := wartosc_ef(w, pz)) is not None}
+                    if per:
+                        wart[pz.dzien] = per
+                aef["zestawienie_ocen"] = zestaw_oceny(oceny_zrz, wart)
+
             proza_a, byla_a = _zachowaj_proze(case_id, "analiza_ekonomiczna")
             _req("POST", f"{BASE}/rest/v1/subanalyses?on_conflict=case_id,kind",
                  json.dumps({
