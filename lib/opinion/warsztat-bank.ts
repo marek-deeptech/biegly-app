@@ -21,9 +21,14 @@ export type MiaraSektora = {
 // Prompty wyodrębniania — tutaj, a nie w trasie, żeby dało się je uruchomić
 // i sprawdzić na realnych aktach bez stawiania serwera i logowania.
 export const SYSTEM_MEDIA =
-  "Jesteś asystentem biegłego sądowego. Otrzymujesz artykuły prasowe z akt sprawy karnej. " +
+  // „i komunikaty urzędowe": bez tego model dosłownie trzymał się „artykułów prasowych"
+  // i odrzucał komunikaty KNF o zarządzie komisarycznym i zawieszeniu — rozdział
+  // „Publikacje prasowe i komunikaty" nie widział żadnego komunikatu, choć szły w prompcie.
+  "Jesteś asystentem biegłego sądowego. Otrzymujesz artykuły prasowe i komunikaty urzędowe " +
+  "(organu nadzoru, funduszu gwarancyjnego, emitenta) z akt sprawy. " +
   "Wyodrębnij PUBLIKACJE: data publikacji (YYYY-MM-DD; gdy w tekście jest tylko miesiąc, użyj " +
-  "pierwszego dnia miesiąca i zaznacz to w tezie), tytuł, źródło (tytuł gazety lub serwisu), " +
+  "pierwszego dnia miesiąca i zaznacz to w tezie), tytuł, źródło (tytuł gazety, serwisu albo " +
+  "nazwa organu wydającego komunikat), " +
   "teza (2–4 zdania: co publikacja stwierdzała o sytuacji banku, sektora lub kraju). " +
   "ZASADY BEZWZGLĘDNE: (1) referuj TREŚĆ publikacji, nie oceniaj jej trafności i nie rozstrzygaj, " +
   "czy autor miał rację — to nie jest zadanie biegłego. (2) Nie wnioskuj z publikacji o tym, co bank " +
@@ -45,6 +50,54 @@ export const SYSTEM_SEKTOR =
 export type Zdarzenie = { plik: string; data: string; organ: string; ustalenie: string; osoby?: string[] };
 export type Tabela = { caption: string; head: string[]; rows: string[][] };
 export type Subanaliza = { data: Record<string, unknown>; findings: string[] };
+
+/**
+ * Czy dokument z akt jest KOMUNIKATEM URZĘDOWYM podlegającym pod rozdział
+ * „Publikacje prasowe i komunikaty"?
+ *
+ * ⚠️ POWÓD: rozdział czytał wyłącznie typ PRASA, a komunikaty KNF o zarządzie
+ * komisarycznym i zawieszeniu działalności oraz raport bieżący emitenta leżały
+ * w aktach SK Banku pod typami NADZOR_KNF / UPADLOSC_SYNDYK — rozdział o tytule
+ * „…i komunikaty" nie widział ŻADNEGO komunikatu. Filtr jest wąski (typ + słowo
+ * w opisie), żeby nie wciągnąć całego materiału nadzorczego: protokół BION nie
+ * jest komunikatem, choć jest NADZOR_KNF.
+ */
+export function czyKomunikatUrzedowy(docType: string, opis: string | null | undefined): boolean {
+  return (
+    ["NADZOR_KNF", "UPADLOSC_SYNDYK"].includes(docType)
+    && /komunikat|raport\w*\s+bieżąc/i.test(opis ?? "")
+  );
+}
+
+/**
+ * Wiersze tabeli „Zasady i metodyka monitorowania stosowane przez bank zrzeszający".
+ *
+ * ⚠️ POWÓD: moduł limitów pyta o metodykę limitów SAMEGO banku (typ METODYKA_LIMITOW)
+ * i w sprawie przeciwko nadzorcy słusznie jej nie znajduje — leży u syndyka. Ale akta
+ * SK Banku ZAWIERAJĄ metodykę drugiej strony tej relacji: uchwałę 12/14/AB/BS/2002
+ * z zasadami monitorowania zrzeszonych banków i metodykę oceny ich sytuacji
+ * (k. 407–428). Rozdział o metodyce, który to przemilcza, twierdzi nieprawdę o aktach.
+ * Zestawienie jest deterministyczne (metadane dokumentów, bez modelu).
+ */
+export function wierszeMetodykiZrzeszajacego(
+  docs: { doc_type: string; opis?: string | null; karta_start?: number | null; rel_path: string }[],
+): string[][] {
+  const wzor = /monitorowania\s+(zrzeszonych|bank[óo]w\s+sp[óo]łdzielczych)|metodyk\w*\s+oceny\s+sytuacji|12\/14\/AB\/BS\/2002/i;
+  const widziane = new Set<string>();
+  const out: string[][] = [];
+  for (const d of docs) {
+    if (d.doc_type !== "UCHWALA_WEWNETRZNA" || !wzor.test(d.opis ?? "")) continue;
+    const klucz = (d.opis ?? "").toLowerCase().replace(/\s+/g, " ").slice(0, 70);
+    if (widziane.has(klucz)) continue;
+    widziane.add(klucz);
+    out.push([
+      d.karta_start != null ? `k. ${d.karta_start}` : "—",
+      d.opis ?? d.rel_path,
+      d.rel_path.split("/").pop() ?? d.rel_path,
+    ]);
+  }
+  return out.sort((a, b) => a[0].localeCompare(b[0], "pl", { numeric: true }));
+}
 
 const GLOWA_PRASA = ["Data", "Tytuł", "Źródło", "Teza publikacji", "Plik"];
 
@@ -112,6 +165,14 @@ export function zbudujMedia(publikacje: Publikacja[], dzien: string): Subanaliza
       "Nie podano daty ocenianego zdarzenia — publikacji nie podzielono na wcześniejsze i późniejsze, " +
         "więc nie da się z nich wnioskować o stanie wiedzy z dnia decyzji.",
     );
+  // TEZY publikacji sprzed zdarzenia idą do findings, bo tylko findings dojeżdżają
+  // do rejestru wniosków — sama LICZBA publikacji nie mówi, jaki obraz banku był
+  // publicznie dostępny, a to o ten obraz pytają organy (co deponent mógł wiedzieć).
+  if (dzien)
+    for (const x of przed.slice(0, 2))
+      findings.push(
+        `Publikacja z ${x.data} („${x.tytul.slice(0, 80)}”, ${x.zrodlo}): ${x.teza.replace(/\s+/g, " ").slice(0, 220)}`,
+      );
   if (po.length)
     findings.push(
       `${po.length} publikacji pochodzi z okresu PO ocenianym zdarzeniu — mogą opisywać jego skutki, ` +

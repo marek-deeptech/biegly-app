@@ -22,9 +22,11 @@ import { keywordWindows, pdfText, pdfTextStron } from "@/lib/intake/pdf";
 import {
   SYSTEM_MEDIA,
   SYSTEM_SEKTOR,
+  czyKomunikatUrzedowy,
   type MiaraSektora,
   type Publikacja,
   type Zdarzenie,
+  wierszeMetodykiZrzeszajacego,
   zbudujMedia,
   zbudujOtoczeniePrawne,
   zbudujProcedury,
@@ -107,7 +109,10 @@ export async function wykonajWarsztatBankowy(
 ): Promise<WynikWarsztatu> {
   const { data: docs } = await supabase
     .from("documents")
-    .select("id,rel_path,doc_type,storage_path,warstwa_tekstu,strona_od,strona_do,plik_zrodlowy")
+    // `opis` i `karta_start` doszły dla dwóch filtrów opisowych: komunikatów urzędowych
+    // (rozdział mediów) i metodyki zrzeszającego (rozdział limitów) — oba rozpoznają
+    // dokument po opisie, bo typ ma wtedy inne przeznaczenie.
+    .select("id,rel_path,doc_type,storage_path,warstwa_tekstu,strona_od,strona_do,plik_zrodlowy,opis,karta_start")
     .eq("case_id", id);
   const wszystkie = docs ?? [];
 
@@ -189,9 +194,15 @@ export async function wykonajWarsztatBankowy(
     !d.strona_od
     && [...rdzenieRozbite].some((r) => r && (d.rel_path.split("/").pop() ?? "").startsWith(r));
 
-  async function tekstyDla(typy: string[], frazy?: RegExp): Promise<{ plik: string; tekst: string }[]> {
+  async function tekstyDla(
+    typy: string[],
+    frazy?: RegExp,
+    /** Dodatkowy warunek OR — dokument spoza `typy`, który MA wejść (np. komunikat urzędowy do mediów). */
+    dodatkowo?: (d: (typeof wszystkie)[number]) => boolean,
+  ): Promise<{ plik: string; tekst: string }[]> {
     const wybrane = wszystkie.filter(
-      (d) => typy.includes(d.doc_type) && d.storage_path && (d.warstwa_tekstu !== "brak" || d.strona_od)
+      (d) => (typy.includes(d.doc_type) || dodatkowo?.(d) === true)
+        && d.storage_path && (d.warstwa_tekstu !== "brak" || d.strona_od)
         && !zastapionyFragmentami(d),
     );
     // Po rozbiciu skanów na dokumenty (migracja 0017) jeden skan daje kilkanaście
@@ -297,7 +308,10 @@ export async function wykonajWarsztatBankowy(
   const [dokProc, dokLim, dokMedia, dokSektor] = await Promise.all([
     tekstyDla(TYPY_PROCEDURY, FRAZY.PROCEDURY),
     tekstyDla(TYPY_LIMITY, FRAZY.LIMITY),
-    tekstyDla(TYPY_MEDIA),
+    // Rozdział nazywa się „Publikacje prasowe i KOMUNIKATY" — komunikaty KNF
+    // o zarządzie komisarycznym i zawieszeniu oraz raporty bieżące emitenta leżą
+    // w aktach pod typami nadzorczymi i upadłościowymi, nie pod PRASA.
+    tekstyDla(TYPY_MEDIA, undefined, (d) => czyKomunikatUrzedowy(d.doc_type, d.opis)),
     tekstyDla(TYPY_SEKTOR, FRAZY.SEKTOR),
   ]);
   const [zdarzenia, limity, publikacje, miary] = await Promise.all([
@@ -378,23 +392,45 @@ export async function wykonajWarsztatBankowy(
     `Materiał: ${dokProc.length} dokumentów wewnętrznych.`,
   ]);
 
+  // Metodyka DRUGIEJ strony relacji zrzeszeniowej — deterministycznie z metadanych.
+  // Rozdział o metodyce, który jej nie wymienia, twierdzi nieprawdę o zawartości akt.
+  const zrzeszajacy = wierszeMetodykiZrzeszajacego(wszystkie);
+  const tabelaLimitow = {
+    caption: "Tabela. Limity zaangażowania wg metodyki banku",
+    head: ["Okres", "Termin", "Podstawa wyznaczenia", "Kwota", "Źródło"],
+    rows: limity.map((l) => [l.okres, l.termin ?? "", l.podstawa, l.kwota, l.plik]),
+  };
   await zapisz(
     "limity",
     "Metodyka limitów i koncentracja zaangażowania",
     "V",
     {
-      table: {
-        caption: "Tabela. Limity zaangażowania wg metodyki banku",
-        head: ["Okres", "Termin", "Podstawa wyznaczenia", "Kwota", "Źródło"],
-        rows: limity.map((l) => [l.okres, l.termin ?? "", l.podstawa, l.kwota, l.plik]),
-      },
+      table: tabelaLimitow,
+      tables: [
+        tabelaLimitow,
+        ...(zrzeszajacy.length
+          ? [{
+              caption:
+                "Tabela. Zasady i metodyka monitorowania stosowane przez bank zrzeszający (dokumenty w aktach)",
+              head: ["Karta akt", "Dokument", "Plik"],
+              rows: zrzeszajacy,
+            }]
+          : []),
+      ],
       dzienZdarzenia: dzien || null,
       przepisy: wlasciwe.filter((p) => p.moduly.includes("limity")).map((p) => `${p.ref} — ${p.zakres}`),
       anachroniczne: anachroniczne.filter((p) => p.moduly.includes("limity")).map((p) => `${p.ref} (od ${p.od})`),
     },
-    limity.length
-      ? [`Odczytano ${limity.length} pozycji limitów z metodyki banku.`]
-      : ["Nie odczytano limitów — brak czytelnej metodyki w aktach."],
+    [
+      ...(limity.length
+        ? [`Odczytano ${limity.length} pozycji limitów z metodyki banku.`]
+        : ["Metodyki limitów zaangażowania samego banku w aktach nie ma — pozycja pozostaje do zamówienia."]),
+      ...(zrzeszajacy.length
+        ? [
+            `W aktach są natomiast zasady monitorowania i metodyka oceny sytuacji zrzeszonych banków stosowane przez bank zrzeszający (${zrzeszajacy.length} dokumentów, ${zrzeszajacy[0][0]}–${zrzeszajacy[zrzeszajacy.length - 1][0]}) — ocena koncentracji zaangażowań jest możliwa od strony monitoringu zrzeszającego.`,
+          ]
+        : []),
+    ],
   );
 
   // Składanie rozdziałów jest w lib/opinion/warsztat-bank.ts — tam ma testy.

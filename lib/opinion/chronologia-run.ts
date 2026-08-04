@@ -16,6 +16,7 @@ import { keywordWindows, pdfText } from "@/lib/intake/pdf";
 
 import {
   doZlotych,
+  scalUzupelniajace,
   skokiSkali,
   systemOkresy,
   systemZdarzenia,
@@ -23,6 +24,7 @@ import {
   zbudujChronologie,
   type OkresNadzorczy,
   type ZdarzenieNadzorcze,
+  type ZdarzenieUzupelniajace,
 } from "./chronologia-nadzoru";
 
 /** Typy dokumentów, w których bywa chronologia nadzorcza. */
@@ -284,7 +286,21 @@ export async function wykonajChronologie(
     ...skokiSkali(unikalne),
   ];
 
-  const w = zbudujChronologie(unikalne, zdarzenia, dzien, zastrzezenia);
+  // Zdarzenia uzupełniające dopisane skryptem `scripts/zdarzenia_pism.py` — ponowny
+  // bieg ekstrakcji NIE MOŻE ich zgubić: to fakty z kotwic zweryfikowanych w aktach
+  // (ocena NIK, wniosek do KNA, opinie rewidentów), których model z pism nie wyjmuje.
+  const { data: poprzednia } = await sb
+    .from("subanalyses")
+    .select("data")
+    .eq("case_id", id)
+    .eq("kind", "chronologia_nadzoru")
+    .maybeSingle();
+  const uzupelniajace =
+    ((poprzednia?.data as { zdarzenia_uzupelniajace?: ZdarzenieUzupelniajace[] } | null)
+      ?.zdarzenia_uzupelniajace ?? []);
+  const zdarzeniaPelne = scalUzupelniajace(zdarzenia, uzupelniajace);
+
+  const w = zbudujChronologie(unikalne, zdarzeniaPelne, dzien, zastrzezenia);
   await sb.from("subanalyses").upsert(
     {
       case_id: id,
@@ -305,6 +321,7 @@ export async function wykonajChronologie(
         // czytania oczami. Zakładka wskaźników finansowych nie miała jak po nie
         // sięgnąć i pokazywała pustkę, choć dane leżały obok.
         okresy: unikalne,
+        ...(uzupelniajace.length ? { zdarzenia_uzupelniajace: uzupelniajace } : {}),
       },
     },
     { onConflict: "case_id,kind" },
@@ -312,7 +329,7 @@ export async function wykonajChronologie(
   return {
     ok: true,
     okresow: unikalne.length,
-    zdarzen: zdarzenia.length,
+    zdarzen: zdarzeniaPelne.length,
     dokumentow: dokumenty.length,
     zastrzezenia,
     skrocone,

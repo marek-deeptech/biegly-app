@@ -185,7 +185,9 @@ export async function zredagujWnioskiBankowe(sb: SupabaseClient, id: string): Pr
   ]);
   const msg = await klientLLM("redakcja-bank/wnioski", { sprawa: id }).messages.create({
     model: "claude-opus-4-8",
-    max_tokens: 6500,
+    // 9 pytań organu × zdanie rozstrzygające + uzasadnienie + sekcja obrazu
+    // publicznego; przy 6500 odpowiedź urwała się i cały rozdział odrzucono.
+    max_tokens: 9500,
     system: [p.system, wiedza, wzorzec, styl].filter(Boolean).join("\n\n"),
     messages: [{ role: "user", content: p.user }],
   });

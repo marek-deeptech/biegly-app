@@ -108,6 +108,112 @@ export function skokiSkali(okresy: OkresNadzorczy[]): string[] {
 export type ZdarzenieNadzorcze = { data: string; organ: string; opis: string; plik?: string };
 
 /**
+ * Zdarzenie dopisane przez `scripts/zdarzenia_pism.py` — z kotwicą identyfikującą.
+ *
+ * DLACZEGO OSOBNY BYT: ekstrakcja modelowa z pism procesowych gubi pojedyncze,
+ * rozstrzygające fakty (ocena NIK o sygnale ostrzegawczym, wniosek KNF do KNA,
+ * opinie rewidentów bez zastrzeżeń) — w sprawie SK Banku z 119 zdarzeń żadne nie
+ * niosło tych trzech. Skrypt dopisuje je deterministycznie, po kotwicach tekstowych
+ * zweryfikowanych w aktach, a `kotwica` czyni scalenie idempotentnym: ponowny bieg
+ * skryptu ani ponowna ekstrakcja modelowa nie zdublują wiersza.
+ */
+export type ZdarzenieUzupelniajace = ZdarzenieNadzorcze & { kotwica: string };
+
+/**
+ * Scala zdarzenia uzupełniające ze zdarzeniami z ekstrakcji modelowej.
+ *
+ * Dedup dwustopniowy: (1) po `kotwica` między samymi uzupełniającymi (ponowny bieg
+ * skryptu), (2) wobec ekstrakcji — po dniu i początku treści, bo model mógł już
+ * wyodrębnić to samo zdarzenie własnymi słowami o identycznym początku cytatu.
+ */
+export function scalUzupelniajace(
+  zdarzenia: ZdarzenieNadzorcze[],
+  uzupelniajace: ZdarzenieUzupelniajace[],
+): ZdarzenieNadzorcze[] {
+  const znane = new Set(
+    zdarzenia.map((z) => `${z.data}|${z.opis.toLowerCase().replace(/\s+/g, " ").slice(0, 60)}`),
+  );
+  const out = [...zdarzenia];
+  const wziete = new Set<string>();
+  for (const u of uzupelniajace) {
+    if (wziete.has(u.kotwica)) continue;
+    wziete.add(u.kotwica);
+    const klucz = `${u.data}|${u.opis.toLowerCase().replace(/\s+/g, " ").slice(0, 60)}`;
+    if (znane.has(klucz)) continue;
+    znane.add(klucz);
+    out.push({ data: u.data, organ: u.organ, opis: u.opis, plik: u.plik });
+  }
+  return out;
+}
+
+/**
+ * KOTWICE ZDARZEŃ KLUCZOWYCH — promocja z tabeli działań do `findings`.
+ *
+ * ⚠️ POWÓD ISTNIENIA: do rejestru wniosków (materialWnioskow) wchodzą WYŁĄCZNIE
+ * `findings` modułów, nie wiersze tabel. Strata brutto 56,7 mln zł stwierdzona
+ * inspekcją i odrzucony program naprawczy siedziały w 119 wierszach tabeli działań
+ * — i wnioski odpowiadały na pytania organu, nie wiedząc o nich. Promocja jest
+ * deterministyczna (regex po treści zdarzenia), więc przeżywa każdy ponowny bieg.
+ */
+const KOTWICE_KLUCZOWE: { re: RegExp; ile: number }[] = [
+  // wynik inspekcji: strata po doklasyfikowaniu należności i dotworzeniu rezerw
+  { re: /strat\w*\s+brutto|56[,.]7\s*mln/i, ile: 1 },
+  // oś programu naprawczego: termin, złożenie, odrzucenie
+  { re: /program\w*\s+(postępowania\s+)?naprawcz/i, ile: 2 },
+  // dostępność RWEF: co pokazywał i kiedy powstawał
+  { re: /RWEF/i, ile: 2 },
+  // ⚠️ separatorem nie może być [^.] — daty „30.09.2015 r." tną dopasowanie kropkami.
+  { re: /(analiz\w+\s+kwartaln\w+|KOBRA)[^§]{0,120}nie\s+(został\w?|był\w?)\s+sporządz/i, ile: 1 },
+  // ujawnienie niewypłacalności przez zarząd komisaryczny (raport bieżący emitenta)
+  { re: /raport\w*\s+bieżąc\w*\s+nr\s*7\/2015|głęboko\s+ujemne\s+fundusze/i, ile: 1 },
+  // badania rewidentów: opinie bez zastrzeżeń i wniosek dyscyplinarny do KNA
+  { re: /bez\s+zastrzeżeń|nie\s+zawierał\w*\s+zastrzeżeń/i, ile: 1 },
+  { re: /Nadzoru\s+Audytowego|dyscyplinarn/i, ile: 1 },
+  // ocena NIK: sygnał ostrzegawczy widoczny wcześniej, niż zareagował nadzór
+  { re: /sygnał\w*\s+ostrzegawcz|trzy\s+kwartały\s+wcześniej/i, ile: 1 },
+  { re: /zawieszeni\w+\s+działalnoś/i, ile: 1 },
+];
+const MAKS_PROMOWANYCH = 10;
+
+/**
+ * Skrót treści zdarzenia do rejestru — na granicy słowa, z wielokropkiem.
+ *
+ * ⚠️ SKRÓT MUSI OBJĄĆ KOTWICĘ. Zdarzenie o inspekcji zaczyna się od trzech linijek
+ * przebiegu, a strata 56,7 mln zł pada w czwartej — proste „pierwsze 260 znaków”
+ * ucinało treść PRZED liczbą, przez którą zdarzenie w ogóle awansowało. Rejestr
+ * wniosków dostawał wtedy wiersz o inspekcji bez jej wyniku i wnioski nie miały
+ * skąd wziąć kwoty. Gdy dopasowanie leży poza oknem, doklejamy fragment wokół niego.
+ */
+function skrot(s: string, kotwica?: RegExp, maks = 260): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= maks) return t;
+  const naGranicy = (x: string) => x.slice(0, Math.max(x.lastIndexOf(" "), x.length - 30));
+  const poczatek = naGranicy(t.slice(0, maks));
+  const m = kotwica ? t.match(kotwica) : null;
+  if (!m || (m.index ?? 0) + m[0].length <= poczatek.length) return `${poczatek}…`;
+  const od = Math.max(poczatek.length, (m.index ?? 0) - 60);
+  const okno = t.slice(od, (m.index ?? 0) + m[0].length + 120);
+  return `${poczatek} […] ${naGranicy(okno)}…`;
+}
+
+export function ustaleniaKluczowe(zdarzenia: ZdarzenieNadzorcze[]): string[] {
+  const posort = [...zdarzenia].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  const out: string[] = [];
+  const uzyte = new Set<ZdarzenieNadzorcze>();
+  for (const { re, ile } of KOTWICE_KLUCZOWE) {
+    const pasujace = posort.filter((z) => !uzyte.has(z) && re.test(z.opis));
+    // pierwszy i ostatni chronologicznie — początek i rozstrzygnięcie wątku
+    const wybrane = ile >= 2 && pasujace.length > 1 ? [pasujace[0], pasujace[pasujace.length - 1]] : pasujace.slice(0, 1);
+    for (const z of wybrane) {
+      uzyte.add(z);
+      out.push(`Zdarzenie kluczowe (${z.data}, ${z.organ}): ${skrot(z.opis, re)}`);
+      if (out.length >= MAKS_PROMOWANYCH) return out;
+    }
+  }
+  return out;
+}
+
+/**
  * Wspólna preambuła — WIĄŻE EKSTRAKCJĘ Z JEDNYM PODMIOTEM.
  *
  * ⚠️ BEZ TEGO MODUŁ ZBIERA CUDZE ZDARZENIA. W aktach SK Banku leży sprawozdanie Komisji
@@ -279,6 +385,10 @@ export function zbudujChronologie(
       `${po.length} okresów pochodzi z czasu PO ocenianym zdarzeniu — pokazują jego następstwa, ` +
         "ale nie stan wiedzy z dnia jego zajścia.",
     );
+  // Zdarzenia kluczowe idą do findings, bo tylko findings dojeżdżają do rejestru
+  // wniosków — wiersze tabeli działań są dla wniosków niewidzialne (patrz komentarz
+  // przy KOTWICE_KLUCZOWE).
+  findings.push(...ustaleniaKluczowe(zdarzenia));
 
   return {
     data: {

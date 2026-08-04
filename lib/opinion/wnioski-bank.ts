@@ -228,7 +228,12 @@ const system = (tryb?: string | null) =>
   "(3) Oceniasz WYŁĄCZNIE stan wiedzy dostępny w dniu ocenianego zdarzenia; powołanie się na to, " +
   "co wydarzyło się później, jest wnioskowaniem wstecznym i dyskwalifikuje wniosek. (4) Stan " +
   "prawny bierzesz z daty zdarzenia. (5) Ustalenia negatywne („w aktach nie ma…”) wypowiadasz " +
-  "wprost — przemilczenie luki dowodowej jest wadą opinii, nie jej zaletą.";
+  "wprost — przemilczenie luki dowodowej jest wadą opinii, nie jej zaletą. " +
+  // Strony znają publiczne oceny NIK i będą nimi konfrontować opinię na rozprawie —
+  // rozbieżność przemilczana wygląda wtedy jak przeoczenie, wyjaśniona jest ustaleniem.
+  "(6) Gdy materiał zawiera ocenę innego organu kontrolnego (np. NIK) rozbieżną z Twoim " +
+  "ustaleniem, przywołaj ją wprost i uzasadnij różnicę na materiale — przemilczenie " +
+  "rozbieżności jest wadą opinii.";
 
 export function buildBankWnioskiPrompt(inp: {
   caseName: string;
@@ -299,6 +304,18 @@ export function buildBankWnioskiPrompt(inp: {
         inp.wzorzec.slice(0, 3000),
     );
 
+  // Pytania spraw depozytowych pytają o STAN WIEDZY DOSTĘPNEJ PUBLICZNIE (co deponent
+  // mógł wiedzieć) — rejestr niesie publikacje i komunikaty sprzed dnia zdarzenia,
+  // a model pomijał je w prozie, odpowiadając wyłącznie danymi nadzorczymi
+  // (niedostępnymi deponentowi). To odwrotność wnioskowania wstecznego: ocena wiedzy
+  // powszechnej materiałem, którego powszechnie nie było.
+  p.push(
+    "OBRAZ PUBLICZNIE DOSTĘPNY: jeżeli wśród ustaleń są publikacje prasowe lub komunikaty " +
+      "sprzed dnia zdarzenia, odnieś się do nich WPROST przy pytaniach o stan wiedzy " +
+      "deponenta/stron — powiedz, co z publicznie dostępnych źródeł wynikało (i czego " +
+      "w nich nie było), zamiast oceniać tę wiedzę materiałem nadzorczym, który " +
+      "publicznie dostępny nie był.",
+  );
   p.push(
     "Struktura: (1) krótkie wprowadzenie — na jakiej podstawie sformułowano wnioski, " +
       (inp.pytania.length
