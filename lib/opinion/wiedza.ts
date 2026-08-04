@@ -50,13 +50,24 @@ import type { IvRedactKind } from "@/lib/opinion/redact";
  *    2015-03-16. Do rozdziału o stanie prawnym w dacie zdarzenia to materiał
  *    anachroniczny i wymaga wersji na tamten dzień.
  */
-type Budzet = { fragmentow: number; znakow: number; naZrodlo: number; przegladowy?: boolean };
+type Budzet = {
+  fragmentow: number;
+  znakow: number;
+  naZrodlo: number;
+  przegladowy?: boolean;
+  /** Ułamek budżetu zarezerwowany dla monografii i artykułów (ranga ≤ 3). */
+  piśmiennictwoUdzial?: number;
+};
 const BUDZET_DOMYSLNY: Budzet = { fragmentow: 4, znakow: 1400, naZrodlo: 2 };
 const BUDZET: Record<string, Budzet> = {
   // Przegląd reżimu prawnego: ustrój sektora, ramy ostrożnościowe, teoria ryzyka.
-  otoczenie_prawne: { fragmentow: 24, znakow: 2200, naZrodlo: 6, przegladowy: true },
+  otoczenie_prawne: {
+    fragmentow: 24, znakow: 2200, naZrodlo: 6, przegladowy: true, piśmiennictwoUdzial: 0.5,
+  },
   // Wstęp teoretyczny — ta sama rola przeglądowa, rozdział III.
-  proza_iii: { fragmentow: 16, znakow: 2000, naZrodlo: 5, przegladowy: true },
+  proza_iii: {
+    fragmentow: 16, znakow: 2000, naZrodlo: 5, przegladowy: true, piśmiennictwoUdzial: 0.5,
+  },
 };
 const budzetDla = (rodzaj: string): Budzet => BUDZET[rodzaj] ?? BUDZET_DOMYSLNY;
 
@@ -121,7 +132,12 @@ const PROFIL_BANK: Record<string, string[]> = {
   adekwatnosc: ["adekwatnosc", "fundusze_wlasne", "ogolne_bank"],
   limity: ["limity", "ryzyko_kredytowe", "ogolne_bank"],
   procedury: ["zarzadzanie_ryzykiem", "nadzor", "ogolne_bank"],
-  otoczenie_prawne: ["nadzor", "zarzadzanie_ryzykiem", "ogolne_bank"],
+  // ⚠️ `ryzyko_kredytowe` DOPISANE. Blok 3 wzorca (opinia MBR, rozdz. L) to wykład
+  // standardu identyfikacji ryzyka kredytowego — czym ono jest, jak wygląda proces
+  // zarządzania nim, co odpowiada komitet ALCO. Bez tego tagu do rozdziału trafiały
+  // wyłącznie akty prawne i jedna monografia, bo trzy pozostałe pozycje o ryzyku
+  // kredytowym (56 fragmentów) są otagowane właśnie nim, a nie `zarzadzanie_ryzykiem`.
+  otoczenie_prawne: ["nadzor", "zarzadzanie_ryzykiem", "ryzyko_kredytowe", "ogolne_bank"],
 };
 
 type Fragment = {
@@ -168,13 +184,37 @@ function wybierz<T extends { techniki: string[]; tresc?: string; wiedza_zrodla: 
   );
   const zeZrodla = new Map<string, number>();
   const wybrane: T[] = [];
-  for (const f of posortowane) {
-    const klucz = f.wiedza_zrodla?.tytul ?? "?";
-    if ((zeZrodla.get(klucz) ?? 0) >= budzet.naZrodlo) continue;
-    zeZrodla.set(klucz, (zeZrodla.get(klucz) ?? 0) + 1);
-    wybrane.push(f);
-    if (wybrane.length >= budzet.fragmentow) break;
+  // `limit` liczy DODANE, nie przejrzane. Wersja obcinająca pulę przez `slice(0, N)`
+  // przed nałożeniem limitu na źródło dawała 6 zamiast 12: pierwsze dwanaście pozycji
+  // piśmiennictwa pochodziło z jednej monografii, sześć odpadło na `naZrodlo`,
+  // a okno było już zużyte.
+  const dobierz = (pula: T[], limit = budzet.fragmentow) => {
+    let dodane = 0;
+    for (const f of pula) {
+      if (dodane >= limit || wybrane.length >= budzet.fragmentow) return;
+      if (wybrane.includes(f)) continue;
+      const klucz = f.wiedza_zrodla?.tytul ?? "?";
+      if ((zeZrodla.get(klucz) ?? 0) >= budzet.naZrodlo) continue;
+      zeZrodla.set(klucz, (zeZrodla.get(klucz) ?? 0) + 1);
+      wybrane.push(f);
+      dodane += 1;
+    }
+  };
+
+  // ⚠️ KWOTA DLA PIŚMIENNICTWA W ROZDZIAŁACH PRZEGLĄDOWYCH.
+  // Sortowanie po randze stawia akty prawne (5) przed monografiami (3), więc przy
+  // budżecie 24 fragmentów rozdział o otoczeniu prawnym dostawał 24 wyciągi
+  // z CRR, CRD IV i Prawa bankowego, a ani jednego z czterech monografii o ryzyku
+  // kredytowym. To nie jest usterka rankingu — dla rozdziału o technice manipulacji
+  // pierwszeństwo przepisu jest słuszne. Ale wzorzec (opinia MBR, rozdz. L) buduje
+  // dwa ze swoich pięciu bloków — teorię ryzyka kredytowego i rolę komitetu ALCO —
+  // WYŁĄCZNIE z piśmiennictwa. Bez gwarantowanego udziału nie mają jak powstać,
+  // a rozdział zostaje wykazem artykułów zamiast wykładem standardu.
+  if (budzet.piśmiennictwoUdzial) {
+    const ile = Math.floor(budzet.fragmentow * budzet.piśmiennictwoUdzial);
+    dobierz(posortowane.filter((f) => (f.wiedza_zrodla?.ranga ?? 5) <= 3), ile);
   }
+  dobierz(posortowane);
   return wybrane;
 }
 
