@@ -306,3 +306,53 @@ def test_wartosc_policzona_ma_pierwszenstwo_przed_wykazana():
     kom = " ".join(" ".join(r) for r in w["table"]["rows"])
     assert "6,09 %" in kom, "wartość policzona zniknęła"
     assert "99,99" not in kom, "wartość wykazana nadpisała policzoną"
+
+
+def test_dzien_oceny_spoza_okresow_sprawozdan_tworzy_kolumne():
+    """Oś rubryki = okresy sprawozdań ∪ dni ocen BPS z ≥1 przetłumaczoną wartością.
+
+    ⚠️ POWÓD: oś budowana wyłącznie z okresów sprawozdań GUBIŁA wartości wykazane
+    na dni, dla których sprawozdania w aktach nie ma. Ocena BPS na 31.03.2014
+    niosła 12 wartości rubryki (w tym trzy wskaźniki płynności: 44,07 / 179,04 /
+    82,48), a kolumny nie było — więc wartości nie miały gdzie wejść i znikały
+    z opinii bez śladu.
+    """
+    from engine.uslugi.bank import analiza_ekonomiczna
+
+    poz = [Pozycje(dzien="2014-06-30", kredyty_zagrozone=124_032_000, kredyty_brutto=2_037_916_000)]
+    w = analiza_ekonomiczna("x", poz, ["2014-06-30"],
+                            z_ocen={"marza_odsetkowa": {"2014-03-31": 3.25}})
+    # Dzień oceny wchodzi do osi POSORTOWANY — przed okresem sprawozdania.
+    assert w["table"]["head"][3:] == ["2014-03-31", "2014-06-30"]
+    marza = next(r for r in w["table"]["rows"] if r[1] == "Marża odsetkowa")
+    assert marza[3] == "3,25 %*", "wartość wykazana nie weszła do nowej kolumny (i bez gwiazdki)"
+    assert marza[4] == "—"
+    # Tabela się nie rozjeżdża: każdy wiersz ma tyle pól, ile nagłówek.
+    assert all(len(r) == len(w["table"]["head"]) for r in w["table"]["rows"])
+    # Rejestr braków dotyczy TREŚCI SPRAWOZDAŃ: dzień istniejący w osi wyłącznie
+    # dzięki ocenie BPS nie powiększa liczby „okresów bez pozycji".
+    wg = {b["pozycja"]: b for b in w["braki"]}
+    assert wg["aktywa_ogolem"]["okresow_bez"] == 1
+
+
+def test_dzien_oceny_bez_przetlumaczonych_wartosci_nie_tworzy_kolumny():
+    """Ocena, z której przekład nie wyjął ŻADNEJ wartości, nie dodaje pustej kolumny.
+
+    Kolumna samych „—" niczego nie ustala, a w tabeli opinii sugerowałaby, że na
+    ten dzień czegoś szukano i nie znaleziono. Test idzie przez PRAWDZIWY przekład
+    (`wartosci_wykazane`), nie przez gotowy słownik: samo „saldo odpisów
+    aktualizujących" to kwota, nie procent, i jest świadomie nieprzekładane.
+    """
+    from engine.przeklad_bps import wartosci_wykazane
+    from engine.uslugi.bank import analiza_ekonomiczna
+
+    oceny = [
+        {"dzien": "2014-03-31", "wskazniki": [{"nazwa": "Marża odsetkowa", "wartosc": "3,25%"}]},
+        {"dzien": "2013-01-31", "wskazniki": [
+            {"nazwa": "Saldo odpisów aktualizujących", "wartosc": "12 000 tys. zł"},
+        ]},
+    ]
+    poz = [Pozycje(dzien="2014-06-30", kredyty_zagrozone=124_032_000, kredyty_brutto=2_037_916_000)]
+    w = analiza_ekonomiczna("x", poz, ["2014-06-30"], z_ocen=wartosci_wykazane(oceny))
+    assert "2014-03-31" in w["table"]["head"], "dzień z przetłumaczoną wartością nie utworzył kolumny"
+    assert "2013-01-31" not in w["table"]["head"], "dzień bez przetłumaczonych wartości utworzył pustą kolumnę"

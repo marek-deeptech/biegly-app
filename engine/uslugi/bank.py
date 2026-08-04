@@ -169,22 +169,35 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=(), z_ocen=None):
     # wartość wykazana bywa właśnie tym, co się kwestionuje. Tabela, która by je
     # zlała, przypisywałaby biegłemu cudze wyliczenie.
     zocen = z_ocen or {}
+    # OŚ OKRESÓW RUBRYKI = okresy sprawozdań ∪ dni ocen BPS z ≥1 przetłumaczoną
+    # wartością. ⚠️ POWÓD: oś budowana wyłącznie z okresów sprawozdań GUBIŁA dni
+    # ocen spoza niej — ocena na 31.03.2014 niosła 12 wartości rubryki (w tym trzy
+    # wskaźniki płynności), a kolumny nie było, więc wartości nie miały gdzie wejść.
+    # Dzień oceny bez żadnej przetłumaczonej wartości kolumny NIE tworzy: kolumna
+    # samych „—" niczego nie ustala.
+    dni_ocen = {d for wart in zocen.values() for d in wart}
+    os_okresow = sorted(set(okresy) | dni_ocen)
+    wg_dnia_poz = {pz.dzien: pz for pz in unikalne}
     wykazanych = 0
     okresy_bez = {}
     for w in WSKAZNIKI_EF:
         kolumny, ma, ma_wyk = [], False, False
-        for i, pz in enumerate(unikalne):
-            v = wartosc_ef(w, pz)
+        for d in os_okresow:
+            pz = wg_dnia_poz.get(d)
+            v = wartosc_ef(w, pz) if pz is not None else None
             if v is None:
-                zew = zocen.get(w.kod, {}).get(getattr(pz, "dzien", None))
+                zew = zocen.get(w.kod, {}).get(d)
                 if zew is not None:
                     ma_wyk = True
                     wykazanych += 1
                     kolumny.append(f"{_fmt(zew)} %*")
                     continue
-                for pole in brakujace_pozycje(w, pz):
-                    braki_pol.setdefault(pole, set()).add(w.nazwa)
-                    okresy_bez.setdefault(pole, set()).add(i)
+                # Rejestr braków dotyczy TREŚCI SPRAWOZDAŃ — dzień obecny w osi
+                # wyłącznie dzięki ocenie BPS nie jest brakiem pozycji sprawozdawczej.
+                if pz is not None:
+                    for pole in brakujace_pozycje(w, pz):
+                        braki_pol.setdefault(pole, set()).add(w.nazwa)
+                        okresy_bez.setdefault(pole, set()).add(d)
                 kolumny.append("—")
             else:
                 ma = True
@@ -261,7 +274,7 @@ def analiza_ekonomiczna(case_id, unikalne, okresy, wykazane=(), z_ocen=None):
     return {
         "table": {
             "caption": "Tabela. Analiza ekonomiczno-finansowa banku wg rubryki banku zrzeszającego",
-            "head": ["Obszar", "Wskaźnik", "Waga", *okresy],
+            "head": ["Obszar", "Wskaźnik", "Waga", *os_okresow],
             "rows": wiersze,
         },
         "obszary": obszary_stan,
