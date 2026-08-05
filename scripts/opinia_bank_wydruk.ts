@@ -54,10 +54,12 @@ async function main() {
 
   const stamp = new Date().toISOString().slice(0, 10);
   const skrot = c.name.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24);
-  // Liczymy tylko PDF-y — para pdf+docx jednego wydruku podbijała numer o 2.
+  // Numer = NAJWYŻSZY istniejący + 1, nie liczność plików: po nadpisaniu v3 liczność
+  // wynosiła 2 (v1, v3) i „kolejny" wydruk znów trafiał w v3, nadpisując poprzedni.
   const { data: prev } = await sb
     .from("documents").select("rel_path").eq("case_id", c.id).ilike("rel_path", `OUTPUT/Opinia_${skrot}_%.pdf`);
-  const ver = (prev?.length ?? 0) + 1;
+  const ver =
+    Math.max(0, ...(prev ?? []).map((p) => Number(p.rel_path.match(/_v(\d+)\.pdf$/)?.[1] ?? 0))) + 1;
 
   const pdf = await renderOpinionPdf(op, { final });
   const strn = (pdf.toString("latin1").match(/\/Type\s*\/Page[^s]/g) ?? []).length;
