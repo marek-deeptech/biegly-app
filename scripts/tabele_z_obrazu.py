@@ -45,6 +45,32 @@ SYSTEM = (
     '"wiersze":[{"etykieta":"Suma bilansowa","wartosci":["1.578.168","2.429.334"]}]}]}'
 )
 
+# Tryb „bilans” — strony SPRAWOZDANIA FINANSOWEGO (bilans, rachunek zysków i strat,
+# zestawienie zmian w kapitale), nie tabele wskaźników w narracji nadzorczej.
+# Osobny prompt, bo tam nagłówkiem kolumny bywa sam rok („2013 r.”) albo data pod
+# wspólnym nagłówkiem „stan na”, a etykiety wierszy mają numerację rzymską, którą
+# trzeba zachować w tle, ale nie w etykiecie.
+SYSTEM_BILANS = (
+    "Jesteś asystentem biegłego sądowego. Otrzymujesz OBRAZ strony sprawozdania "
+    "finansowego banku (bilans, rachunek zysków i strat, zestawienie zmian w kapitale "
+    "własnym). Odczytaj tabele z tej strony. "
+    "ZASADY BEZWZGLĘDNE: "
+    "(1) Przepisuj liczby DOKŁADNIE tak, jak widnieją, wraz z separatorami; nie przeliczaj "
+    "i nie zaokrąglaj. (2) Każdą wartość przypisz do kolumny, nad którą stoi. Nagłówki "
+    "kolumn to daty („31.12.2013 r.”) albo okresy roczne („2013 r.”) — przepisz nagłówek "
+    "dosłownie. (3) Jeżeli nagłówka kolumn nie widać, a data stanu jest podana w zdaniu "
+    "nad tabelą (np. „według stanu na 31.12.2014”), użyj tej daty jako nagłówka jedynej "
+    "kolumny wartości; gdy i tego nie ma — POMIŃ tabelę zamiast zgadywać. "
+    "(4) Etykieta wiersza BEZ numeracji rzymskiej/arabskiej z brzegu tabeli, ale z pełną "
+    "treścią (np. „Zysk (strata) netto”, „Należności od sektora niefinansowego”). "
+    "Wiersze podrzędne (1., a), b)) przepisuj jako osobne wiersze z ich etykietami. "
+    "(5) Zapisz jednostkę z nagłówka strony (np. „w złotych”), jeśli podana. "
+    "(6) Nie interpretuj i nie komentuj — sam odczyt. "
+    '(7) Zwróć WYŁĄCZNIE JSON: {"tabele":[{"jednostka":"w złotych",'
+    '"kolumny":["31.12.2013","31.12.2014"],'
+    '"wiersze":[{"etykieta":"Aktywa razem","wartosci":["3 105 176 764,07","3 828 641 287,62"]}]}]}'
+)
+
 
 def renderuj(pdf: Path, strona: int, dpi: int, katalog: Path) -> Path:
     wzor = katalog / f"s{strona:04d}"
@@ -58,12 +84,14 @@ def renderuj(pdf: Path, strona: int, dpi: int, katalog: Path) -> Path:
     return pliki[0]
 
 
-def czytaj_strone(obraz: Path) -> dict:
+def czytaj_strone(obraz: Path, tryb: str = "wskazniki") -> dict:
     dane = base64.standard_b64encode(obraz.read_bytes()).decode()
     msg = llm.klient("tabele_z_obrazu").messages.create(
         model="claude-opus-4-8",
-        max_tokens=4000,
-        system=SYSTEM,
+        # Strona bilansu ma kilkadziesiąt wierszy z długimi etykietami — 4000 tokenów
+        # urywało odpowiedź w połowie pasywów.
+        max_tokens=8000 if tryb == "bilans" else 4000,
+        system=SYSTEM_BILANS if tryb == "bilans" else SYSTEM,
         messages=[{
             "role": "user",
             "content": [
@@ -137,6 +165,9 @@ def main() -> int:
     ap.add_argument("--strony", required=True, help="numery stron po przecinku")
     ap.add_argument("--dpi", type=int, default=200)
     ap.add_argument("--json", help="zapisz wynik do pliku")
+    ap.add_argument("--tryb", choices=("wskazniki", "bilans"), default="wskazniki",
+                    help="wskazniki = tabele w narracji nadzorczej (domyślnie); "
+                         "bilans = strony sprawozdania finansowego")
     a = ap.parse_args()
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -148,7 +179,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for s in strony:
             obraz = renderuj(pdf, s, a.dpi, Path(tmp))
-            odczyt = czytaj_strone(obraz)
+            odczyt = czytaj_strone(obraz, a.tryb)
             if "blad" in odczyt:
                 print(f"str.{s}: ✗ {odczyt['blad']}")
                 continue

@@ -548,7 +548,9 @@ GRUPY: list[tuple[str, list[tuple[str, str]]]] = [
     ("Suma bilansowa i portfel", [
         ("aktywa_ogolem", "Aktywa ogółem"),
         ("kredyty_brutto", "Kredyty i pożyczki udzielone klientom"),
+        ("naleznosci_nominalne", "Należności ogółem wg wartości nominalnej (brutto)"),
         ("kredyty_zagrozone", "w tym kredyty zagrożone"),
+        ("rezerwy_utworzone", "Rezerwy celowe utworzone na należności (stan)"),
         ("odpisy", "Odpisy z tytułu utraty wartości"),
     ]),
     ("Struktura finansowania", [
@@ -563,10 +565,17 @@ GRUPY: list[tuple[str, list[tuple[str, str]]]] = [
         ("kapital_tier2", "Kapitał Tier 2"),
         ("fundusze_wlasne", "Fundusze własne razem"),
         ("aktywa_wazone_ryzykiem", "Aktywa ważone ryzykiem (RWA)"),
+        # Pojęcia rubryki banku zrzeszającego (art. 127 Prawa bankowego w brzmieniu
+        # sprzed CRR) — czytane z tabeli funduszy własnych w informacji dodatkowej.
+        ("fundusz_udzialowy", "Fundusz udziałowy"),
+        ("fundusze_podstawowe", "Fundusze podstawowe"),
     ]),
     ("Rachunek wyników", [
         ("przychody_odsetkowe", "Przychody odsetkowe"),
         ("wynik_odsetkowy", "Wynik z tytułu odsetek"),
+        ("wynik_dzialalnosci_bankowej", "Wynik działalności bankowej"),
+        ("koszty_dzialania", "Koszty działania banku"),
+        ("wynik_z_rezerw", "Różnica wartości rezerw i aktualizacji (saldo odpisów)"),
         ("zysk_netto", "Zysk netto"),
     ]),
 ]
@@ -709,3 +718,271 @@ def sprawdz_bilans(poz: list[Pozycje]) -> list[str]:
                     "prawdopodobnie ta sama kolumna przypisana dwa razy."
                 )
     return uwagi
+
+
+# ── Pozycje z tabel odczytanych Z OBRAZU stron sprawozdania ──────────────────
+# OCR spłaszcza tabelę bilansu do potoku słów i gubi przynależność liczby do
+# kolumny — w raporcie EBI SK Banku warstwa tekstowa dała „kredyty = 300 zł”
+# przy sumie bilansowej 3,8 mld. Odczyt z obrazu (scripts/tabele_z_obrazu.py
+# --tryb bilans) widzi linie tabeli i nagłówki kolumn; ten blok zamienia jego
+# wynik na `Pozycje` — z kontrolą, której odczyt tekstowy dać nie może:
+# bilans MUSI się domykać, a wartości absurdalne wobec sumy bilansowej są
+# odrzucane GŁOŚNO, nie po cichu.
+
+# Etykiety wierszy sprawozdania wg układu PSR (banki krajowe). Dopasowanie do
+# POCZĄTKU etykiety po zdjęciu numeracji porządkowej; wzorce z `$` wymagają
+# całej etykiety — „Udziałowy” ma NIE łapać „Udziałowy (amortyzowany)” z rachunku
+# wg CRR, bo to inna metodyka i inna wartość.
+ETYKIETY_TABEL: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^aktywa razem"), "aktywa_ogolem"),
+    (re.compile(r"^pasywa razem"), "_pasywa_razem"),
+    # Nota klasyfikacyjna: „…brutto” to należności NOMINALNE (przed rezerwami
+    # i prowizjami) — wzorzec MUSI stać przed bilansowym, bo tamten dopasowuje
+    # się do początku i połknąłby też „…brutto” i „…netto”.
+    (re.compile(r"^należności od sektora niefinansowego brutto"), "naleznosci_nominalne"),
+    (re.compile(r"^należności od sektora niefinansowego(?!\s+brutto|\s+netto)"), "kredyty_brutto"),
+    (re.compile(r"^należności zagrożone"), "kredyty_zagrozone"),
+    (re.compile(r"^rezerwy celowe na należności"), "rezerwy_utworzone"),
+    (re.compile(r"^zobowiązania wobec sektora niefinansowego"), "depozyty_klientow"),
+    (re.compile(r"^kapitał własny na koniec okresu"), "kapital_wlasny"),
+    (re.compile(r"^zysk \(strata\) netto$|^wynik netto$|^zysk netto$"), "zysk_netto"),
+    (re.compile(r"^przychody z tytułu odsetek"), "przychody_odsetkowe"),
+    (re.compile(r"^wynik z tytułu odsetek"), "wynik_odsetkowy"),
+    (re.compile(r"^koszty działania banku"), "koszty_dzialania"),
+    (re.compile(r"^wynik działalności bankowej"), "wynik_dzialalnosci_bankowej"),
+    # Saldo odpisów (odpisy − rozwiązania) DODATNIE = obciążenie wyniku. Konwencję
+    # potwierdza zgodność z wartością wykazaną przez BPS: 10 174 447,13 / WDB za
+    # 2013 = 15,43% wobec 15,23% w ocenie zrzeszającego na 31.12.2013.
+    (re.compile(r"^różnica wartości rezerw i aktualizacji"), "wynik_z_rezerw"),
+    (re.compile(r"^udziałowy$"), "fundusz_udzialowy"),
+    (re.compile(r"^fundusze podstawowe$"), "fundusze_podstawowe"),
+    # Fundusze własne występują w sprawozdaniu SK Banku W DWÓCH METODYKACH
+    # (art. 127 pb: 396,3 mln; CRR: 389,6 mln) — wiersz jest rozstrzygany przy
+    # tabeli po jej kluczu `metodyka`, nigdy ślepo (patrz pętla niżej).
+    (re.compile(r"^fundusze własne$"), "_fundusze_wlasne"),
+    # Współczynnik wypłacalności bywa OSTATNIM WIERSZEM bilansu banku spółdzielczego.
+    # To wartość WYKAZANA przez bank (silnik nie ma RWA, żeby ją policzyć) — idzie
+    # osobnym kanałem, nigdy do pól `Pozycje`.
+    (re.compile(r"^współczynnik wypłacalności"), "_wsp_wyplacalnosci"),
+]
+
+# Pola objęte kontrolą domknięcia bilansu — czytane z tabel AKTYWA/PASYWA.
+# Kapitał własny pochodzi z zestawienia zmian (osobna tabela o własnych kolumnach),
+# a pozycje wynikowe z RZiS — niedomknięty bilans ich nie unieważnia.
+_POLA_BILANSOWE_TABEL = {"aktywa_ogolem", "kredyty_brutto", "depozyty_klientow"}
+
+# Numeracja porządkowa wiersza: „1.2.”, „a)”, „IV.”, wiodący myślnik wyliczenia.
+_NUMERACJA_TABEL = re.compile(r"^\s*(?:[-–—]\s*)?(?:(?:[ivxlc]+|\d+(?:\.\d+)*|[a-z])[.)])?\s*")
+
+
+def _etykieta_tabeli(s: str) -> str:
+    return _NUMERACJA_TABEL.sub("", str(s).strip().lower(), count=1).strip()
+
+
+def _dzien_kolumny(s: str, uwagi: list[str], strona: int) -> str | None:
+    """Nagłówek kolumny → dzień ISO.
+
+    „31.12.2013 r.” → 2013-12-31. Sam rok („2014 r.”) — nagłówek rachunku zysków
+    i strat oraz zestawienia zmian — oznacza OKRES roczny; przypisujemy go do dnia
+    bilansowego kończącego okres, bo tak te wielkości wchodzą do szeregu (patrz
+    POLA_WYNIKOWE). Przypisanie jest odnotowywane: to wniosek z układu sprawozdania
+    rocznego, nie odczyt daty.
+    """
+    t = str(s).strip()
+    m = _DATA.search(t)
+    if m:
+        d, mies, rok = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= d <= 31 and 1 <= mies <= 12 and 1990 <= rok <= _dzis().year:
+            return f"{rok:04d}-{mies:02d}-{d:02d}"
+        return None
+    m = re.fullmatch(r"(\d{4})\s*r?\.?", t)
+    if m and 1990 <= int(m.group(1)) <= _dzis().year:
+        iso = f"{int(m.group(1)):04d}-12-31"
+        u = (f"str. {strona}: kolumna roczna „{t}” przypisana do dnia bilansowego {iso} "
+             "(okres roczny kończy się w tym dniu).")
+        if u not in uwagi:
+            uwagi.append(u)
+        return iso
+    return None
+
+
+def pozycje_z_tabel(
+    tabele: list[dict],
+    uwagi: list[str] | None = None,
+) -> tuple[list[Pozycje], list[tuple[str, float]], list[str], dict[str, str]]:
+    """Tabele z obrazu stron → (pozycje, wykazane_wspolczynniki, zastrzezenia, miejsca).
+
+    Format wejścia = wyjście scripts/tabele_z_obrazu.py (kolumny, wiersze z etykietą
+    i wartościami, strona, opcjonalnie plik) — ten sam, który dla chronologii
+    konsumuje `okresyZTabel` w lib/opinion/chronologia-run.ts.
+
+    KONTYNUACJE STRON: tabela bez rozpoznanej kolumny daty dziedziczy kolumny
+    z tabeli POPRZEDNIEJ, jeżeli pochodzi z tego samego pliku, z następnej strony
+    i każdy jej wiersz ma tyle wartości, ile odziedziczonych kolumn. Tak są łamane
+    wielostronicowe tabele sprawozdania (pasywa, RZiS, zestawienie zmian) — model
+    czytający obraz słusznie nie zgaduje dat, których na stronie nie ma, ale układ
+    dokumentu jest tu regułą, nie domysłem. Dziedziczenie jest odnotowywane.
+    """
+    uwagi = uwagi if uwagi is not None else []
+    zastrzezenia: list[str] = []
+    miejsca: dict[str, str] = {}
+    wykazane: dict[str, float] = {}
+    wartosci: dict[tuple[str, str], float] = {}
+    # (plik, strona, pary indeks→dzień, liczba kolumn oryginału) — do dziedziczenia
+    # przez strony-kontynuacje. Liczba kolumn osobno, bo pary pomijają kolumny
+    # procentowe, a wiersz kontynuacji musi mieć tyle wartości, ile KOLUMN tabeli.
+    poprzednia: tuple[str, int, list[tuple[int, str]], int] | None = None
+
+    for t in tabele or []:
+        plik = str(t.get("plik") or "")
+        strona = int(t.get("strona") or 0)
+        kolumny = t.get("kolumny") or []
+        # Noty klasyfikacyjne mają pod jedną datą DWIE kolumny: kwotę i udział
+        # („Wartość na 31.12.2014r. | zł | %”). Kolumna procentowa niesie strukturę,
+        # nie kwotę — wzięta po indeksie podstawiłaby 45,76 pod pozycję w złotych.
+        pary = [(i, d) for i, k in enumerate(kolumny)
+                if "%" not in str(k) and (d := _dzien_kolumny(k, uwagi, strona))]
+        n_kol = len(kolumny)
+        wiersze = t.get("wiersze") or []
+        if not pary:
+            odz = poprzednia
+            if (odz and plik == odz[0] and strona == odz[1] + 1
+                    and wiersze and all(len(w.get("wartosci") or []) == odz[3] for w in wiersze)):
+                pary, n_kol = odz[2], odz[3]
+                uwagi.append(
+                    f"{plik or 'tabela'}, str. {strona}: kontynuacja tabeli ze str. {odz[1]} — "
+                    f"kolumny odziedziczone ({', '.join(d for _, d in pary)})."
+                )
+            else:
+                zastrzezenia.append(
+                    f"{plik or 'tabela'}, str. {strona}: nie rozpoznano kolumn dat i nie ma "
+                    "poprzedzającej strony o zgodnym układzie — tabelę pominięto."
+                )
+                continue
+        poprzednia = (plik, strona, pary, n_kol)
+        gdzie = f"{plik}, str. {strona} (tabela z obrazu)" if plik else f"str. {strona} (tabela z obrazu)"
+        metodyka = str(t.get("metodyka") or "").strip().lower()
+
+        for w in wiersze:
+            pole = next((p for wz, p in ETYKIETY_TABEL if wz.match(_etykieta_tabeli(w.get("etykieta", "")))), None)
+            if pole is None:
+                continue
+            for i, dzien in pary:
+                surowa = str((w.get("wartosci") or [])[i] if i < len(w.get("wartosci") or []) else "").strip()
+                v = _liczba(surowa.rstrip("%").strip()) if pole == "_wsp_wyplacalnosci" else _liczba(surowa)
+                if v is None:
+                    continue
+                if pole == "_wsp_wyplacalnosci":
+                    wykazane.setdefault(dzien, v)
+                    miejsca.setdefault("wsp_wyplacalnosci_wykazany", gdzie)
+                    continue
+                pole_w = pole
+                if pole == "_fundusze_wlasne":
+                    # Dwie metodyki funduszy własnych w jednym sprawozdaniu (art. 127 pb
+                    # i CRR) NIE MOGĄ trafić do jednego pola. Do `fundusze_wlasne` wchodzi
+                    # wyłącznie rachunek wg CRR — bo to z niego bank policzył wykazany
+                    # współczynnik wypłacalności i tylko to parowanie jest metodycznie
+                    # jednorodne przy odtwarzaniu RWA. Wartość wg art. 127 zostaje
+                    # odnotowana; tabela bez oznaczenia metodyki nie wchodzi wcale.
+                    if metodyka == "crr":
+                        pole_w = "fundusze_wlasne"
+                    elif metodyka == "pb":
+                        uwagi.append(
+                            f"{dzien}: fundusze własne wg art. 127 Prawa bankowego = {_kw(v)} "
+                            f"({gdzie}) — NIE weszły do pozycji: do wskaźników idzie rachunek "
+                            "wg CRR, z którego bank policzył wykazany współczynnik."
+                        )
+                        continue
+                    else:
+                        zastrzezenia.append(
+                            f"{dzien}: wiersz „Fundusze własne” w tabeli bez klucza `metodyka` "
+                            f"(pb|crr) — pominięty ({gdzie}); oznacz tabelę, żeby rozstrzygnąć, "
+                            "która z metodyk sprawozdania to jest."
+                        )
+                        continue
+                stara = wartosci.get((dzien, pole_w))
+                if stara is None:
+                    wartosci[(dzien, pole_w)] = v
+                    if not pole_w.startswith("_"):
+                        miejsca.setdefault(pole_w, gdzie)
+                elif abs(stara - v) > 1:
+                    # Ta sama pozycja czytana z dwóch miejsc sprawozdania (np. zysk netto
+                    # w pasywach i w RZiS) MUSI się zgadzać — rozjazd to błąd odczytu
+                    # albo dokumentu i nie wolno go wygładzić wyborem jednej z wartości.
+                    zastrzezenia.append(
+                        f"{dzien}: pozycja „{w.get('etykieta')}” odczytana dwukrotnie z różnymi "
+                        f"wartościami ({_kw(stara)} i {_kw(v)}) — przyjęto pierwszą; zweryfikuj "
+                        f"w oryginale ({gdzie})."
+                    )
+
+    # ── Walidacje per dzień: domknięcie bilansu i wartości absurdalne ────────
+    dni_wszystkie = sorted({d for d, _ in wartosci})
+    for dzien in dni_wszystkie:
+        a = wartosci.get((dzien, "aktywa_ogolem"))
+        p = wartosci.get((dzien, "_pasywa_razem"))
+        if a is not None and p is not None:
+            if abs(a - p) > 0.002 * max(abs(a), abs(p)):
+                zastrzezenia.append(
+                    f"{dzien}: bilans z tabel NIE DOMYKA SIĘ — aktywa razem {_kw(a)} wobec pasywów "
+                    f"razem {_kw(p)}; pozycje bilansowe tego dnia odrzucono. Zweryfikuj odczyt "
+                    "stron bilansu w oryginale."
+                )
+                for pole in _POLA_BILANSOWE_TABEL:
+                    wartosci.pop((dzien, pole), None)
+        elif a is not None and p is None:
+            uwagi.append(f"{dzien}: tabele nie zawierają wiersza „Pasywa razem” — domknięcia bilansu nie sprawdzono.")
+        elif p is not None and a is None:
+            uwagi.append(f"{dzien}: tabele nie zawierają wiersza „Aktywa razem” — domknięcia bilansu nie sprawdzono.")
+
+        a = wartosci.get((dzien, "aktywa_ogolem"))
+        if a is not None and a <= 0:
+            zastrzezenia.append(f"{dzien}: aktywa razem ≤ 0 ({_kw(a)}) — wartość odrzucona.")
+            wartosci.pop((dzien, "aktywa_ogolem"), None)
+            a = None
+        for pole in ("kredyty_brutto", "depozyty_klientow", "kapital_wlasny"):
+            v = wartosci.get((dzien, pole))
+            if v is None:
+                continue
+            if v < 0:
+                zastrzezenia.append(
+                    f"{dzien}: {pole} ujemne ({_kw(v)}) — wartość odrzucona.")
+                wartosci.pop((dzien, pole), None)
+            elif a is not None and v > 1.02 * a:
+                zastrzezenia.append(
+                    f"{dzien}: {pole} ({_kw(v)}) przewyższa sumę bilansową ({_kw(a)}) — składnik nie "
+                    "może być większy od całości; wartość odrzucona.")
+                wartosci.pop((dzien, pole), None)
+            elif a is not None and v < 0.0005 * a:
+                zastrzezenia.append(
+                    f"{dzien}: {pole} = {_kw(v)} przy sumie bilansowej {_kw(a)} — wartość absurdalnie "
+                    "mała wobec całości — najpewniej obcięty odczyt; odrzucona.")
+                wartosci.pop((dzien, pole), None)
+
+        # Nota klasyfikacyjna: zagrożone i rezerwy są PODZBIOREM należności ogółem
+        # wg wartości nominalnej — składnik większy od całości to błąd odczytu.
+        nom = wartosci.get((dzien, "naleznosci_nominalne"))
+        for pole in ("kredyty_zagrozone", "rezerwy_utworzone"):
+            v = wartosci.get((dzien, pole))
+            if v is None:
+                continue
+            if v < 0:
+                zastrzezenia.append(f"{dzien}: {pole} ujemne ({_kw(v)}) — wartość odrzucona.")
+                wartosci.pop((dzien, pole), None)
+            elif nom is not None and v > 1.02 * nom:
+                zastrzezenia.append(
+                    f"{dzien}: {pole} ({_kw(v)}) przewyższa należności ogółem wg wartości "
+                    f"nominalnej ({_kw(nom)}) — składnik nie może być większy od całości; "
+                    "wartość odrzucona.")
+                wartosci.pop((dzien, pole), None)
+
+    out: list[Pozycje] = []
+    for dzien in dni_wszystkie:
+        pz = Pozycje(dzien=dzien)
+        ma = False
+        for (d, pole), v in wartosci.items():
+            if d == dzien and not pole.startswith("_"):
+                setattr(pz, pole, v)
+                ma = True
+        if ma:
+            out.append(pz)
+    return out, sorted(wykazane.items()), zastrzezenia, miejsca

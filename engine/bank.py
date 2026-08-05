@@ -104,6 +104,13 @@ class Pozycje:
     # Jakość portfela i płynność
     kredyty_brutto: float | None = None
     kredyty_zagrozone: float | None = None
+    # Należności ogółem WG WARTOŚCI NOMINALNEJ (brutto, przed rezerwami celowymi
+    # i prowizjami) — mianownik wskaźnika jakości z rubryki banku zrzeszającego.
+    # Osobne pole, bo `kredyty_brutto` czyta się z bilansu, a bilans PSR wykazuje
+    # należności NETTO: iloraz zagrożonych (nominalnych) przez wartość bilansową
+    # mieszałby zakresy i zawyżał wskaźnik (w SK Banku 22,10% zamiast 21,84%,
+    # które sam dokument podaje).
+    naleznosci_nominalne: float | None = None
     odpisy: float | None = None
     aktywa_plynne: float | None = None
     wyplywy_netto_30d: float | None = None
@@ -240,8 +247,23 @@ def wskazniki(p: Pozycje) -> list[Wskaznik]:
           {"wynik odsetkowy": p.wynik_odsetkowy, "aktywa ogółem": p.aktywa_ogolem})
 
     # ── Jakość portfela ──
-    dodaj("npl", "Udział kredytów zagrożonych", _pct(p.kredyty_zagrozone, p.kredyty_brutto), "%",
-          {"kredyty zagrożone": p.kredyty_zagrozone, "kredyty brutto": p.kredyty_brutto})
+    # Mianownik NOMINALNY, gdy sprawozdanie go podaje: klasyfikacja należności
+    # (zagrożone) jest wg wartości nominalnej, a `kredyty_brutto` z bilansu PSR
+    # to wartość NETTO rezerw — iloraz przez nią miesza zakresy (SK Bank: 22,10%
+    # zamiast 21,84% z noty). Bilansowy mianownik zostaje jako gałąź zapasowa
+    # dla sprawozdań bez noty klasyfikacyjnej — z ostrzeżeniem, nie po cichu.
+    mian_npl = p.naleznosci_nominalne if p.naleznosci_nominalne is not None else p.kredyty_brutto
+    dodaj("npl", "Udział kredytów zagrożonych", _pct(p.kredyty_zagrozone, mian_npl), "%",
+          {"kredyty zagrożone": p.kredyty_zagrozone,
+           ("należności ogółem (nominalne)" if p.naleznosci_nominalne is not None
+            else "kredyty brutto"): mian_npl})
+    if (p.naleznosci_nominalne is None and out and out[-1].kod == "npl"
+            and out[-1].ostrzezenie is None):
+        out[-1].ostrzezenie = (
+            "Mianownik z wartości bilansowej kredytów (sprawozdanie nie podaje należności "
+            "wg wartości nominalnej) — klasyfikacja zagrożonych jest nominalna, więc wskaźnik "
+            "może być zawyżony o rezerwy celowe."
+        )
     dodaj("pokrycie_odpisami", "Pokrycie kredytów zagrożonych odpisami",
           _pct(p.odpisy, p.kredyty_zagrozone), "%",
           {"odpisy": p.odpisy, "kredyty zagrożone": p.kredyty_zagrozone})

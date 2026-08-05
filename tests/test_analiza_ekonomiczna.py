@@ -43,9 +43,13 @@ def test_drugi_wskaznik_jakosci_liczy_sie_do_aktywow_nie_do_naleznosci():
 
 
 def test_wartosc_liczy_sie_z_pozycji_sprawozdawczych():
-    p = Pozycje(dzien="2014-12-31", kredyty_zagrozone=560_663_000, kredyty_brutto=2_500_215_000)
+    # Mianownik NOMINALNY (rubryka: „wg wartości nominalnej”) — nie bilansowy,
+    # bo bilans PSR wykazuje należności netto rezerw celowych.
+    p = Pozycje(dzien="2014-12-31", kredyty_zagrozone=560_663_000, naleznosci_nominalne=2_500_215_000)
     w = next(x for x in WSKAZNIKI_EF if x.kod == "naleznosci_zagrozone")
     assert wartosc(w, p) == 22.42
+    assert wartosc(w, Pozycje(dzien="2014-12-31", kredyty_zagrozone=560_663_000,
+                              kredyty_brutto=2_500_215_000)) is None
 
 
 def test_brak_pozycji_daje_None_i_NAZWANY_brak():
@@ -299,7 +303,8 @@ def test_wartosc_policzona_ma_pierwszenstwo_przed_wykazana():
     """
     from engine.uslugi.bank import analiza_ekonomiczna
 
-    poz = [Pozycje(dzien="2014-06-30", kredyty_zagrozone=124_032_000, kredyty_brutto=2_037_916_000)]
+    poz = [Pozycje(dzien="2014-06-30", kredyty_zagrozone=124_032_000,
+                   naleznosci_nominalne=2_037_916_000)]
     # `naleznosci_zagrozone` = 124 032 / 2 037 916 = 6,09% — policzalne z akt.
     w = analiza_ekonomiczna("x", poz, ["2014-06-30"],
                             z_ocen={"naleznosci_zagrozone": {"2014-06-30": 99.99}})

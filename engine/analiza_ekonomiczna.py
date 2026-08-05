@@ -80,9 +80,14 @@ WSKAZNIKI_EF: list[WskaznikEF] = [
                "fundusz_udzialowy", "fundusze_podstawowe"),
 
     # 2. Jakość aktywów — 0,30 + 0,25 + 0,35 + 0,10 = 1,00
+    # ⚠️ MIANOWNIK NOMINALNY, NIE BILANSOWY. Rubryka mówi „wg wartości nominalnej”,
+    # a `kredyty_brutto` czyta się z bilansu PSR, który wykazuje należności NETTO
+    # rezerw celowych — iloraz nominalnego licznika przez bilansowy mianownik
+    # mieszał zakresy (w SK Banku 22,10% zamiast 21,84%, które nota klasyfikacyjna
+    # sprawozdania podaje wprost).
     WskaznikEF("naleznosci_zagrozone", "jakosc_aktywow",
                "Należności zagrożone / należności ogółem (wg wartości nominalnej)", 0.30,
-               "kredyty_zagrozone", "kredyty_brutto"),
+               "kredyty_zagrozone", "naleznosci_nominalne"),
     WskaznikEF("zagrozone_do_aktywow", "jakosc_aktywow",
                "Należności zagrożone / aktywa ogółem (wg wartości nominalnej)", 0.25,
                "kredyty_zagrozone", "aktywa_ogolem"),

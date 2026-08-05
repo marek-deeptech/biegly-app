@@ -52,6 +52,7 @@ POLA_POZYCJI = [f.name for f in _pola_dataclass(Pozycje) if f.name not in ("dzie
 from engine.sprawozdania import (  # noqa: E402
     czytaj_pdf,
     GRUPY,
+    pozycje_z_tabel,
     sprawdz_bilans,
     strony_pol,
     zestawienie,
@@ -59,6 +60,12 @@ from engine.sprawozdania import (  # noqa: E402
     uzupelnij_z_tozsamosci,
     zbuduj_pozycje,
 )
+
+# Ustalona ścieżka tabel odczytanych z obrazu stron sprawozdania (scripts/
+# tabele_z_obrazu.py --tryb bilans). Trzymana W SPRAWIE (prefiks case_id — ta sama
+# izolacja co każdy plik akt), żeby trasa serverless liczyła z tych samych tabel
+# co uruchomienie z konsoli, bez podawania ich w każdym wywołaniu.
+SCIEZKA_TABEL = "pozyskane/tabele_sprawozdan.json"
 
 BASE = (os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "").rstrip("/")
 KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -331,11 +338,18 @@ def _uniewaznij(case_id, uwagi):
     _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}&key=like.bank\\_%25")
 
 
-def policz(case_id, paths=None):
+def policz(case_id, paths=None, tabele=None):
     """Rdzeń analizy — wspólny dla trasy HTTP i uruchomienia z konsoli.
 
     Wydzielony, bo funkcja serverless jest nietestowalna: żeby sprawdzić liczby,
     trzeba by postawić serwer. Zwraca (kod_http, payload) — handler tylko to opakowuje.
+
+    `tabele` — tabele odczytane Z OBRAZU stron sprawozdania (format
+    scripts/tabele_z_obrazu.py), analogicznie do `--tabele` chronologii. Dla dni
+    objętych tabelami zastępują odczyt warstwy tekstowej W CAŁOŚCI: tam, gdzie OCR
+    połamał kolumny (kredyty „300 zł” przy sumie 3,8 mld), scalanie pól tekstowych
+    z tabelowymi przemyciłoby złamane odczyty w dni czytane poprawnie.
+    Gdy nie podano, próbujemy `SCIEZKA_TABEL` z akt sprawy.
     """
     if True:
         try:
@@ -431,6 +445,56 @@ def policz(case_id, paths=None):
                                "okresy": [x.dzien for x in poz]})
                 pozycje += poz
 
+            # ── Tabele z obrazu stron — mają PIERWSZEŃSTWO przed warstwą tekstową ──
+            if tabele is None:
+                # Bez parametru sięgamy po tabele zapisane w aktach sprawy — trasa
+                # HTTP i konsola mają liczyć z tego samego wejścia. Brak pliku to
+                # zwykły stan (sprawa bez odczytu tabel), nie błąd.
+                try:
+                    _, tb = _req("GET", f"{BASE}/storage/v1/object/case-files/"
+                                        f"{urllib.parse.quote(f'{case_id}/{SCIEZKA_TABEL}')}")
+                    tabele = json.loads(tb)
+                except Exception:  # noqa: BLE001
+                    tabele = None
+            wykazane_tab = []
+            if tabele:
+                uwagi_tab: list[str] = []
+                poz_tab, wykazane_tab, zastrz_tab, miejsca_tab = pozycje_z_tabel(tabele, uwagi=uwagi_tab)
+                zastrzezenia += zastrz_tab
+                uwagi += uwagi_tab
+                if poz_tab:
+                    dni_tab = {p.dzien for p in poz_tab}
+                    # Odczyt tekstowy dni objętych tabelami odpada w całości — wraz
+                    # ze swoimi uwagami i zastrzeżeniami, bo opisują odczyty, których
+                    # w wyniku już nie ma.
+                    pozycje = [p for p in pozycje if p.dzien not in dni_tab]
+                    uwagi = [u for u in uwagi
+                             if not any(u.startswith(f"{d}:") for d in dni_tab) or u in uwagi_tab]
+                    zastrzezenia = [z for z in zastrzezenia
+                                    if not any(z.startswith(f"{d}:") for d in dni_tab) or z in zastrz_tab]
+                    uwagi_zrodla = [u for u in uwagi_zrodla if u.get("dzien") not in dni_tab]
+                    # Wpis źródłowy pliku, którego WSZYSTKIE okresy pokryły tabele,
+                    # opisuje odczyt już odrzucony — zostawiony, wskazywałby w rozdziale
+                    # źródeł stronę, z której nic w wyniku nie pochodzi.
+                    zrodla = [z for z in zrodla
+                              if any(o not in dni_tab for o in (z.get("okresy") or []))]
+                    pozycje = poz_tab + pozycje
+                    for pole, gdzie in miejsca_tab.items():
+                        miejsca[pole] = gdzie
+                    for pl in sorted({str(t.get("plik") or "") for t in tabele}):
+                        zrodla.append({
+                            "plik": f"{pl} (tabele z obrazu)" if pl else "tabele z obrazu",
+                            "strony": sorted({int(t.get("strona") or 0) for t in tabele
+                                              if str(t.get("plik") or "") == pl})[:12],
+                            "okresy": sorted(dni_tab),
+                        })
+                    uwagi.append(
+                        "Okresy " + ", ".join(sorted(dni_tab)) + ": pozycje odczytane z tabel "
+                        "z obrazu stron sprawozdania (scripts/tabele_z_obrazu.py --tryb bilans); "
+                        "równoległy odczyt warstwy tekstowej tych okresów pominięto, bo OCR łamie "
+                        "kolumny tabel."
+                    )
+
             # GAŁĄŹ ZAPASOWA: skoro ze sprawozdań nic nie wyszło, a chronologia nadzorcza
             # ma odczytane okresy — liczymy z nich. To ten sam materiał liczbowy, tylko
             # z innego dokumentu, więc te same wzory obowiązują.
@@ -518,18 +582,22 @@ def policz(case_id, paths=None):
                         "session_day": w.dzien,
                     })
 
-            # ⚠️ WSPÓŁCZYNNIK WYPŁACALNOŚCI Z CHRONOLOGII JEST WARTOŚCIĄ WYKAZANĄ.
-            # Silnik liczy go z funduszy własnych i aktywów ważonych ryzykiem; narracja
-            # nadzorcza RWA nie podaje, więc policzyć się go NIE DA — można go wyłącznie
-            # przepisać za dokumentem. Różnica nie jest formalna: SK Bank wykazywał
-            # 13,84% przy jednoczesnym nietworzeniu wymaganych rezerw, a po ich
-            # utworzeniu wynik spadł o 123 mln zł. Dlatego osobny wiersz, własna nazwa
-            # i klucz metryki `bank_tcr_wykazany` — nigdy `bank_tcr`.
-            if z_chronologii and wykazane:
-                wg_dnia_wyk = dict(wykazane)
+            # ⚠️ WSPÓŁCZYNNIK WYPŁACALNOŚCI Z CHRONOLOGII I Z WIERSZA BILANSU JEST
+            # WARTOŚCIĄ WYKAZANĄ. Silnik liczy go z funduszy własnych i aktywów ważonych
+            # ryzykiem; ani narracja nadzorcza, ani bilans banku spółdzielczego RWA nie
+            # podają, więc policzyć się go NIE DA — można go wyłącznie przepisać za
+            # dokumentem. Różnica nie jest formalna: SK Bank wykazywał 13,84% przy
+            # jednoczesnym nietworzeniu wymaganych rezerw, a po ich utworzeniu wynik
+            # spadł o 123 mln zł. Dlatego osobny wiersz, własna nazwa i klucz metryki
+            # `bank_tcr_wykazany` — nigdy `bank_tcr`.
+            wg_dnia_wyk = dict(wykazane)
+            for d, v in wykazane_tab:
+                wg_dnia_wyk.setdefault(d, v)
+            wykazane = sorted(wg_dnia_wyk.items())
+            if wykazane:
                 ostatni_dzien = max(wg_dnia_wyk)
                 prog = prog_na_dzien("tcr", ostatni_dzien)
-                pary = sorted(wg_dnia_wyk.items())
+                pary = wykazane
                 rows.append([
                     "Współczynnik wypłacalności — WYKAZANY przez bank (nie policzony)",
                     *[(f"{_fmt(wg_dnia_wyk[d])} %" if d in wg_dnia_wyk else "—") for d in okresy],
@@ -545,8 +613,10 @@ def policz(case_id, paths=None):
                         "target": (prog_na_dzien("tcr", d).minimum if prog_na_dzien("tcr", d) else None),
                         "session_day": d,
                     })
+                zrodlo_wyk = ("wiersza „Współczynnik wypłacalności” bilansu" if wykazane_tab
+                              else "narracji nadzorczej")
                 zastrzezenia.append(
-                    "Współczynnik wypłacalności pochodzi z narracji nadzorczej i jest wartością "
+                    f"Współczynnik wypłacalności pochodzi z {zrodlo_wyk} i jest wartością "
                     "WYKAZANĄ przez bank, nie policzoną przez silnik z funduszy własnych i aktywów "
                     "ważonych ryzykiem — ustalenie, ile wynosił rzeczywiście, wymaga oceny, czy bank "
                     "utworzył wymagane rezerwy."
@@ -754,7 +824,7 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("content-length", 0))
         b = json.loads(self.rfile.read(length) or b"{}")
-        kod, payload = policz(b.get("caseId"), b.get("storagePaths"))
+        kod, payload = policz(b.get("caseId"), b.get("storagePaths"), b.get("tabele"))
         self._json(kod, payload)
 
 
@@ -768,6 +838,16 @@ class handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    # Uruchomienie z konsoli: python3 -m engine.uslugi.bank <case_id>
-    kod, payload = policz(sys.argv[1] if len(sys.argv) > 1 else "")
+    # Uruchomienie z konsoli:
+    #   python3 -m engine.uslugi.bank <case_id> [--tabele plik.json]
+    # --tabele — wynik scripts/tabele_z_obrazu.py --tryb bilans; bez niego silnik
+    # próbuje tabel zapisanych w aktach sprawy (SCIEZKA_TABEL).
+    argv = sys.argv[1:]
+    tabele_cli = None
+    if "--tabele" in argv:
+        i = argv.index("--tabele")
+        with open(argv[i + 1], encoding="utf8") as fh:
+            tabele_cli = json.load(fh)
+        argv = argv[:i] + argv[i + 2:]
+    kod, payload = policz(argv[0] if argv else "", tabele=tabele_cli)
     print(kod, json.dumps(payload, ensure_ascii=False, indent=1))
