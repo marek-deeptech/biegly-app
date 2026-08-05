@@ -15,6 +15,7 @@ type Tabela = { caption: string; head: string[]; rows: string[][] };
 type Dane = {
   config?: {
     emitent?: { ticker?: string; nazwa?: string };
+    emitenci?: { ticker: string; nazwa?: string }[];
     peers?: { ticker: string }[];
     odBadany?: string | null;
     doBadany?: string | null;
@@ -41,8 +42,9 @@ export default function EkofinPanel({
     [subanalyses],
   );
   const cfg = dane?.config;
-  const [emitent, setEmitent] = useState(cfg?.emitent?.ticker ?? "");
-  const [nazwa, setNazwa] = useState(cfg?.emitent?.nazwa ?? "");
+  const cfgEmitenci = cfg?.emitenci?.length ? cfg.emitenci : cfg?.emitent?.ticker ? [cfg.emitent as { ticker: string; nazwa?: string }] : [];
+  const [emitent, setEmitent] = useState(cfgEmitenci.map((e) => e.ticker).join(", "));
+  const [nazwa, setNazwa] = useState(cfgEmitenci.map((e) => e.nazwa ?? "").join("; "));
   const [peers, setPeers] = useState((cfg?.peers ?? []).map((p) => p.ticker).join(", "));
   const [od, setOd] = useState(cfg?.odBadany ?? "");
   const [do_, setDo] = useState(cfg?.doBadany ?? "");
@@ -50,13 +52,17 @@ export default function EkofinPanel({
   const [busy, setBusy] = useState<"" | "pobierz" | "przelicz">("");
   const [msg, setMsg] = useState("");
 
-  const config = () => ({
-    emitent: { ticker: emitent.trim(), nazwa: nazwa.trim() || undefined },
-    peers: peers.split(",").map((t) => t.trim()).filter(Boolean).map((ticker) => ({ ticker })),
-    odBadany: od.trim() || null,
-    doBadany: do_.trim() || null,
-    bazaIndeksu: baza.trim() || null,
-  });
+  const config = () => {
+    // Wiele instrumentów po przecinku (ZASTAL: „csy, rsy”); nazwy po średniku.
+    const nazwy = nazwa.split(";").map((x) => x.trim());
+    return {
+      emitenci: emitent.split(",").map((t, i) => ({ ticker: t.trim(), nazwa: nazwy[i] || undefined })).filter((e) => e.ticker),
+      peers: peers.split(",").map((t) => t.trim()).filter(Boolean).map((ticker) => ({ ticker })),
+      odBadany: od.trim() || null,
+      doBadany: do_.trim() || null,
+      bazaIndeksu: baza.trim() || null,
+    };
+  };
 
   async function wykonaj(action: "pobierz" | "przelicz") {
     if (!emitent.trim()) {
@@ -108,12 +114,12 @@ export default function EkofinPanel({
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <label className="text-[11px] text-inksoft">
-          Ticker emitenta (stooq)
-          <input className={pole} value={emitent} onChange={(e) => setEmitent(e.target.value)} placeholder="np. zst" />
+          Ticker(y) instrumentów — po przecinku
+          <input className={pole} value={emitent} onChange={(e) => setEmitent(e.target.value)} placeholder="np. csy, rsy" />
         </label>
         <label className="text-[11px] text-inksoft">
-          Nazwa emitenta (do podpisów)
-          <input className={pole} value={nazwa} onChange={(e) => setNazwa(e.target.value)} placeholder="np. ZASTAL SA" />
+          Nazwy (po średniku, w tej samej kolejności)
+          <input className={pole} value={nazwa} onChange={(e) => setNazwa(e.target.value)} placeholder="np. CSY S.A.; RSY S.A." />
         </label>
         <label className="text-[11px] text-inksoft">
           Spółki porównawcze (tickery po przecinku)

@@ -20,7 +20,7 @@ import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
 import AnalizaEfPanel from "./analiza-ef-panel";
-import EkofinPanel from "./ekofin-panel";
+import AnalizaIVPanel from "./analiza-iv-panel";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
 import WarsztatBankPanel from "./warsztat-bank-panel";
 import PytaniaPanel from "./pytania-panel";
@@ -1227,11 +1227,16 @@ export default function CaseDetail({
         <WarsztatBankPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
       )}
 
-      {/* KROK 4 GPW — analiza ekonomiczno-finansowa emitenta (wzorzec: IV.1 finału
-          HubTech). Krok istnieje TYLKO w pakiecie manipulacyjnym; w sprawie bankowej
-          stepper go nie pokazuje, a rubryka bankowa żyje w kroku „Analiza". */}
+      {/* KROK 4 GPW — rozdział IV opinii w siedmiu pod-zakładkach (wzorzec: finał
+          HubTech; wymóg klienta ze sprawy ZASTAL). Krok istnieje TYLKO w pakiecie
+          manipulacyjnym; w sprawie bankowej stepper go nie pokazuje. */}
       {tab === "ekonomia" && !dziedzinaBankowa && (
-        <EkofinPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
+        <AnalizaIVPanel
+          caseId={caseRow.id}
+          subanalyses={subanalyses}
+          metrics={metrics}
+          onDone={() => router.refresh()}
+        />
       )}
 
       {tab === "analysis" && !dziedzinaBankowa && (

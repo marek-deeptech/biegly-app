@@ -109,10 +109,15 @@ def compute_all(
                       round(p["value"], 2), "zł"))
 
     # Improper matched orders — zlecenia wewnątrzgrupowe składane niemal jednocześnie.
+    #
+    # ⚠️ ZERO ZAPISUJEMY JAWNIE. „Cisza przy zerze" sprawiała, że rozdział IV.5 nie
+    # miał na czym stanąć i nie dało się odróżnić „techniki nie badano" od „zbadano,
+    # dopasowań brak". W sprawie WERYFIKACYJNEJ (ZASTAL) to drugie jest ustaleniem
+    # negatywnym o wartości dowodowej — wchodzi do opinii z progiem, którym badano.
     mo = metrics.matched_orders(transactions, group_fragments)
+    thr = mo["threshold_s"]
+    out.append(_m("imo_count", f"Dopasowane zlecenia (≤{thr}s, wewnątrzgr.)", mo["total"]["count"], "szt"))
     if mo["total"]["count"]:
-        thr = mo["threshold_s"]
-        out.append(_m("imo_count", f"Dopasowane zlecenia (≤{thr}s, wewnątrzgr.)", mo["total"]["count"], "szt"))
         out.append(_m("imo_value", "Wartość dopasowanych zleceń", round(mo["total"]["value"], 2), "zł"))
         out.append(_m("imo_volume", "Wolumen dopasowanych zleceń", round(mo["total"]["volume"]), "szt"))
         for r in mo["per_day"]:
@@ -268,9 +273,11 @@ def compute_trem(transactions: list[dict], group_fragments: list[str] | None = N
         out.append(_m(f"pair_intra::{p['a']}|{p['b']}", f"Wash-pary — {p['a']} ↔ {p['b']}",
                       round(p["value"], 2), "zł"))
     mo = metrics.matched_orders(transactions, group_fragments)
+    # Jawne zero — jak w wariancie pełnym wyżej: rozdział IV.5 musi widzieć
+    # „zbadano, dopasowań brak", a nie pustkę nieodróżnialną od braku badania.
+    out.append(_m("imo_count", f"Dopasowane zlecenia (≤{mo['threshold_s']}s, wewnątrzgr.)", mo["total"]["count"], "szt"))
     if mo["total"]["count"]:
         thr = mo["threshold_s"]
-        out.append(_m("imo_count", f"Dopasowane zlecenia (≤{thr}s, wewnątrzgr.)", mo["total"]["count"], "szt"))
         out.append(_m("imo_value", "Wartość dopasowanych zleceń", round(mo["total"]["value"], 2), "zł"))
         out.append(_m("imo_volume", "Wolumen dopasowanych zleceń", round(mo["total"]["volume"]), "szt"))
         for r in mo["per_day"]:

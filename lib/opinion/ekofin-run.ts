@@ -20,7 +20,13 @@ import {
 } from "./ekofin";
 
 export type KonfigEkofin = {
-  emitent: { ticker: string; nazwa?: string };
+  /** Jeden instrument (wzorzec HubTech) — zachowane dla wstecznej zgodności. */
+  emitent?: { ticker: string; nazwa?: string };
+  /**
+   * WIELE instrumentów — sprawa ZASTAL dotyczy CSY S.A. i RSY S.A.: rozdział IV.1
+   * dostaje wtedy sekcję per spółka (kontrast, wykresy, indeks), jak tabele TREM.
+   */
+  emitenci?: { ticker: string; nazwa?: string }[];
   peers: { ticker: string; nazwa?: string }[];
   /** Okres badany (postanowienie); pusty → z metryk silnika (min/max session_day). */
   odBadany?: string | null;
@@ -128,6 +134,56 @@ async function csvZeStorage(sb: SupabaseClient, id: string, rel: string): Promis
   return data ? await data.text() : null;
 }
 
+/**
+ * Notowania instrumentu Z AKT — fallback, gdy stooq nie został jeszcze pozyskany.
+ *
+ * Subanalizy `trem_<ticker>` niosą per-instrument metryki silnika (day_open/high/
+ * low/close, day_sess_vol) policzone z arkusza UTP/TREM. To pokrywa OKRES AKT
+ * (w ZASTAL: 203 sesje wokół okresu badanego), więc wystarcza na wykres kursu
+ * i wolumenu okresu — ale NIE na kontrast od debiutu, który wymaga pełnej
+ * historii ze stooq. Źródło jest zapisywane przy wykresie, bo „akta sprawy”
+ * i „stooq.pl” to różne podstawy dowodowe.
+ */
+async function notowaniaZTrem(
+  sb: SupabaseClient,
+  id: string,
+  ticker: string,
+): Promise<NotowanieDzienne[] | null> {
+  const { data: sub } = await sb
+    .from("subanalyses")
+    .select("data")
+    .eq("case_id", id)
+    .eq("kind", `trem_${ticker}`)
+    .maybeSingle();
+  const ms =
+    ((sub?.data as { metrics?: { key: string; session_day?: string | null; value: number | null }[] } | null)
+      ?.metrics ?? []);
+  const wg = new Map<string, Partial<NotowanieDzienne> & { dzien: string }>();
+  const POLA: Record<string, keyof NotowanieDzienne> = {
+    day_open: "otwarcie", day_high: "najwyzszy", day_low: "najnizszy",
+    day_close: "zamkniecie", day_sess_vol: "wolumen",
+  };
+  for (const m of ms) {
+    const pole = POLA[m.key];
+    if (!pole || !m.session_day || m.value == null) continue;
+    const w = wg.get(m.session_day) ?? { dzien: m.session_day };
+    (w as Record<string, unknown>)[pole] = m.value;
+    wg.set(m.session_day, w);
+  }
+  const notowania = [...wg.values()]
+    .filter((w) => w.zamkniecie != null)
+    .map((w) => ({
+      dzien: w.dzien,
+      otwarcie: w.otwarcie ?? null,
+      najwyzszy: w.najwyzszy ?? null,
+      najnizszy: w.najnizszy ?? null,
+      zamkniecie: w.zamkniecie as number,
+      wolumen: w.wolumen ?? null,
+    }))
+    .sort((a, b) => a.dzien.localeCompare(b.dzien));
+  return notowania.length ? notowania : null;
+}
+
 type Tabela = { caption: string; head: string[]; rows: string[][] };
 type SeriaWykresu = { label: string; unit: string; values: (number | null)[]; kind: "line" | "bars" };
 type WykresEkofin = { title: string; days: string[]; left: SeriaWykresu; right?: SeriaWykresu };
@@ -155,7 +211,11 @@ export async function wykonajEkofin(
   if (caseRow.typ !== "manipulacja_gpw")
     return { ok: false, powod: "krok 4 (ekonomia emitenta) dotyczy spraw o manipulację GPW" };
 
-  const emitent = czystyTicker(cfg.emitent.ticker);
+  const emitenci = (cfg.emitenci?.length ? cfg.emitenci : cfg.emitent ? [cfg.emitent] : []).map((e) => ({
+    ticker: czystyTicker(e.ticker),
+    nazwa: e.nazwa,
+  }));
+  if (!emitenci.length) return { ok: false, powod: "podaj co najmniej jeden instrument (emitenci)" };
   const peers = cfg.peers.map((p) => ({ ...p, ticker: czystyTicker(p.ticker) }));
 
   // Okres badany: z konfiguracji, a bez niej — z metryk silnika (sesje objęte analizą).
@@ -182,111 +242,121 @@ export async function wykonajEkofin(
   const charts: WykresEkofin[] = [];
   const zrodla: string[] = [];
 
-  // ── notowania emitenta ────────────────────────────────────────────────────
-  const csvEm = await csvZeStorage(sb, id, sciezkaStooq(emitent));
-  let notEm: NotowanieDzienne[] = [];
-  if (!csvEm) {
-    doPozyskania.push(
-      `notowania dzienne emitenta (${emitent.toUpperCase()}) — przycisk „Pobierz notowania” albo stooq.pl/q/d/l/?s=${emitent}&i=d`,
-    );
-  } else {
-    const p = parsujStooqCsv(csvEm);
-    notEm = p.notowania;
-    uwagi.push(...p.uwagi.map((u) => `${emitent}: ${u}`));
-    zrodla.push(sciezkaStooq(emitent));
+  // ── spółki porównawcze (wspólne dla wszystkich instrumentów) ─────────────
+  const seriePeers: { ticker: string; nazwa?: string; notowania: NotowanieDzienne[] }[] = [];
+  for (const p of peers) {
+    const csv = await csvZeStorage(sb, id, sciezkaStooq(p.ticker));
+    if (!csv) {
+      doPozyskania.push(`notowania spółki porównawczej ${p.ticker.toUpperCase()} (stooq)`);
+      continue;
+    }
+    seriePeers.push({ ticker: p.ticker.toUpperCase(), nazwa: p.nazwa, notowania: parsujStooqCsv(csv).notowania });
+    zrodla.push(sciezkaStooq(p.ticker));
   }
+  if (!peers.length)
+    doPozyskania.push("lista spółek porównawczych (tickery stooq) — do wskazania przez biegłego");
 
-  if (notEm.length) {
-    const k = kontrastObrotu(notEm, odBadany, doBadany);
-    if (k) {
-      tables.push({
-        caption:
-          "Tabela. Kontrast obrotu: okres historyczny od debiutu wobec okresu objętego postanowieniem " +
-          "(wartość obrotu liczona wg kursów zamknięcia)",
-        head: ["Okres", "Od", "Do", "Dni sesyjnych", "Średni dzienny wolumen [szt.]", "Średnia dzienna wartość obrotu [zł]"],
-        rows: [
-          ["historyczny", k.przed.od, k.przed.do, String(k.przed.dniSesyjnych), pl(k.przed.sredniWolumen), pl(k.przed.sredniaWartoscObrotu)],
-          ["badany", k.badany.od, k.badany.do, String(k.badany.dniSesyjnych), pl(k.badany.sredniWolumen), pl(k.badany.sredniaWartoscObrotu)],
-        ],
-      });
-      if (k.krotnoscWolumenu != null)
-        findings.push(
-          `Średni dzienny wolumen obrotu w okresie badanym (${odBadany}–${doBadany}: ${pl(k.badany.sredniWolumen, "szt.")}) ` +
-            `był ${pl(k.krotnoscWolumenu)}-krotnie wyższy niż średnia całej wcześniejszej historii notowań ` +
-            `(${k.przed.dniSesyjnych} sesji od ${k.przed.od}: ${pl(k.przed.sredniWolumen, "szt.")}; ` +
-            `średnia dzienna wartość obrotu wzrosła z ${pl(k.przed.sredniaWartoscObrotu, "zł")} do ${pl(k.badany.sredniaWartoscObrotu, "zł")}).`,
+  // ── sekcja per instrument (wzorzec IV.1; ZASTAL: CSY i RSY osobno) ───────
+  for (const em of emitenci) {
+    const nazwaEm = em.nazwa ?? em.ticker.toUpperCase();
+    const csvEm = await csvZeStorage(sb, id, sciezkaStooq(em.ticker));
+    let notEm: NotowanieDzienne[] = [];
+    let zrodloNotowan = "stooq.pl (pozyskane)";
+    if (csvEm) {
+      const p = parsujStooqCsv(csvEm);
+      notEm = p.notowania;
+      uwagi.push(...p.uwagi.map((u) => `${em.ticker}: ${u}`));
+      zrodla.push(sciezkaStooq(em.ticker));
+    } else {
+      doPozyskania.push(
+        `notowania dzienne ${nazwaEm} od debiutu — przycisk „Pobierz notowania” albo ręcznie stooq.pl/q/d/l/?s=${em.ticker}&i=d ` +
+          "(bez nich brak kontrastu z historią sprzed okresu badanego)",
+      );
+      const zTrem = await notowaniaZTrem(sb, id, em.ticker);
+      if (zTrem) {
+        notEm = zTrem;
+        zrodloNotowan = "akta sprawy (arkusz UTP/TREM — metryki silnika)";
+        uwagi.push(
+          `${nazwaEm}: notowania z akt obejmują ${zTrem.length} sesji (${zTrem[0].dzien}–${zTrem[zTrem.length - 1].dzien}) — ` +
+            "wystarczają na wykres okresu, nie na kontrast od debiutu",
         );
+      }
     }
-    // Wykres 1 wzorca: kurs + wolumen w pełnej historii (spróbkowany).
-    const ixPelny = indeks100({ ticker: emitent, notowania: notEm }, [], notEm[0].dzien);
-    if (ixPelny) {
-      const wgDnia = new Map(notEm.map((x) => [x.dzien, x]));
-      charts.push({
-        title: `Kształtowanie się kursu i wolumenu obrotu akcjami ${cfg.emitent.nazwa ?? emitent.toUpperCase()} od debiutu (${notEm[0].dzien})`,
-        days: ixPelny.dni,
-        left: { label: "Kurs zamknięcia", unit: "zł", values: ixPelny.dni.map((d) => wgDnia.get(d)?.zamkniecie ?? null), kind: "line" },
-        right: { label: "Wolumen", unit: "szt", values: ixPelny.dni.map((d) => wgDnia.get(d)?.wolumen ?? null), kind: "bars" },
-      });
-      uwagi.push(...ixPelny.uwagi);
+    if (!notEm.length) continue;
+
+    // Kontrast od debiutu — tylko przy pełnej historii (stooq).
+    if (csvEm) {
+      const k = kontrastObrotu(notEm, odBadany, doBadany);
+      if (k && k.przed.dniSesyjnych > 0) {
+        tables.push({
+          caption:
+            `Tabela. ${nazwaEm} — kontrast obrotu: okres historyczny od debiutu wobec okresu objętego ` +
+            "postanowieniem (wartość obrotu liczona wg kursów zamknięcia)",
+          head: ["Okres", "Od", "Do", "Dni sesyjnych", "Średni dzienny wolumen [szt.]", "Średnia dzienna wartość obrotu [zł]"],
+          rows: [
+            ["historyczny", k.przed.od, k.przed.do, String(k.przed.dniSesyjnych), pl(k.przed.sredniWolumen), pl(k.przed.sredniaWartoscObrotu)],
+            ["badany", k.badany.od, k.badany.do, String(k.badany.dniSesyjnych), pl(k.badany.sredniWolumen), pl(k.badany.sredniaWartoscObrotu)],
+          ],
+        });
+        if (k.krotnoscWolumenu != null)
+          findings.push(
+            `${nazwaEm}: średni dzienny wolumen w okresie badanym (${pl(k.badany.sredniWolumen, "szt.")}) był ` +
+              `${pl(k.krotnoscWolumenu)}-krotnie wyższy niż średnia wcześniejszej historii notowań ` +
+              `(${k.przed.dniSesyjnych} sesji od ${k.przed.od}: ${pl(k.przed.sredniWolumen, "szt.")}).`,
+          );
+      }
+      // Wykres 1 wzorca: kurs + wolumen w pełnej historii (spróbkowany).
+      const ixPelny = indeks100({ ticker: em.ticker, notowania: notEm }, [], notEm[0].dzien);
+      if (ixPelny) {
+        const wgDnia = new Map(notEm.map((x) => [x.dzien, x]));
+        charts.push({
+          title: `Kształtowanie się kursu i wolumenu obrotu akcjami ${nazwaEm} od debiutu (${notEm[0].dzien})`,
+          days: ixPelny.dni,
+          left: { label: "Kurs zamknięcia", unit: "zł", values: ixPelny.dni.map((d) => wgDnia.get(d)?.zamkniecie ?? null), kind: "line" },
+          right: { label: "Wolumen", unit: "szt", values: ixPelny.dni.map((d) => wgDnia.get(d)?.wolumen ?? null), kind: "bars" },
+        });
+        uwagi.push(...ixPelny.uwagi.map((u) => `${em.ticker}: ${u}`));
+      }
     }
-    // Wykres 4 wzorca: okres badany dzień po dniu, bez próbkowania.
+
+    // Wykres 4 wzorca: okres badany dzień po dniu, bez próbkowania — źródło jawne.
     const badane = notEm.filter((x) => x.dzien >= odBadany! && x.dzien <= doBadany!);
     if (badane.length)
       charts.push({
-        title: `Kurs i wolumen obrotu w okresie objętym postanowieniem (${odBadany}–${doBadany})`,
+        title: `${nazwaEm} — kurs i wolumen w okresie objętym postanowieniem (${odBadany}–${doBadany}); źródło: ${zrodloNotowan}`,
         days: badane.map((x) => x.dzien),
         left: { label: "Kurs zamknięcia", unit: "zł", values: badane.map((x) => x.zamkniecie), kind: "line" },
         right: { label: "Wolumen", unit: "szt", values: badane.map((x) => x.wolumen), kind: "bars" },
       });
-  }
 
-  // ── indeks porównawczy (tło branżowe) ─────────────────────────────────────
-  if (notEm.length && peers.length) {
-    const seriePeers = [];
-    for (const p of peers) {
-      const csv = await csvZeStorage(sb, id, sciezkaStooq(p.ticker));
-      if (!csv) {
-        doPozyskania.push(`notowania spółki porównawczej ${p.ticker.toUpperCase()} (stooq)`);
-        continue;
+    // Indeks porównawczy — pełna historia (stooq) + peers.
+    if (csvEm && seriePeers.length) {
+      const baza = cfg.bazaIndeksu ?? odBadany;
+      const ix = indeks100({ ticker: em.ticker.toUpperCase(), notowania: notEm }, seriePeers, baza!);
+      if (ix) {
+        charts.push({
+          title: `${nazwaEm} na tle mediany spółek porównawczych (${ix.bazaDzien} = 100)`,
+          days: ix.dni,
+          left: { label: nazwaEm, unit: "pkt", values: ix.emitent, kind: "line" },
+          right: { label: `mediana: ${seriePeers.map((p) => p.ticker).join(", ")}`, unit: "pkt", values: ix.medianaPeers, kind: "line" },
+        });
+        const ost = ix.dni.length - 1;
+        findings.push(
+          `${nazwaEm}: indeks (${ix.bazaDzien} = 100) na koniec okresu ${pl(ix.emitent[ost], "pkt")} wobec mediany ` +
+            `spółek porównawczych ${pl(ix.medianaPeers[ost], "pkt")}.`,
+        );
+        const koniecMies = ix.dni.filter((d, i) => i === ix.dni.length - 1 || ix.dni[i + 1]?.slice(0, 7) !== d.slice(0, 7));
+        tables.push({
+          caption: `Tabela. ${nazwaEm} — indeks porównawczy na koniec kolejnych miesięcy (${ix.bazaDzien} = 100)`,
+          head: ["Miesiąc", nazwaEm, "Mediana branży", ...ix.perPeer.map((p) => p.ticker)],
+          rows: koniecMies.map((d) => {
+            const i = ix.dni.indexOf(d);
+            return [d.slice(0, 7), pl(ix.emitent[i]), pl(ix.medianaPeers[i]), ...ix.perPeer.map((p) => pl(p.wartosci[i]))];
+          }),
+        });
+        uwagi.push(...ix.uwagi.map((u) => `${em.ticker}: ${u}`));
       }
-      seriePeers.push({ ticker: p.ticker.toUpperCase(), nazwa: p.nazwa, notowania: parsujStooqCsv(csv).notowania });
-      zrodla.push(sciezkaStooq(p.ticker));
     }
-    const baza = cfg.bazaIndeksu ?? odBadany;
-    const ix = seriePeers.length
-      ? indeks100({ ticker: emitent.toUpperCase(), notowania: notEm }, seriePeers, baza!)
-      : null;
-    if (ix) {
-      charts.push({
-        title: `Wykres porównawczy: emitent na tle mediany spółek porównawczych (${ix.bazaDzien} = 100)`,
-        days: ix.dni,
-        left: { label: cfg.emitent.nazwa ?? emitent.toUpperCase(), unit: "pkt", values: ix.emitent, kind: "line" },
-        right: { label: `mediana: ${seriePeers.map((p) => p.ticker).join(", ")}`, unit: "pkt", values: ix.medianaPeers, kind: "line" },
-      });
-      const ost = ix.dni.length - 1;
-      findings.push(
-        `Indeks porównawczy (${ix.bazaDzien} = 100): emitent na koniec okresu ${pl(ix.emitent[ost], "pkt")} ` +
-          `wobec mediany spółek porównawczych ${pl(ix.medianaPeers[ost], "pkt")} (${seriePeers.map((p) => p.ticker).join(", ")}).`,
-      );
-      // Tabela indeksu na koniec każdego miesiąca — czytelniejsza w druku niż 5 serii.
-      const koniecMies = ix.dni.filter((d, i) => i === ix.dni.length - 1 || ix.dni[i + 1]?.slice(0, 7) !== d.slice(0, 7));
-      tables.push({
-        caption: `Tabela. Indeks porównawczy na koniec kolejnych miesięcy (${ix.bazaDzien} = 100)`,
-        head: ["Miesiąc", cfg.emitent.nazwa ?? emitent.toUpperCase(), "Mediana branży", ...ix.perPeer.map((p) => p.ticker)],
-        rows: koniecMies.map((d) => {
-          const i = ix.dni.indexOf(d);
-          return [
-            d.slice(0, 7),
-            pl(ix.emitent[i]),
-            pl(ix.medianaPeers[i]),
-            ...ix.perPeer.map((p) => pl(p.wartosci[i])),
-          ];
-        }),
-      });
-      uwagi.push(...ix.uwagi);
-    }
-  } else if (notEm.length && !peers.length) {
-    doPozyskania.push("lista spółek porównawczych (tickery stooq) — do wskazania przez biegłego");
   }
 
   // ── dynamika pozycji sprawozdawczych (z ekstrakcji fin_stats) ─────────────
@@ -337,7 +407,7 @@ export async function wykonajEkofin(
       status: "szkic",
       body_md: "",
       data: {
-        config: { ...cfg, emitent: { ...cfg.emitent, ticker: emitent }, odBadany, doBadany },
+        config: { ...cfg, emitenci, emitent: undefined, odBadany, doBadany },
         table: tables[0] ?? null,
         tables,
         charts,

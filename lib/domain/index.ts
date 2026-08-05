@@ -79,8 +79,8 @@ const KROKI_GPW: Krok[] = [
   // emitenta ma być osobnym krokiem PRZED konstruowaniem opinii, nie jej częścią.
   // Wzorzec: rozdz. IV.1 finału HubTech (kontrast obrotu, tło branżowe =100,
   // dynamika pozycji sprawozdawczych, wskaźniki wykazane przez portale).
-  { klucz: "ekonomia", label: "Ekonomia emitenta",
-    opis: "Kontrast obrotu od debiutu, indeks branżowy =100, dynamika RZiS, wskaźniki portali (stooq/espiebi/StockWatch/BiznesRadar)",
+  { klucz: "ekonomia", label: "Analiza IV.1–7",
+    opis: "Rozdział IV opinii w siedmiu pod-zakładkach: ekonomia emitenta (stooq), ESPI/EBI (espiebi), aktywność Grupy, wash, IMO, layering/spoofing, relacje — wzorzec: finał HubTech",
     gotowy: (s) => s.subanalizy.includes("ekofin_dane") },
   { klucz: "warsztat", label: "Warsztat dowodowy", opis: "Techniki MAR, powiązania podmiotów, korelacja IP",
     gotowy: (s) => s.subanalizy.includes("techniki") && s.subanalizy.includes("powiazania_dane") },

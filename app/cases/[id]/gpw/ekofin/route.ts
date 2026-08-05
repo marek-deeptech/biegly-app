@@ -33,16 +33,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .maybeSingle();
     config = ((sub?.data as { config?: KonfigEkofin } | null)?.config ?? null) as KonfigEkofin | null;
   }
-  if (!config?.emitent?.ticker)
-    return Response.json({ ok: false, reason: "Podaj konfigurację: ticker emitenta (i ewentualnie spółki porównawcze)." });
+  const emitenci = config?.emitenci?.length ? config.emitenci : config?.emitent ? [config.emitent] : [];
+  if (!config || !emitenci.length)
+    return Response.json({ ok: false, reason: "Podaj konfigurację: ticker(y) instrumentów (i ewentualnie spółki porównawcze)." });
+  const cfg: KonfigEkofin = { ...config, emitenci };
 
   try {
     if (body.action === "pobierz") {
-      const tickery = [config.emitent.ticker, ...config.peers.map((p) => p.ticker)];
+      const tickery = [...emitenci.map((e) => e.ticker), ...(cfg.peers ?? []).map((p) => p.ticker)];
       const w = await pobierzStooq(supabase, id, tickery);
       return Response.json({ ok: !w.bledy.length, ...w });
     }
-    const w = await wykonajEkofin(supabase, id, config);
+    const w = await wykonajEkofin(supabase, id, cfg);
     return Response.json(w, { status: w.ok ? 200 : 400 });
   } catch (e) {
     return Response.json({ ok: false, reason: (e as Error).message }, { status: 500 });

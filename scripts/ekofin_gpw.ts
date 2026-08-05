@@ -25,10 +25,13 @@ async function main() {
   if (!data?.length) throw new Error("nie znaleziono sprawy");
   const id = data[0].id as string;
 
-  const emitent = arg("emitent");
-  if (!emitent) throw new Error("podaj --emitent <ticker stooq>");
+  // --emitent przyjmuje LISTĘ po przecinku (sprawa ZASTAL: csy,rsy) — sekcja per spółka.
+  // --nazwy: nazwy w tej samej kolejności, rozdzielone średnikiem.
+  const emitentArg = arg("emitent");
+  if (!emitentArg) throw new Error("podaj --emitent <ticker[,ticker2…]>");
+  const nazwy = (arg("nazwy") ?? arg("nazwa") ?? "").split(";").map((x) => x.trim());
   const cfg: KonfigEkofin = {
-    emitent: { ticker: emitent, nazwa: arg("nazwa") ?? undefined },
+    emitenci: emitentArg.split(",").map((t, i) => ({ ticker: t.trim(), nazwa: nazwy[i] || undefined })),
     peers: (arg("peers") ?? "").split(",").map((t) => t.trim()).filter(Boolean).map((t) => ({ ticker: t })),
     odBadany: arg("od"),
     doBadany: arg("do"),
@@ -36,7 +39,7 @@ async function main() {
   };
 
   if (process.argv.includes("--pobierz")) {
-    const w = await pobierzStooq(sb, id, [cfg.emitent.ticker, ...cfg.peers.map((p) => p.ticker)]);
+    const w = await pobierzStooq(sb, id, [...cfg.emitenci!.map((e) => e.ticker), ...cfg.peers.map((p) => p.ticker)]);
     console.log(`pobrane: ${w.pobrane.join(", ") || "—"}; już były: ${w.istniejace.join(", ") || "—"}`);
     for (const b of w.bledy) console.log(`✗ ${b}`);
     if (w.bledy.length) process.exitCode = 1;
