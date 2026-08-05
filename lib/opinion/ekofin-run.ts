@@ -269,8 +269,11 @@ export async function wykonajEkofin(
       zrodla.push(sciezkaStooq(em.ticker));
     } else {
       doPozyskania.push(
-        `notowania dzienne ${nazwaEm} od debiutu — przycisk „Pobierz notowania” albo ręcznie stooq.pl/q/d/l/?s=${em.ticker}&i=d ` +
-          "(bez nich brak kontrastu z historią sprzed okresu badanego)",
+        `notowania dzienne ${nazwaEm} od debiutu (bez nich brak kontrastu z historią sprzed okresu badanego). ` +
+          `Spółka NOTOWANA: stooq.pl → Dane historyczne (q/d/?s=${em.ticker}) → „Pobierz dane w formacie csv”. ` +
+          "Spółka WYKLUCZONA z obrotu (portale nie utrzymują karty — tak jest z CSY i RSY): " +
+          "archiwum notowań na newconnect.pl (wybór instrumentu, zakres, eksport) albo wystąpienie do GPW " +
+          "o kartotekę notowań instrumentu; plik wgraj jako pozyskane/stooq_" + em.ticker + "_d.csv",
       );
       const zTrem = await notowaniaZTrem(sb, id, em.ticker);
       if (zTrem) {
