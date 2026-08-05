@@ -20,6 +20,7 @@ import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
 import AnalizaEfPanel from "./analiza-ef-panel";
+import EkofinPanel from "./ekofin-panel";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
 import WarsztatBankPanel from "./warsztat-bank-panel";
 import PytaniaPanel from "./pytania-panel";
@@ -138,7 +139,7 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
-  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "warsztat" | "opinion">("overview");
+  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "ekonomia" | "warsztat" | "opinion">("overview");
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [authorFilter, setAuthorFilter] = useState("");
   const [provFilter, setProvFilter] = useState("");
@@ -1224,6 +1225,13 @@ export default function CaseDetail({
       )}
       {tab === "warsztat" && dziedzinaBankowa && (
         <WarsztatBankPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
+      )}
+
+      {/* KROK 4 GPW — analiza ekonomiczno-finansowa emitenta (wzorzec: IV.1 finału
+          HubTech). Krok istnieje TYLKO w pakiecie manipulacyjnym; w sprawie bankowej
+          stepper go nie pokazuje, a rubryka bankowa żyje w kroku „Analiza". */}
+      {tab === "ekonomia" && !dziedzinaBankowa && (
+        <EkofinPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
       )}
 
       {tab === "analysis" && !dziedzinaBankowa && (

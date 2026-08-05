@@ -180,17 +180,28 @@ describe("rejestr pakietów dziedzinowych", () => {
     // Wymóg twardy: zmiana w jednej dziedzinie nie ma prawa dotknąć drugiej.
     const gpw = packDla("manipulacja_gpw").kroki;
     const bank = packDla("ryzyko_bankowe").kroki;
-    // ten sam szkielet pięciu kroków…
-    expect(gpw.map((k) => k.klucz)).toEqual(bank.map((k) => k.klucz));
-    // …ale inne etykiety i warunki ukończenia dla kroków 3 i 4
+    // GPW ma o jeden krok więcej — „Ekonomia emitenta" (wymóg klienta, sprawa
+    // ZASTAL 2026-08: analiza ekonomiczno-finansowa jako krok 4 po Analizie
+    // liczbowej). Krok NIE istnieje w pakiecie bankowym: tam rubryka ekon-fin
+    // żyje w kroku „Analiza" i dokłada się jej wymogami tej dziedziny.
+    expect(gpw.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "ekonomia", "warsztat", "opinion"]);
+    expect(bank.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "warsztat", "opinion"]);
+    expect(bank.some((k) => k.klucz === "ekonomia")).toBe(false);
+    // …i inne etykiety oraz warunki ukończenia dla wspólnych kroków 3 i „warsztat"
     expect(gpw[2].label).not.toBe(bank[2].label);
     const stan = {
       dokumentow: 5, metryk: 0, zatwierdzone: 0, checklistOk: true,
       subanalizy: ["techniki", "powiazania_dane"],
     };
-    // subanalizy GPW kończą krok 4 w manipulacjach, ale NIE w sprawie bankowej
-    expect(gpw[3].gotowy(stan)).toBe(true);
-    expect(bank[3].gotowy(stan)).toBe(false);
+    const gpwWarsztat = gpw.find((k) => k.klucz === "warsztat")!;
+    const bankWarsztat = bank.find((k) => k.klucz === "warsztat")!;
+    // subanalizy GPW kończą warsztat w manipulacjach, ale NIE w sprawie bankowej
+    expect(gpwWarsztat.gotowy(stan)).toBe(true);
+    expect(bankWarsztat.gotowy(stan)).toBe(false);
+    // krok 4 GPW kończy dopiero subanaliza ekofin_dane
+    const krok4 = gpw.find((k) => k.klucz === "ekonomia")!;
+    expect(krok4.gotowy(stan)).toBe(false);
+    expect(krok4.gotowy({ ...stan, subanalizy: ["ekofin_dane"] })).toBe(true);
     // i odwrotnie
     const stanBank = { ...stan, subanalizy: ["procedury", "limity"] };
     expect(bank[3].gotowy(stanBank)).toBe(true);

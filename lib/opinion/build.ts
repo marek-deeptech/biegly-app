@@ -2121,6 +2121,36 @@ export function buildOpinion(
       }));
   }
 
+  // KROK 4 (stored `ekofin_dane`): dane pozyskane i policzone silnikiem ekofin —
+  // kontrast obrotu, indeks branżowy =100, dynamika pozycji, wskaźniki WYKAZANE
+  // przez portale. Tabele doklejamy do rozdziału IV.1, a ramki placeholderów
+  // zastępujemy realnymi wykresami; ramki zostają fallbackiem, gdy kroku 4 nie
+  // wykonano. Findings kroku idą do findings rozdziału — to one zasilają Wnioski.
+  {
+    const p = plan.find((x) => x.kind === "ekofin");
+    const dane = stored.find((s) => s.kind === "ekofin_dane")?.data as {
+      tables?: OpTable[];
+      charts?: ChartSpec[];
+      findings?: string[];
+      doPozyskania?: string[];
+    } | null;
+    const ch = p ? merged.find((x) => x.no === p.no) : null;
+    if (ch && ch.status !== "todo" && dane) {
+      const cur = chapterTables(ch);
+      const nowe = (dane.tables ?? []).filter((t) => t && !cur.some((c) => c.caption === t.caption));
+      if (nowe.length) ch.tables = [...cur, ...nowe];
+      if (dane.charts?.length)
+        ch.placeholders = dane.charts.map((c) => ({ kind: "wykres" as const, name: c.title, chart: c }));
+      const fset = new Set((ch.findings ?? []).map((f) => f.text));
+      for (const f of dane.findings ?? [])
+        if (!fset.has(f)) (ch.findings ??= []).push({ conf: "grounded" as Conf, text: f });
+      // Braki kroku 4 są treścią rozdziału, nie ostrzeżeniem konsoli — jak rejestr
+      // braków rubryki bankowej: przemilczane sugerowałyby komplet materiału.
+      for (const d of dane.doPozyskania ?? [])
+        ch.paras.push({ conf: "todo" as Conf, text: `Do pozyskania przez biegłego: ${d}.` });
+    }
+  }
+
   // Zestawienie PER INSTRUMENT (TREM — np. ZASTAL: CSY i RSY) do rozdziału ekon-fin:
   // syntetyczna tabela z subanaliz trem_* (transakcje, obrót, udział Grupy, szczyty
   // wash/koncentracji/fixingu per instrument) — pełne rozbicia są w aplikacji.

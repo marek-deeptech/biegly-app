@@ -38,6 +38,8 @@ DOZWOLONE_TYPY = {
     # typy „aktowe" dopuszczone świadomie: pozyskany bywa też dokument tej samej
     # natury co aktowy (raport roczny emitenta, raport sektorowy nadzoru, pismo urzędowe)
     "SPRAWOZDANIE_BANK", "NADZOR_KNF", "KORESPONDENCJA",
+    # dziedzina GPW — krok 4 (ekonomia emitenta): notowania referencyjne ze stooq
+    "NOTOWANIA_REF",
 }
 
 

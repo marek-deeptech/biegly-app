@@ -51,7 +51,7 @@ export type StanSprawy = {
 };
 
 export type Krok = {
-  klucz: "overview" | "files" | "analysis" | "warsztat" | "opinion";
+  klucz: "overview" | "files" | "analysis" | "ekonomia" | "warsztat" | "opinion";
   label: string;
   /** Jednozdaniowy opis, co ten krok robi W TEJ dziedzinie. */
   opis: string;
@@ -75,6 +75,13 @@ const KROKI_GPW: Krok[] = [
     gotowy: (s) => s.dokumentow > 0 },
   { klucz: "analysis", label: "Analiza liczbowa", opis: "Wskaźniki manipulacji z arkusza zleceń i transakcji UTP",
     gotowy: (s) => s.metryk > 0 },
+  // KROK 4 — wymóg klienta (sprawa ZASTAL, 2026-08): analiza ekonomiczno-finansowa
+  // emitenta ma być osobnym krokiem PRZED konstruowaniem opinii, nie jej częścią.
+  // Wzorzec: rozdz. IV.1 finału HubTech (kontrast obrotu, tło branżowe =100,
+  // dynamika pozycji sprawozdawczych, wskaźniki wykazane przez portale).
+  { klucz: "ekonomia", label: "Ekonomia emitenta",
+    opis: "Kontrast obrotu od debiutu, indeks branżowy =100, dynamika RZiS, wskaźniki portali (stooq/espiebi/StockWatch/BiznesRadar)",
+    gotowy: (s) => s.subanalizy.includes("ekofin_dane") },
   { klucz: "warsztat", label: "Warsztat dowodowy", opis: "Techniki MAR, powiązania podmiotów, korelacja IP",
     gotowy: (s) => s.subanalizy.includes("techniki") && s.subanalizy.includes("powiazania_dane") },
   { klucz: "opinion", label: "Opinia", opis: "Rozdziały I–VI wg szkieletu opinii o manipulacji",
