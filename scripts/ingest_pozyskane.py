@@ -40,6 +40,8 @@ DOZWOLONE_TYPY = {
     "SPRAWOZDANIE_BANK", "NADZOR_KNF", "KORESPONDENCJA",
     # dziedzina GPW — krok 4 (ekonomia emitenta): notowania referencyjne ze stooq
     "NOTOWANIA_REF",
+    # dziedzina GPW — IV.2: utrwalenia raportów bieżących/okresowych z serwisu ESPI/EBI PAP
+    "RAPORT_ESPI_EBI",
 }
 
 
