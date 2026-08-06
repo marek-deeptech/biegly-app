@@ -126,6 +126,31 @@ export default function AnalizaIVPanel({
         {ZAKLADKI.find((z) => z.id === akt)?.tytul}
       </p>
 
+      {/* REJESTR BRAKÓW — widoczny przy KAŻDEJ pod-zakładce, przefiltrowany do niej.
+          Braki wyliczają się ze stanu sprawy (lib/opinion/braki-iv.ts), więc pozycja
+          znika sama, gdy materiał trafi do akt — lista wpisana ręcznie kłamałaby
+          po pierwszym ingeście. */}
+      {(() => {
+        const bd = dane("braki_iv");
+        const wszystkie = (bd?.braki ?? []) as { podrozdzial: string; czego: string; doCzego: string; skad: string; kto: string }[];
+        const moje = wszystkie.filter((b) => (akt === "Wstęp" ? b.podrozdzial.includes("wstęp") : b.podrozdzial.startsWith(akt)));
+        if (!moje.length) return null;
+        return (
+          <div className="mt-3 border-l-2 border-amber-500 pl-3">
+            <p className="text-xs font-medium">Brakujący materiał ({moje.length})</p>
+            <ul className="mt-1 space-y-1.5 text-[11px] text-inksoft">
+              {moje.map((b) => (
+                <li key={b.czego}>
+                  <span className="text-ink">◐ {b.czego}</span>
+                  <br />→ potrzebne do: {b.doCzego}
+                  <br />⇐ {b.skad} · <em>{b.kto}</em>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
       {akt === "Wstęp" && (
         <div className="mt-2 text-xs">
           {wg.get("proza_iv") ? (

@@ -1,30 +1,16 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { klientLLM } from "@/lib/llm/klient";
-
-import { keywordWindows, pdfText } from "@/lib/intake/pdf";
 import { createClient } from "@/lib/supabase/server";
+import { wykonajFinStats } from "@/lib/opinion/fin-stats";
 
 // Wyciąga kluczowe wielkości ekonomiczno-finansowe emitenta ze sprawozdań w aktach
-// (SPRAWOZDANIE_FIN, odczyt PDF przez unpdf) i zapisuje jako subanalizę `fin_stats`
-// (Pozycja | Okres | Wartość | Jednostka | Plik). Zasila rozdział IV.1 (ekofin) —
-// test falsyfikacji: czy dynamika kursu ma oparcie w fundamentach.
-// Evidence-only: model odczytuje WYŁĄCZNIE z treści dokumentów; nie liczy i nie zmyśla.
+// i zapisuje jako subanalizę `fin_stats` — zasila rozdział IV.1 (test falsyfikacji:
+// czy dynamika kursu ma oparcie w fundamentach) i dynamikę kw/kw oraz r/r w kroku 4.
+//
+// Logika mieszka w lib/opinion/fin-stats.ts: trasa i skrypt CLI
+// (scripts/fin_stats.ts) wołają ten sam kod, różnią się tylko klientem Supabase.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
-
-type Item = { file: string; position: string; period: string; value: string; unit: string };
-
-const SYSTEM =
-  "Jesteś asystentem biegłego sądowego. Otrzymujesz fragmenty sprawozdań finansowych i raportów okresowych " +
-  "emitenta z akt sprawy. Wyodrębnij WYŁĄCZNIE wielkości wprost zapisane w treści — dla pozycji: przychody netto " +
-  "ze sprzedaży, zysk/strata z działalności operacyjnej, zysk/strata netto, suma bilansowa (aktywa razem), " +
-  "kapitał (fundusz) własny, przepływy pieniężne netto, zatrudnienie — o ile występują. Dla każdej podaj okres " +
-  "(np. '2019', '2020', 'I półrocze 2020', 'III kw. 2020') oraz wartość DOKŁADNIE jak w dokumencie (z separatorami) " +
-  "i jednostkę ('zł' albo 'tys. zł' — wg nagłówka tabeli w dokumencie). ZASADY: (1) nie przeliczaj, nie sumuj, nie " +
-  "zaokrąglaj — przepisuj; (2) pozycji nieobecnych nie zwracaj; (3) Zwróć WYŁĄCZNIE JSON: " +
-  '{"items":[{"file":"","position":"","period":"","value":"","unit":""}]}';
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -36,118 +22,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!process.env.ANTHROPIC_API_KEY)
     return Response.json({ ok: false, reason: "Brak ANTHROPIC_API_KEY w zmiennych środowiskowych." });
 
-  // Sprawozdania właściwe + raporty okresowe z ESPI (kwartalne/roczne zawierają
-  // skrócone sprawozdania — w NewConnect często jedyne dane finansowe w aktach).
-  const { data: docsFin } = await supabase
-    .from("documents")
-    .select("rel_path,storage_path")
-    .eq("case_id", id)
-    .eq("doc_type", "SPRAWOZDANIE_FIN")
-    .limit(30);
-  const { data: docsEspi } = await supabase
-    .from("documents")
-    .select("rel_path,storage_path")
-    .eq("case_id", id)
-    .eq("doc_type", "RAPORT_ESPI_EBI")
-    .limit(200);
-  const okresowy = (fn: string) => /raport[-_ ]?za|kwarta|roczn|polrocz|półrocz|wyniki/i.test(fn);
-  const docs = [
-    ...(docsFin ?? []),
-    ...(docsEspi ?? []).filter((d) => okresowy(String(d.rel_path).split("/").pop() ?? "")),
-  ];
-  const isPdf = (fn: string) => /\.pdf$/i.test(fn) && !/loader|ads|sodar|zrt_|jsapi|cookie|lookup|\.pobrane/i.test(fn);
-  const seen = new Set<string>();
-  const uniq = docs
-    .filter((d) => {
-      const fn = String(d.rel_path).split("/").pop() ?? "";
-      if (!d.storage_path || !isPdf(fn) || seen.has(fn)) return false;
-      seen.add(fn);
-      return true;
-    })
-    .slice(0, 8);
-  if (!uniq.length) return Response.json({ ok: false, reason: "Brak sprawozdań finansowych (PDF) ze ścieżką w Storage." });
-
-  // Tabele finansowe leżą głęboko w dokumentach — czytamy pełny tekst i tniemy
-  // okna wokół pozycji sprawozdawczych, nie początek pliku.
-  const FIN_KW = /przychody\s+netto|zysk\s*\(strata\)|strata\s+netto|zysk\s+netto|suma\s+bilansowa|aktywa\s+razem|kapitał\s*\(fundusz\)?\s*własny|rachunek zysków|przepływy pieniężne/gi;
-  const texts: string[] = [];
-  for (const d of uniq) {
-    const fn = String(d.rel_path).split("/").pop() ?? "";
-    try {
-      const { data: blob, error } = await supabase.storage.from("case-files").download(d.storage_path as string);
-      if (error || !blob) {
-        texts.push(`### ${fn}\n[nie udało się pobrać pliku]`);
-        continue;
-      }
-      const full = await pdfText(await blob.arrayBuffer(), 200000);
-      if (!full) {
-        texts.push(`### ${fn}\n[brak warstwy tekstowej — skan]`);
-        continue;
-      }
-      texts.push(`### ${fn}\n${keywordWindows(full, FIN_KW, 700, 9000)}`);
-    } catch (e) {
-      texts.push(`### ${fn}\n[błąd odczytu PDF: ${(e as Error).message}]`);
-    }
-  }
-
-  const userPrompt = [
-    "TREŚĆ SPRAWOZDAŃ/RAPORTÓW (nazwa pliku + fragment treści):",
-    texts.join("\n\n"),
-    "",
-    "Wyodrębnij wielkości zgodnie ze schematem JSON.",
-  ].join("\n");
-
   try {
-    const client = klientLLM("ekstrakcja/finanse", { sprawa: id });
-    const msg = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 3000,
-      system: SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
-    });
-    const raw = msg.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .replace(/```json|```/g, "")
-      .trim();
-    const s = raw.indexOf("{");
-    const e = raw.lastIndexOf("}");
-    if (s < 0 || e <= s) return Response.json({ ok: false, reason: "Model nie zwrócił JSON." });
-    const parsed = JSON.parse(raw.slice(s, e + 1)) as { items?: Item[] };
-    const items: Item[] = (Array.isArray(parsed.items) ? parsed.items : [])
-      .filter((v) => v && v.position && v.value)
-      .map((v) => ({
-        file: String(v.file ?? ""),
-        position: String(v.position ?? ""),
-        period: String(v.period ?? ""),
-        value: String(v.value ?? ""),
-        unit: String(v.unit ?? ""),
-      }))
-      .sort((a, b) => a.position.localeCompare(b.position, "pl") || a.period.localeCompare(b.period, "pl"));
-
-    const table = {
-      caption: "Tabela. Wybrane dane ekonomiczno-finansowe emitenta (wyciąg ze sprawozdań w aktach)",
-      head: ["Pozycja", "Okres", "Wartość", "Jednostka", "Źródło (plik)"],
-      rows: items.map((v) => [v.position, v.period || "—", v.value, v.unit || "—", v.file.split("/").pop() || "—"]),
-    };
-    await supabase.from("subanalyses").upsert(
-      {
-        case_id: id,
-        kind: "fin_stats",
-        chapter_no: "IV",
-        title: "Dane finansowe emitenta (wyciąg ze sprawozdań)",
-        body_md:
-          `Odczytano ${uniq.length} sprawozdań/raportów; wyodrębniono ${items.length} pozycji finansowych` +
-          (items.length
-            ? ": " + items.slice(0, 8).map((i) => `${i.position} ${i.period}: ${i.value} ${i.unit}`.trim()).join("; ") + "."
-            : "."),
-        data: { table, items, findings: [`Wyodrębniono ${items.length} pozycji finansowych ze sprawozdań w aktach.`], legalRefs: [] },
-        status: "szkic",
-      },
-      { onConflict: "case_id,kind" },
-    );
-    return Response.json({ ok: true, items, message: `Odczytano ${uniq.length} PDF-ów, wyodrębniono ${items.length} pozycji.` });
+    const w = await wykonajFinStats(supabase, id);
+    return w.ok
+      ? Response.json({
+          ok: true,
+          items: w.items,
+          message: `Odczytano ${w.plikow} PDF-ów, wyodrębniono ${w.pozycji} pozycji.`,
+        })
+      : Response.json({ ok: false, reason: w.powod });
   } catch (e) {
     return Response.json({ ok: false, reason: "Błąd modelu: " + (e as Error).message });
   }

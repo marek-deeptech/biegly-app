@@ -374,9 +374,13 @@ export async function wykonajEkofin(
     const dyn = dynamikaFin(items);
     if (dyn.table) {
       tables.push(dyn.table);
+      // Kolumny: [Emitent, Pozycja, Okres, …] — licznik po PARZE emitent+pozycja,
+      // bo sam `r[0]` policzyłby liczbę spółek, nie liczbę szeregów.
+      const szeregow = new Set(dyn.table.rows.map((r) => `${r[0]}|${r[1]}`)).size;
+      const spolek = new Set(dyn.table.rows.map((r) => r[0])).size;
       findings.push(
-        `Dynamika pozycji sprawozdawczych: policzono zmiany dla ${new Set(dyn.table.rows.map((r) => r[0])).size} pozycji ` +
-          `w ${dyn.table.rows.length} okresach (źródło: sprawozdania/raporty okresowe w aktach — subanaliza fin_stats).`,
+        `Dynamika pozycji sprawozdawczych: policzono ${szeregow} szeregów (${spolek} podmioty) w ${dyn.table.rows.length} ` +
+          "obserwacjach — źródło: sprawozdania i raporty okresowe w aktach (subanaliza fin_stats).",
       );
     }
     uwagi.push(...dyn.uwagi);

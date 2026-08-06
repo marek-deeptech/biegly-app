@@ -119,9 +119,19 @@ class handler(BaseHTTPRequestHandler):
             rows = compute_trem(tx, fragments)
 
             # Zestaw ŁĄCZNY → tabela metrics (zasila opinię/Wnioski, zachowanie wsteczne).
-            _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}",
-                 headers={"Prefer": "return=minimal"})
+            #
+            # ⚠️ KASUJEMY WYŁĄCZNIE KLUCZE, KTÓRE ZARAZ NADPISZEMY. Bezwarunkowe
+            # `DELETE ?case_id=eq.` zabierało też metryki, których TREM NIE PRODUKUJE:
+            # plik TREM niesie sparowane transakcje, ale nie arkusz zleceń, więc bieg
+            # kasował policzone wcześniej `cancel_*` (anulacje kupna Grupy — podstawa
+            # rozdziału o layeringu) i technika znikała z opinii bez śladu. Usługi
+            # bankowa i makro kasują swoje klucze zakresowo; ta robi to samo.
             payload = clean_metrics(case_id, rows)
+            wlasne = sorted({m["key"] for m in payload})
+            for i in range(0, len(wlasne), 100):
+                warunek = ",".join(f'"{k}"' for k in wlasne[i:i + 100])
+                _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}&key=in.({warunek})",
+                     headers={"Prefer": "return=minimal"})
             for i in range(0, len(payload), 500):
                 _req("POST", f"{BASE}/rest/v1/metrics",
                      data=json.dumps(payload[i:i + 500]).encode("utf-8"),

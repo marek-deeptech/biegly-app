@@ -206,7 +206,22 @@ export function indeks100(
 
 // ── dynamika pozycji sprawozdawczych (wejście: items z subanalizy fin_stats) ──
 
-export type PozycjaFin = { position: string; period: string; value: string; unit: string };
+export type PozycjaFin = {
+  position: string;
+  period: string;
+  value: string;
+  unit: string;
+  /**
+   * Emitent, którego dotyczy pozycja.
+   *
+   * ⚠️ PRZY WIELU INSTRUMENTACH JEST OBOWIĄZKOWY. Sprawa ZASTAL dotyczy CSY S.A.
+   * i RSY S.A. — grupowanie po samej nazwie pozycji zlewałoby „przychody netto"
+   * obu spółek w jeden szereg i liczyło dynamikę między CUDZYMI liczbami.
+   * Pozycje bez emitenta trafiają do wspólnego kubła „—" i nie mieszają się
+   * z żadną spółką nazwaną.
+   */
+  issuer?: string;
+};
 
 /** „1 234,56" / „(123)" / „−45,3" → liczba; nawias księgowy = minus. */
 export function liczbaPl(s: string): number | null {
@@ -221,8 +236,19 @@ export function liczbaPl(s: string): number | null {
 
 const KW: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 4 };
 
-/** Klucz sortowania okresu: kwartał > półrocze > rok; nierozpoznany → null. */
-export function kluczOkresu(period: string): { rok: number; pod: number; rodzaj: "kw" | "pol" | "rok" } | null {
+/**
+ * Klucz sortowania okresu: kwartał > półrocze > rok > dzień bilansowy.
+ *
+ * ⚠️ DATY BILANSOWE („31-12-2017", „2017-09-30") TEŻ SĄ OKRESEM. Sprawozdania
+ * podają część wielkości pod datą dzienną, a nie nazwą kwartału — pomijanie ich
+ * odcinało w sprawie ZASTAL większość szeregu. Dzień dostaje własny `rodzaj`,
+ * więc porównuje się wyłącznie z innym dniem: zestawienie stanu na 30.09 z
+ * wielkością „III kw." (strumień za kwartał) mieszałoby zapas ze strumieniem.
+ * Porównanie r/r trafia w ten sam dzień i miesiąc rok wcześniej.
+ */
+export function kluczOkresu(
+  period: string,
+): { rok: number; pod: number; rodzaj: "kw" | "pol" | "rok" | "dzien" } | null {
   const p = period.toLowerCase().replace(/\s+/g, " ").trim();
   let m = p.match(/^(i{1,3}|iv)\s*kw\w*\.?\s*(\d{4})/);
   if (m) return { rok: Number(m[2]), pod: KW[m[1]], rodzaj: "kw" };
@@ -230,6 +256,11 @@ export function kluczOkresu(period: string): { rok: number; pod: number; rodzaj:
   if (m) return { rok: Number(m[2]), pod: m[1] === "i" ? 1 : 2, rodzaj: "pol" };
   m = p.match(/^(\d{4})$/);
   if (m) return { rok: Number(m[1]), pod: 0, rodzaj: "rok" };
+  // dzień bilansowy: DD-MM-RRRR / DD.MM.RRRR albo RRRR-MM-DD
+  m = p.match(/^(\d{1,2})[-.](\d{1,2})[-.](\d{4})$/);
+  if (m) return { rok: Number(m[3]), pod: Number(m[2]) * 100 + Number(m[1]), rodzaj: "dzien" };
+  m = p.match(/^(\d{4})[-.](\d{1,2})[-.](\d{1,2})$/);
+  if (m) return { rok: Number(m[1]), pod: Number(m[2]) * 100 + Number(m[3]), rodzaj: "dzien" };
   return null;
 }
 
@@ -247,9 +278,10 @@ export function dynamikaFin(items: PozycjaFin[]): {
   uwagi: string[];
 } {
   const uwagi: string[] = [];
+  // Klucz grupowania: EMITENT + pozycja (patrz komentarz przy PozycjaFin.issuer).
   const wgPozycji = new Map<string, PozycjaFin[]>();
   for (const it of items) {
-    const k = it.position.trim();
+    const k = `${(it.issuer ?? "—").trim()} ${it.position.trim()}`;
     if (!wgPozycji.has(k)) wgPozycji.set(k, []);
     wgPozycji.get(k)!.push(it);
   }
@@ -259,10 +291,13 @@ export function dynamikaFin(items: PozycjaFin[]): {
   const proc = (a: number, b: number) =>
     b === 0 ? "—" : `${(((a - b) / Math.abs(b)) * 100).toFixed(1).replace(".", ",")}%`;
 
-  for (const [pozycja, xs] of wgPozycji) {
+  for (const [, xs] of wgPozycji) {
+    const emitent = (xs[0].issuer ?? "—").trim();
+    const pozycja = xs[0].position.trim();
+    const etykieta = emitent === "—" ? `„${pozycja}”` : `${emitent} — „${pozycja}”`;
     const jednostki = new Set(xs.map((x) => x.unit.trim().toLowerCase()).filter(Boolean));
     if (jednostki.size > 1) {
-      uwagi.push(`„${pozycja}”: jednostki niejednolite (${[...jednostki].join(", ")}) — dynamiki nie policzono`);
+      uwagi.push(`${etykieta}: jednostki niejednolite (${[...jednostki].join(", ")}) — dynamiki nie policzono`);
       continue;
     }
     const okresy = xs
@@ -275,6 +310,7 @@ export function dynamikaFin(items: PozycjaFin[]): {
       const poprz = i > 0 && okresy[i - 1].k.rodzaj === o.k.rodzaj ? okresy[i - 1] : null;
       const rr = okresy.find((p) => p.k.rodzaj === o.k.rodzaj && p.k.rok === o.k.rok - 1 && p.k.pod === o.k.pod) ?? null;
       rows.push([
+        emitent,
         pozycja,
         o.x.period,
         `${pl(o.v)} ${o.x.unit}`.trim(),
@@ -287,9 +323,9 @@ export function dynamikaFin(items: PozycjaFin[]): {
   return {
     table: {
       caption:
-        "Tabela. Analiza dynamiczna pozycji sprawozdawczych emitenta (zmiana wobec okresu poprzedniego i rok do roku)",
-      head: ["Pozycja", "Okres", "Wartość", "Δ okres poprzedni", "Δ r/r"],
-      rows,
+        "Tabela. Analiza dynamiczna pozycji sprawozdawczych emitentów (zmiana wobec okresu poprzedniego i rok do roku)",
+      head: ["Emitent", "Pozycja", "Okres", "Wartość", "Δ okres poprzedni", "Δ r/r"],
+      rows: rows.sort((a, b) => a[0].localeCompare(b[0], "pl") || a[1].localeCompare(b[1], "pl") || a[2].localeCompare(b[2], "pl")),
     },
     uwagi,
   };

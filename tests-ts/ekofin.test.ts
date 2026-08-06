@@ -101,6 +101,19 @@ describe("liczbaPl / kluczOkresu", () => {
     expect(kluczOkresu("2019")).toMatchObject({ rok: 2019, rodzaj: "rok" });
     expect(kluczOkresu("za okres sprawozdawczy")).toBeNull();
   });
+
+  it("rozpoznaje daty bilansowe i trzyma je OSOBNO od kwartałów", () => {
+    // Sprawozdania podają część wielkości pod datą dzienną. Stan na 30.09 (zapas)
+    // nie może być porównywany z „III kw." (strumień) — stąd osobny rodzaj.
+    expect(kluczOkresu("30-09-2017")).toMatchObject({ rok: 2017, pod: 930, rodzaj: "dzien" });
+    expect(kluczOkresu("2017-12-31")).toMatchObject({ rok: 2017, pod: 1231, rodzaj: "dzien" });
+    const { table } = dynamikaFin([
+      { issuer: "CSY S.A.", position: "kapitał własny", period: "30-09-2016", value: "24 566 829", unit: "zł" },
+      { issuer: "CSY S.A.", position: "kapitał własny", period: "30-09-2017", value: "27 216 873", unit: "zł" },
+    ]);
+    const r = table!.rows.find((x) => x[2] === "30-09-2017")!;
+    expect(r[5]).toBe("10,8%"); // r/r wobec tego samego dnia rok wcześniej
+  });
 });
 
 describe("dynamikaFin", () => {
@@ -112,12 +125,31 @@ describe("dynamikaFin", () => {
       { position: "Zysk netto", period: "III kw. 2019", value: "(50)", unit: "tys. zł" },
       { position: "Zysk netto", period: "III kw. 2020", value: "25", unit: "tys. zł" },
     ]);
+    // Układ kolumn: [Emitent, Pozycja, Okres, Wartość, Δ poprz., Δ r/r].
     const rows = table!.rows;
-    const p3 = rows.find((r) => r[0] === "Przychody netto" && r[1] === "III kw. 2020")!;
-    expect(p3[3]).toBe("100,0%"); // vs II kw. 2020
-    expect(p3[4]).toBe("200,0%"); // vs III kw. 2019
-    const z = rows.find((r) => r[0] === "Zysk netto" && r[1] === "III kw. 2020")!;
-    expect(z[4]).toBe("150,0%"); // z −50 na +25 względem |−50|
+    const p3 = rows.find((r) => r[1] === "Przychody netto" && r[2] === "III kw. 2020")!;
+    expect(p3[4]).toBe("100,0%"); // vs II kw. 2020
+    expect(p3[5]).toBe("200,0%"); // vs III kw. 2019
+    const z = rows.find((r) => r[1] === "Zysk netto" && r[2] === "III kw. 2020")!;
+    expect(z[5]).toBe("150,0%"); // z −50 na +25 względem |−50|
+  });
+
+  it("NIE miesza emitentów: ta sama pozycja dwóch spółek to dwa osobne szeregi", () => {
+    // Regresja ze sprawy ZASTAL (CSY S.A. + RSY S.A.): grupowanie po samej nazwie
+    // pozycji liczyłoby dynamikę między liczbami RÓŻNYCH spółek — wynik wyglądałby
+    // wiarygodnie i byłby bez sensu.
+    const { table } = dynamikaFin([
+      { issuer: "CSY S.A.", position: "przychody netto ze sprzedaży", period: "2016", value: "17 086", unit: "tys. zł" },
+      { issuer: "CSY S.A.", position: "przychody netto ze sprzedaży", period: "2017", value: "19 501", unit: "tys. zł" },
+      { issuer: "RSY S.A.", position: "przychody netto ze sprzedaży", period: "2016", value: "912", unit: "tys. zł" },
+      { issuer: "RSY S.A.", position: "przychody netto ze sprzedaży", period: "2017", value: "363", unit: "tys. zł" },
+    ]);
+    const rows = table!.rows;
+    expect(table!.head[0]).toBe("Emitent");
+    const csy = rows.find((r) => r[0] === "CSY S.A." && r[2] === "2017")!;
+    const rsy = rows.find((r) => r[0] === "RSY S.A." && r[2] === "2017")!;
+    expect(csy[4]).toBe("14,1%"); // 17 086 → 19 501
+    expect(rsy[4]).toBe("-60,2%"); // 912 → 363, a NIE 19 501 → 363
   });
 
   it("pozycja z niejednolitą jednostką NIE dostaje dynamiki — tylko uwagę", () => {
