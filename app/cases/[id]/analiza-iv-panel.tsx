@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import EkofinPanel from "./ekofin-panel";
 
-type Sub = { kind: string; status?: string; data?: unknown };
+type Sub = { kind: string; status?: string; body_md?: string; data?: unknown };
 type Metric = { key: string; value: number | null };
 type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
 
@@ -77,6 +77,11 @@ export default function AnalizaIVPanel({
 
   const ZAKLADKI = [
     {
+      id: "Wstęp",
+      tytul: "Wstęp rozdziału IV (przedmiot, emitenci, system notowań, kontekst)",
+      gotowe: Boolean(wg.get("proza_iv")),
+    },
+    {
       id: "IV.1",
       tytul: "Ekonomia i otoczenie rynkowe",
       gotowe: Boolean((dane("ekofin_dane")?.charts as unknown[] | undefined)?.length),
@@ -120,6 +125,25 @@ export default function AnalizaIVPanel({
       <p className="mt-1 text-[11px] text-inksoft">
         {ZAKLADKI.find((z) => z.id === akt)?.tytul}
       </p>
+
+      {akt === "Wstęp" && (
+        <div className="mt-2 text-xs">
+          {wg.get("proza_iv") ? (
+            <>
+              <p className="text-[11px] text-inksoft">
+                Szkic wstępu rozdziału IV (wzorzec: finał HubTech). Fragmenty w nawiasach
+                kwadratowych to jawne luki do uzupełnienia ze wskazanych źródeł — redakcja
+                i zatwierdzenie w zakładce „Opinia”.
+              </p>
+              <div className="mt-2 whitespace-pre-wrap border-l-2 border-ink/30 pl-3 leading-relaxed">
+                {wg.get("proza_iv")?.body_md ?? ""}
+              </div>
+            </>
+          ) : (
+            <p className="text-inksoft">Brak szkicu wstępu — zostanie zaproponowany przy pracy nad rozdziałem IV.</p>
+          )}
+        </div>
+      )}
 
       {akt === "IV.1" && (
         <div className="mt-2 -m-4 border-t border-ink/10 pt-0 [&>section]:border-0">

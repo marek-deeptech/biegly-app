@@ -2042,6 +2042,11 @@ export function buildOpinion(
       ],
     },
     iiiChapter,
+    // WSTĘP ROZDZIAŁU IV — kontener „IV. Analiza" przed podrozdziałami IV.1–IV.7,
+    // wzorem finału HubTech (przedmiot i dni sesyjne, profil emitenta, wprowadzenie
+    // do obrotu, system notowań, kontekst informacyjny). Powstaje wyłącznie, gdy
+    // subanaliza `proza_iv` istnieje — sprawy bez wstępu nie dostają pustej wydmuszki.
+    ...(byKind.get("proza_iv") ? [chapterFromStored(byKind.get("proza_iv")!, "IV", "Analiza")] : []),
     ...ivChapters,
     {
       no: "V",
