@@ -152,3 +152,49 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
     },
   ];
 }
+
+/**
+ * Propozycje technik ODRĘBNIE DLA KAŻDEGO INSTRUMENTU.
+ *
+ * ⚠️ POWÓD ISTNIENIA — sprawa ZASTAL (CSY S.A. i RSY S.A.). Detekcja na zestawie
+ * ŁĄCZNYM odpowiada na pytanie „czy w tej sprawie wystąpiła technika X", podczas
+ * gdy postanowienie pyta o obrót KAŻDYM z walorów z osobna. Różnica nie jest
+ * teoretyczna: layering wykryto w 6 sesjach obrotu akcjami CSY i w ZERO sesjach
+ * obrotu akcjami RSY, a zestaw łączny pokazywał 12 sesji — bo anulacje zleceń
+ * jednego waloru zestawiał ze sprzedażą drugiego. Przypisanie techniki niewłaściwemu
+ * instrumentowi jest w opinii sądowej zarzutem wobec obrotu, którego nie było.
+ *
+ * Funkcja NIE rozstrzyga doboru — proponuje. Wybór zatwierdza biegły (zakładka A2),
+ * osobno dla każdego instrumentu.
+ */
+export function proposeTechniquesPerInstrument(
+  instrumenty: { ticker: string; label: string }[],
+  metrykiDla: (ticker: string) => Metric[],
+  stored: SubLite[] = [],
+): { label: string; ticker: string; proposals: Proposal[] }[] {
+  return instrumenty.map((i) => ({
+    ticker: i.ticker,
+    label: i.label,
+    proposals: proposeTechniques(metrykiDla(i.ticker), stored),
+  }));
+}
+
+/**
+ * Techniki, które wystąpiły w CO NAJMNIEJ jednym instrumencie (suma propozycji).
+ *
+ * Rozdział opinii poświęcony technice powstaje raz, ale MUSI powiedzieć, którego
+ * waloru dotyczy — stąd obok sumy zwracamy przypisanie technika → instrumenty.
+ */
+export function technikiWgInstrumentow(
+  wg: { label: string; proposals: Proposal[] }[],
+): { id: IVKind; instrumenty: string[]; sygnaly: string[] }[] {
+  const mapa = new Map<IVKind, { instrumenty: string[]; sygnaly: string[] }>();
+  for (const { label, proposals } of wg)
+    for (const p of proposals.filter((x) => x.auto)) {
+      const w = mapa.get(p.id) ?? { instrumenty: [], sygnaly: [] };
+      w.instrumenty.push(label);
+      w.sygnaly.push(`${label}: ${p.signal}`);
+      mapa.set(p.id, w);
+    }
+  return [...mapa.entries()].map(([id, w]) => ({ id, ...w }));
+}
