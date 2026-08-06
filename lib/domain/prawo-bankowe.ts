@@ -25,7 +25,46 @@ export type Przepis = {
   zastapil?: string;
   /** Moduły analizy, dla których przepis jest właściwy. */
   moduly: BankModul[];
+  /** Indeks tematyczny kroku „Otoczenie prawne" — patrz TEMATY_PRAWNE. */
+  tematy: TematPrawny[];
 };
+
+/**
+ * INDEKS TEMATYCZNY — odpowiada wprost na pytanie kroku „Otoczenie prawne":
+ * GDZIE w przepisach obowiązujących w dacie zdarzenia jest mowa o adekwatności
+ * kapitałowej, płynności i kondycji finansowej banku (wzorzec: opinia MBR,
+ * rozdz. V.L, s. 93 — przegląd reżimu ostrożnościowego wg obszarów).
+ *
+ * Przypisanie jest RĘCZNE per przepis, nie po słowach kluczowych — ta sama zasada
+ * co w przekładzie nazw BPS (engine/przeklad_bps.py): dopasowanie rozmyte myli
+ * pozycje, a w dokumencie sądowym przepis o płynności podpięty pod adekwatność
+ * to błąd, którego nikt nie zauważy do rozprawy.
+ */
+export type TematPrawny =
+  | "adekwatnosc_kapitalowa"
+  | "plynnosc"
+  | "kondycja_finansowa"
+  | "limity_koncentracja"
+  | "proces_ryzyka"
+  | "ustroj_spoldzielczy"
+  | "odpowiedzialnosc_karna";
+
+export const TEMATY_PRAWNE: { id: TematPrawny; label: string; opis: string }[] = [
+  { id: "adekwatnosc_kapitalowa", label: "Adekwatność kapitałowa",
+    opis: "Fundusze własne i współczynniki kapitałowe — ile kapitału bank MUSI utrzymywać wobec ryzyka" },
+  { id: "plynnosc", label: "Płynność",
+    opis: "Zdolność do regulowania zobowiązań — normy płynności i pokrycie wypływów" },
+  { id: "kondycja_finansowa", label: "Kondycja finansowa i zdolność kredytowa",
+    opis: "Badanie sytuacji ekonomiczno-finansowej — własnej i kontrahenta — jako warunek zaangażowania" },
+  { id: "limity_koncentracja", label: "Limity i koncentracja zaangażowań",
+    opis: "Granice zaangażowania wobec jednego podmiotu lub grupy powiązanej" },
+  { id: "proces_ryzyka", label: "Proces zarządzania ryzykiem",
+    opis: "Systemy identyfikacji, pomiaru i kontroli ryzyka oraz kontrola wewnętrzna" },
+  { id: "ustroj_spoldzielczy", label: "Ustrój spółdzielczy",
+    opis: "Zasady działania banków spółdzielczych i zrzeszających" },
+  { id: "odpowiedzialnosc_karna", label: "Odpowiedzialność karna",
+    opis: "Kwalifikacja czynu osób zajmujących się sprawami majątkowymi" },
+];
 
 export type BankModul =
   | "makro"
@@ -50,6 +89,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     od: "2007-04-01",
     do: "2013-12-31",
     moduly: ["adekwatnosc", "otoczenie_prawne"],
+    tematy: ["adekwatnosc_kapitalowa"],
   },
   {
     ref: "Uchwała nr 4/2007 KNB",
@@ -58,6 +98,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     od: "2007-04-01",
     do: "2013-12-31",
     moduly: ["limity", "otoczenie_prawne"],
+    tematy: ["limity_koncentracja"],
   },
   {
     // To jest przepis, na którym biegły oparł wnioski w sprawie MBR.
@@ -68,6 +109,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     od: "2007-04-01",
     do: "2013-12-31",
     moduly: ["procedury", "otoczenie_prawne", "limity"],
+    tematy: ["proces_ryzyka", "kondycja_finansowa"],
   },
   // ── CRD IV / CRR — od 2014 ────────────────────────────────────────────────
   {
@@ -78,6 +120,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     od: "2014-01-01",
     zastapil: "Uchwała nr 1/2007 KNB",
     moduly: ["adekwatnosc"],
+    tematy: ["adekwatnosc_kapitalowa"],
   },
   {
     ref: "art. 395 CRR",
@@ -86,6 +129,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     od: "2014-01-01",
     zastapil: "Uchwała nr 4/2007 KNB",
     moduly: ["limity", "ekspozycja_sektor"],
+    tematy: ["limity_koncentracja"],
   },
   {
     ref: "art. 429 CRR",
@@ -93,6 +137,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     zakres: "wskaźnik dźwigni finansowej",
     od: "2014-01-01",
     moduly: ["adekwatnosc"],
+    tematy: ["adekwatnosc_kapitalowa"],
   },
   {
     ref: "art. 412 CRR w zw. z rozp. del. (UE) 2015/61",
@@ -100,6 +145,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     zakres: "wymóg pokrycia wypływów netto (LCR)",
     od: "2015-10-01",
     moduly: ["adekwatnosc"],
+    tematy: ["plynnosc"],
   },
   {
     ref: "art. 74 CRD IV",
@@ -107,14 +153,41 @@ export const PRZEPISY_BANK: Przepis[] = [
     zakres: "systemy zarządzania ryzykiem, procedury i mechanizmy kontroli wewnętrznej",
     od: "2014-01-01",
     moduly: ["procedury", "otoczenie_prawne"],
+    tematy: ["proces_ryzyka"],
   },
   // ── Prawo krajowe — ciągłe ────────────────────────────────────────────────
+  {
+    // Norma płynności obowiązująca NIEPRZERWANIE od wejścia w życie Prawa bankowego —
+    // dla spraw sprzed LCR (MBR: 2008, SK Bank: 2012–2015) to ONA jest podstawą
+    // oceny płynności, bo LCR wszedł dopiero od października 2015 r.
+    ref: "art. 8 Prawa bankowego",
+    akt: "Ustawa z dnia 29 sierpnia 1997 r. — Prawo bankowe",
+    zakres:
+      "obowiązek utrzymywania płynności płatniczej dostosowanej do rozmiarów i rodzaju działalności banku",
+    od: "1998-01-01",
+    moduly: ["adekwatnosc", "otoczenie_prawne"],
+    tematy: ["plynnosc"],
+  },
+  {
+    // Krajowa kotwica adekwatności sprzed CRR: współczynnik wypłacalności co najmniej
+    // 8% (nowo rozpoczynające 15%/12% w pierwszych latach). Materia przeszła do
+    // art. 92 CRR z dniem 1.01.2014 — stąd data końcowa.
+    ref: "art. 128 Prawa bankowego (do 2013)",
+    akt: "Ustawa z dnia 29 sierpnia 1997 r. — Prawo bankowe",
+    zakres:
+      "obowiązek utrzymywania funduszy własnych dostosowanych do rozmiaru ryzyka oraz współczynnika wypłacalności co najmniej 8%",
+    od: "1998-01-01",
+    do: "2013-12-31",
+    moduly: ["adekwatnosc", "otoczenie_prawne"],
+    tematy: ["adekwatnosc_kapitalowa", "kondycja_finansowa"],
+  },
   {
     ref: "art. 9 Prawa bankowego",
     akt: "Ustawa z dnia 29 sierpnia 1997 r. — Prawo bankowe",
     zakres: "obowiązek funkcjonowania systemu zarządzania ryzykiem i kontroli wewnętrznej",
     od: "1998-01-01",
     moduly: ["procedury", "otoczenie_prawne"],
+    tematy: ["proces_ryzyka"],
   },
   {
     ref: "art. 70 Prawa bankowego",
@@ -122,6 +195,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     zakres: "badanie zdolności kredytowej jako warunek zaangażowania środków",
     od: "1998-01-01",
     moduly: ["sprawozdania", "procedury"],
+    tematy: ["kondycja_finansowa", "proces_ryzyka"],
   },
   {
     ref: "art. 71 Prawa bankowego",
@@ -130,6 +204,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     od: "1998-01-01",
     do: "2013-12-31",
     moduly: ["limity"],
+    tematy: ["limity_koncentracja"],
   },
   {
     ref: "ustawa o funkcjonowaniu banków spółdzielczych",
@@ -137,6 +212,7 @@ export const PRZEPISY_BANK: Przepis[] = [
     zakres: "ustrój banków spółdzielczych i banków zrzeszających, fundusze własne, zasady zrzeszenia",
     od: "2001-01-28",
     moduly: ["adekwatnosc", "otoczenie_prawne", "procedury"],
+    tematy: ["ustroj_spoldzielczy", "adekwatnosc_kapitalowa"],
   },
   // ── Strona karna — kwalifikacja czynu zarządu ─────────────────────────────
   {
@@ -146,6 +222,7 @@ export const PRZEPISY_BANK: Przepis[] = [
       "nadużycie uprawnień lub niedopełnienie obowiązku przez osobę zajmującą się sprawami majątkowymi, wyrządzające znaczną szkodę majątkową",
     od: "1998-09-01",
     moduly: ["procedury", "otoczenie_prawne"],
+    tematy: ["odpowiedzialnosc_karna"],
   },
 ];
 
@@ -168,4 +245,20 @@ export function przepisyNaDzien(dzien: string, modul?: BankModul): Przepis[] {
  */
 export function przepisyAnachroniczne(dzien: string): Przepis[] {
   return PRZEPISY_BANK.filter((p) => p.od > dzien);
+}
+
+/**
+ * Indeks tematyczny na dzień zdarzenia: temat → przepisy, które go regulują.
+ *
+ * To jest odpowiedź kroku „Otoczenie prawne" na pytanie „gdzie w tych przepisach
+ * jest mowa o adekwatności kapitałowej / płynności / kondycji finansowej banku".
+ * Tematy bez żadnego przepisu NA TEN DZIEŃ zostają w wyniku z pustą listą —
+ * „w tej dacie żaden przepis katalogu nie regulował X" jest ustaleniem, nie brakiem.
+ */
+export function przepisyWgTematu(dzien: string): { temat: (typeof TEMATY_PRAWNE)[number]; przepisy: Przepis[] }[] {
+  const wlasciwe = przepisyNaDzien(dzien);
+  return TEMATY_PRAWNE.map((t) => ({
+    temat: t,
+    przepisy: wlasciwe.filter((p) => p.tematy.includes(t.id)),
+  }));
 }

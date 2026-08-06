@@ -176,36 +176,62 @@ describe("rejestr pakietów dziedzinowych", () => {
     }
   });
 
-  it("kroki 3-5 są ROZDZIELNE między dziedzinami", () => {
+  it("kroki są ROZDZIELNE między dziedzinami", () => {
     // Wymóg twardy: zmiana w jednej dziedzinie nie ma prawa dotknąć drugiej.
     const gpw = packDla("manipulacja_gpw").kroki;
     const bank = packDla("ryzyko_bankowe").kroki;
-    // GPW ma o jeden krok więcej — „Ekonomia emitenta" (wymóg klienta, sprawa
-    // ZASTAL 2026-08: analiza ekonomiczno-finansowa jako krok 4 po Analizie
-    // liczbowej). Krok NIE istnieje w pakiecie bankowym: tam rubryka ekon-fin
-    // żyje w kroku „Analiza" i dokłada się jej wymogami tej dziedziny.
+    // GPW: przebieg z krokiem „Ekonomia emitenta" (sprawa ZASTAL 2026-08).
+    // BANK: przebieg 2026-08 (wzorzec MBR) — Baza wiedzy → Otoczenie prawne →
+    // Otoczenie makro → Lista wskaźników → Analiza EF (podzakładki) → Opinia.
+    // Dawny osobny krok „warsztat" żyje jako podzakładka analizy, NIE w stepperze.
     expect(gpw.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "ekonomia", "warsztat", "opinion"]);
-    expect(bank.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "warsztat", "opinion"]);
+    expect(bank.map((k) => k.klucz)).toEqual([
+      "overview", "files", "wiedza", "prawo", "makro", "wskazniki", "analysis", "opinion",
+    ]);
     expect(bank.some((k) => k.klucz === "ekonomia")).toBe(false);
-    // …i inne etykiety oraz warunki ukończenia dla wspólnych kroków 3 i „warsztat"
-    expect(gpw[2].label).not.toBe(bank[2].label);
+    expect(bank.some((k) => k.klucz === "warsztat")).toBe(false);
+    // …a kroki bankowe 3–6 nie istnieją w pakiecie GPW
+    for (const klucz of ["wiedza", "prawo", "makro", "wskazniki"]) {
+      expect(gpw.some((k) => k.klucz === klucz)).toBe(false);
+    }
     const stan = {
       dokumentow: 5, metryk: 0, zatwierdzone: 0, checklistOk: true,
       subanalizy: ["techniki", "powiazania_dane"],
     };
+    // subanalizy GPW kończą warsztat w manipulacjach — a w banku nie kończą niczego
     const gpwWarsztat = gpw.find((k) => k.klucz === "warsztat")!;
-    const bankWarsztat = bank.find((k) => k.klucz === "warsztat")!;
-    // subanalizy GPW kończą warsztat w manipulacjach, ale NIE w sprawie bankowej
     expect(gpwWarsztat.gotowy(stan)).toBe(true);
-    expect(bankWarsztat.gotowy(stan)).toBe(false);
+    expect(bank.find((k) => k.klucz === "analysis")!.gotowy(stan)).toBe(false);
     // krok 4 GPW kończy dopiero subanaliza ekofin_dane
     const krok4 = gpw.find((k) => k.klucz === "ekonomia")!;
     expect(krok4.gotowy(stan)).toBe(false);
     expect(krok4.gotowy({ ...stan, subanalizy: ["ekofin_dane"] })).toBe(true);
-    // i odwrotnie
-    const stanBank = { ...stan, subanalizy: ["procedury", "limity"] };
-    expect(bank[3].gotowy(stanBank)).toBe(true);
-    expect(gpw[3].gotowy(stanBank)).toBe(false);
+  });
+
+  it("warunki ukończenia nowych kroków bankowych odpowiadają ich treści", () => {
+    const bank = packDla("ryzyko_bankowe").kroki;
+    const krok = (klucz: string) => bank.find((k) => k.klucz === klucz)!;
+    const stan = { dokumentow: 5, metryk: 0, zatwierdzone: 0, checklistOk: true, subanalizy: [] as string[] };
+    // Baza wiedzy: kończy ją obecność źródeł dziedziny w repozytorium, nie subanaliza.
+    expect(krok("wiedza").gotowy(stan)).toBe(false);
+    expect(krok("wiedza").gotowy({ ...stan, wiedza: 10 })).toBe(true);
+    // Otoczenie prawne: kończy zapisany moduł otoczenie_prawne.
+    expect(krok("prawo").gotowy(stan)).toBe(false);
+    expect(krok("prawo").gotowy({ ...stan, subanalizy: ["otoczenie_prawne"] })).toBe(true);
+    // Otoczenie makro: makro LUB sygnały rynkowe (w aktach bywa tylko jedno z dwojga).
+    expect(krok("makro").gotowy(stan)).toBe(false);
+    expect(krok("makro").gotowy({ ...stan, subanalizy: ["makro"] })).toBe(true);
+    expect(krok("makro").gotowy({ ...stan, subanalizy: ["sygnaly_rynkowe"] })).toBe(true);
+    // Lista wskaźników: katalog referencyjny — zawsze dostępny, niczego nie liczy.
+    expect(krok("wskazniki").gotowy(stan)).toBe(true);
+    // Analiza EF: jak dotąd — metryki silnika albo subanaliza wskazniki_bank.
+    expect(krok("analysis").gotowy({ ...stan, subanalizy: ["wskazniki_bank"] })).toBe(true);
+    // Warsztat (procedury+limity) NIE kończy już kroków merytorycznych steppera —
+    // jest podzakładką analizy; jego stan widać w panelu, nie w stepperze.
+    const stanWarsztatu = { ...stan, subanalizy: ["procedury", "limity"] };
+    for (const klucz of ["wiedza", "prawo", "makro", "analysis", "opinion"] as const) {
+      expect(krok(klucz).gotowy(stanWarsztatu), klucz).toBe(false);
+    }
   });
 
   it("wymagane typy dziedziny bankowej wywodzą się z wymogów krytycznych", () => {

@@ -19,10 +19,12 @@ import { storageKey, uploadResumable } from "@/lib/upload";
 import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
-import AnalizaEfPanel from "./analiza-ef-panel";
+import AnalizaBankPanel from "./analiza-bank-panel";
 import AnalizaIVPanel from "./analiza-iv-panel";
-import WskaznikiBankPanel from "./wskazniki-bank-panel";
-import WarsztatBankPanel from "./warsztat-bank-panel";
+import MakroPanel from "./makro-panel";
+import PrawoPanel from "./prawo-panel";
+import WiedzaPanel from "./wiedza-panel";
+import WskaznikiKatalogPanel from "./wskazniki-katalog-panel";
 import PytaniaPanel from "./pytania-panel";
 import RosterPanel from "./roster-panel";
 import WarsztatView from "./warsztat-view";
@@ -104,6 +106,7 @@ export default function CaseDetail({
   recommended,
   metrics,
   subanalyses,
+  wiedzaZrodel = 0,
 }: {
   caseRow: CaseRow;
   documents: Doc[];
@@ -111,6 +114,8 @@ export default function CaseDetail({
   recommended: Check[];
   metrics: Metric[];
   subanalyses: SubRow[];
+  /** Aktywne źródła repozytorium wiedzy dla dziedziny sprawy — krok „Baza wiedzy". */
+  wiedzaZrodel?: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -139,7 +144,9 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
-  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "ekonomia" | "warsztat" | "opinion">("overview");
+  const [tab, setTab] = useState<
+    "overview" | "files" | "wiedza" | "prawo" | "makro" | "wskazniki" | "analysis" | "ekonomia" | "warsztat" | "opinion"
+  >("overview");
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [authorFilter, setAuthorFilter] = useState("");
   const [provFilter, setProvFilter] = useState("");
@@ -215,6 +222,7 @@ export default function CaseDetail({
       subanalizy: subanalyses.map((s) => s.kind),
       zatwierdzone: subanalyses.filter((s) => s.status === "zatwierdzona").length,
       checklistOk,
+      wiedza: wiedzaZrodel,
     }),
   }));
   const dziedzinaBankowa = pakiet.id === "ryzyko_bankowe";
@@ -1207,24 +1215,31 @@ export default function CaseDetail({
           zleceń UTP i technikami MAR — w sprawie bankowej nie są renderowane w ogóle,
           bo pokazanie przycisku „Policz wskaźniki manipulacji" sugerowałoby, że jest
           co liczyć. */}
-      {tab === "analysis" && dziedzinaBankowa && (
-        <>
-          <WskaznikiBankPanel
-            caseId={caseRow.id}
-            documents={documents}
-            subanalyses={subanalyses}
-            onDone={() => router.refresh()}
-          />
-          {/* Rubryka banku zrzeszającego — liczona z tych samych pozycji, ale
-              odpowiadająca na inne pytanie: nie „jak zmieniał się współczynnik",
-              tylko „jak wypadłby bank w metodyce, którą miał być oceniany". */}
-          <div className="mt-4">
-            <AnalizaEfPanel subanalyses={subanalyses} />
-          </div>
-        </>
+      {/* NOWY PRZEBIEG BANKOWY (wymóg klienta, 2026-08) — kroki 3–6 przed analizą:
+          Baza wiedzy → Otoczenie prawne (wzorzec MBR V.L) → Otoczenie makro
+          (wzorzec MBR V.A–C i V.K) → Lista wskaźników. Analiza ekonomiczno-
+          -finansowa prowadzi podzakładki wg wzorca MBR; dawny Warsztat dowodowy
+          żyje w niej jako podzakładka „Proces i limity". */}
+      {tab === "wiedza" && dziedzinaBankowa && <WiedzaPanel dziedzina={caseRow.typ ?? "ryzyko_bankowe"} />}
+      {tab === "prawo" && dziedzinaBankowa && (
+        <PrawoPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
       )}
-      {tab === "warsztat" && dziedzinaBankowa && (
-        <WarsztatBankPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
+      {tab === "makro" && dziedzinaBankowa && (
+        <MakroPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
+      )}
+      {tab === "wskazniki" && dziedzinaBankowa && (
+        <WskaznikiKatalogPanel
+          subanalyses={subanalyses}
+          rolaBankuSpoldzielczego={caseRow.rola === "nadzor_nad_bankiem"}
+        />
+      )}
+      {tab === "analysis" && dziedzinaBankowa && (
+        <AnalizaBankPanel
+          caseId={caseRow.id}
+          documents={documents}
+          subanalyses={subanalyses}
+          onDone={() => router.refresh()}
+        />
       )}
 
       {/* KROK 4 GPW — rozdział IV opinii w siedmiu pod-zakładkach (wzorzec: finał

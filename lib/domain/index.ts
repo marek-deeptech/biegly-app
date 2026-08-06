@@ -48,10 +48,22 @@ export type StanSprawy = {
   subanalizy: string[];
   zatwierdzone: number;
   checklistOk: boolean;
+  /** Liczba aktywnych źródeł w repozytorium wiedzy DLA DZIEDZINY sprawy (krok „Baza wiedzy"). */
+  wiedza?: number;
 };
 
 export type Krok = {
-  klucz: "overview" | "files" | "analysis" | "ekonomia" | "warsztat" | "opinion";
+  klucz:
+    | "overview"
+    | "files"
+    | "wiedza"
+    | "prawo"
+    | "makro"
+    | "wskazniki"
+    | "analysis"
+    | "ekonomia"
+    | "warsztat"
+    | "opinion";
   label: string;
   /** Jednozdaniowy opis, co ten krok robi W TEJ dziedzinie. */
   opis: string;
@@ -88,20 +100,42 @@ const KROKI_GPW: Krok[] = [
     gotowy: (s) => s.zatwierdzone > 0 },
 ];
 
+// NOWY PRZEBIEG BANKOWY (wymóg klienta, 2026-08): siedem kroków przed Opinią,
+// wzorowanych na finalnej opinii MBR (PO III Ds 84.2020). Otoczenie prawne
+// odpowiada rozdz. V.L (s. 93), otoczenie makro — rozdz. V.A–C i V.K (s. 73),
+// a krok „Analiza ekonomiczno-finansowa" prowadzi podzakładki na wzór modułów
+// rozdziału V. Dawny osobny krok „Warsztat dowodowy" żyje dalej jako podzakładka
+// analizy (proces decyzyjny i limity są modułami rozdziału V, nie osobną fazą).
 const KROKI_BANK: Krok[] = [
   { klucz: "overview", label: "Sprawa", opis: "Pytania organu, podmioty i osoby, kompletność akt",
     gotowy: (s) => s.dokumentow > 0 && s.checklistOk },
   { klucz: "files", label: "Pliki", opis: "Wgranie i klasyfikacja akt (skany wymagają OCR)",
     gotowy: (s) => s.dokumentow > 0 },
+  { klucz: "wiedza", label: "Baza wiedzy",
+    opis:
+      "Piśmiennictwo i akty prawne dziedziny dobrane do sprawy — ranga źródła (akt prawny > organ " +
+      "nadzoru > monografia) steruje pierwszeństwem w redakcji; z linkami do plików źródłowych",
+    gotowy: (s) => (s.wiedza ?? 0) > 0 },
+  { klucz: "prawo", label: "Otoczenie prawne",
+    opis:
+      "Przepisy obowiązujące w DACIE ZDARZENIA z indeksem tematycznym: adekwatność kapitałowa, " +
+      "płynność, kondycja finansowa, limity koncentracji (wzorzec: opinia MBR, rozdz. V.L)",
+    gotowy: (s) => s.subanalizy.includes("otoczenie_prawne") },
+  { klucz: "makro", label: "Otoczenie makro",
+    opis:
+      "Kalendarium wydarzeń światowych (kryzysy, wojny, pandemie), szeregi z akt (inflacja, kursy, " +
+      "stopy) i sygnały rynkowe CDS/ratingi (wzorzec: opinia MBR, rozdz. V.A–C i V.K)",
+    gotowy: (s) => s.subanalizy.includes("makro") || s.subanalizy.includes("sygnaly_rynkowe") },
+  { klucz: "wskazniki", label: "Lista wskaźników",
+    opis:
+      "Katalog wymogów kapitałowych wg typu instytucji (bank, bank spółdzielczy) z progami " +
+      "obowiązującymi w dacie zdarzenia oraz rubryka 16 wskaźników banku zrzeszającego",
+    gotowy: () => true },
   { klucz: "analysis", label: "Analiza ekonomiczno-finansowa",
     opis:
-      "Współczynniki kapitałowe w czasie z progami z daty zdarzenia oraz rubryka 16 wskaźników " +
-      "w 4 obszarach (adekwatność, jakość aktywów, efektywność, płynność) wraz z rejestrem pozycji, " +
-      "których w aktach brakuje",
+      "Podzakładki wg wzorca MBR: sprawozdania i współczynniki kapitałowe, rubryka 16 wskaźników, " +
+      "oceny zrzeszającego, chronologia nadzorcza oraz proces decyzyjny i limity (warsztat)",
     gotowy: (s) => s.metryk > 0 || s.subanalizy.includes("wskazniki_bank") },
-  { klucz: "warsztat", label: "Warsztat dowodowy",
-    opis: "Proces decyzyjny, metodyka limitów, sygnały rynkowe i zestawienie z przepisami obowiązującymi w dacie zdarzenia",
-    gotowy: (s) => s.subanalizy.includes("procedury") && s.subanalizy.includes("limity") },
   { klucz: "opinion", label: "Opinia", opis: "Rozdziały I–VIII wg szkieletu opinii bankowej",
     gotowy: (s) => s.zatwierdzone > 0 },
 ];

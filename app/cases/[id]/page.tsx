@@ -41,6 +41,14 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
     .order("chapter_no");
   const subanalyses = subData ?? [];
 
+  // Krok „Baza wiedzy" (tor bankowy): licznik aktywnych źródeł DLA DZIEDZINY sprawy.
+  // Sam licznik, nie treść — panel kroku doczytuje resztę po stronie klienta.
+  const { count: wiedzaZrodel } = await supabase
+    .from("wiedza_zrodla")
+    .select("id", { count: "exact", head: true })
+    .eq("aktywne", true)
+    .eq("dziedzina", caseRow.typ ?? "manipulacja_gpw");
+
   const present = new Set(documents.map((d) => d.doc_type));
   // Alias: w sprawach sądowych „opinia do weryfikacji" to opinia biegłego prokuratury
   // (OPINIA_BIEGLY_PROK) lub innego biegłego — spełnia wymóg pozycji OPINIA_UKNF.
@@ -89,6 +97,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
         recommended={recommended}
         metrics={metrics}
         subanalyses={subanalyses}
+        wiedzaZrodel={wiedzaZrodel ?? 0}
       />
     </>
   );
