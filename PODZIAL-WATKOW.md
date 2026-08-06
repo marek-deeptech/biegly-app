@@ -5,15 +5,51 @@ jedno repozytorium, `cases.typ` rozstrzyga dziedzinę. Klon oznaczałby dwie kop
 rendererów PDF/DOCX, korpusów stylu i wiedzy, klienta LLM i backupu — i rozjazd
 po pierwszej poprawce.
 
-## Gałęzie
+## Katalogi robocze i gałęzie
 
-| Wątek | Gałąź | Sprawy |
-|---|---|---|
-| Hochsztapler — Manipulacje | `manipulacje` | ZASTAL (CSY, RSY), HUBTECH, MLM |
-| Hochsztapler — Sprawy bankowe | `bankowe` | SKOK (SK Bank), MBR |
+| Wątek | Katalog roboczy | Gałąź | Sprawy |
+|---|---|---|---|
+| Hochsztapler — Manipulacje | `~/biegly-app` | `manipulacje` | ZASTAL (CSY, RSY), HUBTECH, MLM |
+| Hochsztapler — Sprawy bankowe | `~/biegly-bankowe` | `bankowe` | SKOK (SK Bank), MBR |
 
-Merge do `main` po przejściu pełnych testów. **Dwa agenty pushujące równolegle na
-`main` to jedyny scenariusz, w którym można stracić pracę** — stąd gałęzie.
+Merge do `main` po przejściu pełnych testów.
+
+### ⚠️ SAMA GAŁĄŹ NIE WYSTARCZA — potrzebny OSOBNY KATALOG
+
+Pierwsza wersja tego dokumentu przewidywała tylko gałęzie. To okazało się
+niewystarczające i zawiodło tego samego dnia: obie sesje pracowały w JEDNYM
+katalogu `~/biegly-app`, więc widziały nawzajem swoje niezapisane pliki, a wątek
+bankowy zacommitował cały przebieg MBR (siedem kroków, nowe panele i trasa) na
+gałąź `manipulacje`. Wcześniej w drugą stronę: `git add -A` w wątku manipulacji
+wciągnął bankowy `scripts/bilans_z_obrazu.py`.
+
+Gałąź rozdziela HISTORIĘ, katalog rozdziela PLIKI. Bez tego drugiego dwa agenty
+nadpisują sobie drzewo robocze i commitują cudzą pracę.
+
+Katalog dla wątku bankowego zakłada się raz:
+
+```bash
+git worktree add ~/biegly-bankowe bankowe
+cp ~/biegly-app/.env.local ~/biegly-bankowe/.env.local   # gitignore — nie kopiuje się sam
+```
+
+Od tej pory wątek bankowy pracuje WYŁĄCZNIE w `~/biegly-bankowe`, manipulacyjny
+w `~/biegly-app`. Oba katalogi dzielą jedno repozytorium (`git worktree list`
+pokazuje wszystkie), więc gałęzie, tagi i historia są wspólne — rozdzielone są
+tylko pliki na dysku.
+
+### Zabłąkane commity
+
+Commit `f41cdb4` (przebieg bankowy MBR) trafił na gałąź manipulacji i został
+z niej zdjęty; jest zachowany pod tagiem **`bankowe-kroki-mbr`**. Wątek bankowy
+wciąga go do siebie:
+
+```bash
+cd ~/biegly-bankowe && git cherry-pick bankowe-kroki-mbr
+```
+
+Sprawdzenie przed każdym commitem: `git branch --show-current` musi zgadzać się
+z dziedziną, której dotyczy zmiana.
 
 ## Pliki WSPÓLNE — wymagają ostrożności
 
