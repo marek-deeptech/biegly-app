@@ -1,9 +1,11 @@
 // IV.3 — złożenie rozdziału „Aktywność podmiotów z Grupy" (dziedzina GPW).
 //   npx tsx scripts/aktywnosc_iv3.ts <sprawa> [--od RRRR-MM-DD] [--do RRRR-MM-DD] [--maks 20]
 //
-// Tabele: zbiorcza per podmiot za cały okres, przebieg sesja po sesji oraz tabele
-// SZCZEGÓŁOWE dla sesji istotnych (progi w lib/opinion/aktywnosc-iv3.ts; kryterium
-// doboru trafia do podpisu, bo dobór materiału musi być jawny). Bez modelu.
+// ⚠️ LICZBY IDĄ OSOBNO DLA KAŻDEGO INSTRUMENTU. Sprawa ZASTAL obejmuje CSY S.A.
+// i RSY S.A.; zestaw łączny sumowałby wolumeny dwóch różnych papierów i podstawiał
+// kurs jednego z nich pod oba — patrz komentarz w lib/opinion/instrumenty.ts.
+// Tabele: zbiorcza per podmiot, przebieg sesja po sesji i tabele SZCZEGÓŁOWE dla
+// sesji istotnych — wszystkie per instrument. Bez modelu.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 const ROOT = join(process.env.HOME ?? "", "biegly-app");
@@ -12,6 +14,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createClient } from "@supabase/supabase-js";
+import { instrumentySprawy, metrykiInstrumentu } from "@/lib/opinion/instrumenty";
 import {
   PROGI_DOMYSLNE,
   opisProgow,
@@ -20,7 +23,8 @@ import {
   tabelaPrzebiegu,
   tabelaSesji,
   wybierzDoTabel,
-  type Metryka,
+  type SesjaIstotna,
+  type Tabela,
 } from "@/lib/opinion/aktywnosc-iv3";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -28,21 +32,11 @@ const arg = (n: string) => {
   const i = process.argv.indexOf(`--${n}`);
   return i > 0 ? (process.argv[i + 1] ?? null) : null;
 };
-
-/** Wszystkie metryki sprawy — PostgREST tnie do 1000 wierszy, więc stronicujemy. */
-async function metrykiSprawy(id: string): Promise<Metryka[]> {
-  const out: Metryka[] = [];
-  for (let off = 0; ; off += 1000) {
-    const { data, error } = await sb
-      .from("metrics")
-      .select("key,value,session_day")
-      .eq("case_id", id)
-      .range(off, off + 999);
-    if (error) throw new Error(error.message);
-    out.push(...((data ?? []) as Metryka[]));
-    if ((data?.length ?? 0) < 1000) return out;
-  }
-}
+/** Podpis tabeli z nazwą instrumentu na początku — czytelnik musi wiedzieć, czego dotyczy. */
+const zInstrumentem = (t: Tabela, label: string): Tabela => ({
+  ...t,
+  caption: t.caption.startsWith(`Tabela. ${label}`) ? t.caption : `Tabela. ${label} — ${t.caption.replace(/^Tabela\.\s*/, "")}`,
+});
 
 async function main() {
   const { data: cases } = await sb.from("cases").select("id,name,typ").ilike("name", `%${process.argv[2]}%`);
@@ -50,43 +44,67 @@ async function main() {
   const c = cases[0];
   if (c.typ !== "manipulacja_gpw") throw new Error("rozdział IV.3 dotyczy spraw o manipulację GPW");
 
-  const wszystkie = await metrykiSprawy(c.id as string);
+  const { data: subs } = await sb.from("subanalyses").select("kind,data").eq("case_id", c.id);
+  const instrumenty = instrumentySprawy((subs ?? []) as never);
+  if (!instrumenty.length)
+    throw new Error(
+      'brak subanaliz trem_<ticker> — rozdział liczbowy wymaga metryk PER INSTRUMENT; uruchom najpierw „Policz z TREM"',
+    );
+
   const od = arg("od");
   const doD = arg("do");
-  // Okno badania z postanowienia — poza nim sesje do rozdziału NIE wchodzą.
-  const metryki = wszystkie.filter(
-    (m) => !m.session_day || ((!od || m.session_day >= od) && (!doD || m.session_day <= doD)),
-  );
   const maks = Number(arg("maks") ?? 20);
+  const wOknie = (d?: string | null) => !d || ((!od || d >= od) && (!doD || d <= doD));
 
-  const istotne = sesjeIstotne(metryki, PROGI_DOMYSLNE);
-  const przebieg = tabelaPrzebiegu(metryki);
-  const podmioty = tabelaPodmiotow(metryki);
-  const wybrane = wybierzDoTabel(istotne, maks);
-  const szczegolowe = wybrane
-    .map((s) => tabelaSesji(metryki, s.dzien, s.powody))
-    .filter((t): t is NonNullable<typeof t> => !!t);
+  const tables: Tabela[] = [];
+  const findings: string[] = [];
+  const sesjeWgInstrumentu: Record<string, SesjaIstotna[]> = {};
+  let pominietych = 0;
 
-  const tables = [podmioty, przebieg, ...szczegolowe].filter((t): t is NonNullable<typeof t> => !!t);
-  const dni = [...new Set(metryki.map((m) => m.session_day).filter(Boolean))] as string[];
-  const findings = [
-    `Rozdział obejmuje ${dni.length} sesji${od || doD ? ` w oknie ${od ?? "…"}–${doD ?? "…"}` : ""}; ` +
-      `kryteria istotności spełniło ${istotne.length} sesji, tabele szczegółowe sporządzono dla ${szczegolowe.length}.`,
-    `Kryterium doboru sesji do tabel szczegółowych: ${opisProgow(PROGI_DOMYSLNE)}.`,
-    ...(podmioty
-      ? [`Zestawienie obejmuje ${podmioty.rows.length} podmiotów z Grupy aktywnych w badanym okresie.`]
-      : []),
-    // Odsiew ponad limit MUSI być powiedziany: milczenie sugerowałoby, że tabele
-    // szczegółowe wyczerpują listę sesji istotnych.
-    ...(istotne.length > szczegolowe.length
-      ? [
-          `${istotne.length - szczegolowe.length} sesji spełniających kryteria NIE otrzymało tabeli szczegółowej ` +
-            `(limit ${maks} tabel na rozdział). Do tabel wybrano sesje o najwyższej liczbie spełnionych kryteriów, ` +
-            "a przy równej liczbie — o największym przekroczeniu progu; pełny wykaz sesji istotnych wraz z powodami " +
-            "znajduje się w danych rozdziału i może zostać dołączony jako załącznik.",
-        ]
-      : []),
-  ];
+  for (const inst of instrumenty) {
+    const m = metrykiInstrumentu((subs ?? []) as never, inst.ticker).filter((x) => wOknie(x.session_day));
+    if (!m.length) {
+      findings.push(`${inst.label}: brak metryk w oknie badania — rozdziału dla tego instrumentu nie sporządzono.`);
+      continue;
+    }
+    const istotne = sesjeIstotne(m, PROGI_DOMYSLNE);
+    const wybrane = wybierzDoTabel(istotne, maks);
+    const podmioty = tabelaPodmiotow(m);
+    const przebieg = tabelaPrzebiegu(m, inst.label);
+    const szczegolowe = wybrane
+      .map((s) => tabelaSesji(m, s.dzien, s.powody))
+      .filter((t): t is Tabela => !!t)
+      .map((t) => zInstrumentem(t, inst.label));
+
+    if (podmioty) tables.push(zInstrumentem(podmioty, inst.label));
+    if (przebieg) tables.push(przebieg);
+    tables.push(...szczegolowe);
+
+    const dni = [...new Set(m.map((x) => x.session_day).filter(Boolean))].length;
+    sesjeWgInstrumentu[inst.label] = istotne;
+    pominietych += istotne.length - szczegolowe.length;
+    findings.push(
+      `${inst.label}: ${dni} sesji${od || doD ? ` w oknie ${od ?? "…"}–${doD ?? "…"}` : ""}; kryteria istotności ` +
+        `spełniło ${istotne.length}, tabele szczegółowe sporządzono dla ${szczegolowe.length}` +
+        (podmioty ? `; w obrocie uczestniczyło ${podmioty.rows.length} podmiotów z Grupy` : "") + ".",
+    );
+  }
+
+  findings.push(`Kryterium doboru sesji do tabel szczegółowych: ${opisProgow(PROGI_DOMYSLNE)}.`);
+  // Odsiew ponad limit MUSI być powiedziany: milczenie sugerowałoby, że tabele
+  // szczegółowe wyczerpują listę sesji istotnych.
+  if (pominietych > 0)
+    findings.push(
+      `${pominietych} sesji spełniających kryteria NIE otrzymało tabeli szczegółowej (limit ${maks} tabel na ` +
+        "instrument). Do tabel wybrano sesje o najwyższej liczbie spełnionych kryteriów, a przy równej liczbie — " +
+        "o największym przekroczeniu progu; pełny wykaz sesji istotnych wraz z powodami znajduje się w danych " +
+        "rozdziału i może zostać dołączony jako załącznik.",
+    );
+  findings.push(
+    "Wszystkie wielkości liczbowe rozdziału ustalono ODRĘBNIE dla każdego instrumentu; zestawień " +
+      "obejmujących oba walory łącznie nie sporządzano, ponieważ sumowanie wolumenów różnych papierów " +
+      "i zestawianie ich kursów nie daje wielkości o znaczeniu ekonomicznym.",
+  );
 
   const { error } = await sb.from("subanalyses").upsert(
     {
@@ -100,7 +118,8 @@ async function main() {
         table: tables[0] ?? null,
         tables,
         findings,
-        sesjeIstotne: istotne,
+        sesjeIstotneWgInstrumentu: sesjeWgInstrumentu,
+        instrumenty: instrumenty.map((i) => i.label),
         progi: PROGI_DOMYSLNE,
         okno: { od, do: doD },
       },
@@ -109,9 +128,8 @@ async function main() {
   );
   if (error) throw new Error(`zapis: ${error.message}`);
 
-  console.log(`✓ IV.3: ${tables.length} tabel (podmioty + przebieg ${przebieg?.rows.length ?? 0} sesji + ${szczegolowe.length} sesji szczegółowych)`);
-  console.log(`  sesji spełniających kryteria: ${istotne.length} z ${dni.length}`);
-  for (const s of wybrane.slice(0, 8)) console.log(`   • ${s.dzien}: ${s.powody.join("; ").slice(0, 110)}`);
+  console.log(`✓ IV.3: ${tables.length} tabel dla ${instrumenty.length} instrumentów (${instrumenty.map((i) => i.label).join(", ")})`);
+  for (const f of findings.slice(0, instrumenty.length)) console.log(`   • ${f.slice(0, 135)}`);
 }
 main().catch((e) => {
   console.error("BŁĄD:", e.message);
