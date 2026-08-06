@@ -14,7 +14,7 @@ natomiast ZAPISU, KTÓRE PLIKI I KTÓRE STRONY przeczytano — a bez tego artefa
 `pozyskane/tabele_sprawozdan.json` był nieodtwarzalny: dane w bazie miały źródło,
 ale ścieżki nie dało się powtórzyć ani sprawdzić. Ten skrypt jest tym brakującym
 ogniwem: rejestr `ODCZYTY` utrwala spis plików, stron i metodyk, a przebieg
-odtwarza artefakt od skanu do wskaźnika.
+odtwarza artefakt od skanu do wskaźnika i PORÓWNUJE go z tym, co jest w bazie.
 
 ⚠️ KOLEJNOŚĆ STRON JEST ZNACZĄCA. Strony 3, 5 i 8 raportu EBI nie mają nagłówków
 kolumn — `pozycje_z_tabel` dziedziczy je ze strony POPRZEDNIEJ (ten sam plik,
@@ -23,8 +23,8 @@ malejąco albo z dziurą zrywa dziedziczenie i tabela wypada z odczytu.
 
 ⚠️ METODYKA FUNDUSZY WŁASNYCH JEST DEKLAROWANA, NIE ZGADYWANA. Sprawozdanie podaje
 fundusze własne w dwóch rachunkach (art. 127 Prawa bankowego: 396,3 mln; CRR:
-389,6 mln). Model czytający obraz nie ma jak wiedzieć, którą stronę czyta, więc
-przynależność strony do metodyki jest w rejestrze — a `pozycje_z_tabel` bez tego
+389,6 mln). Model czytający obraz nie ma jak wiedzieć, który rachunek czyta, więc
+przynależność tabeli do metodyki jest w rejestrze — a `pozycje_z_tabel` bez tego
 klucza wiersz POMIJA, zamiast zlać dwie metodyki w jedno pole.
 
 DLACZEGO LOKALNIE, NIE W FUNKCJI BEZSERWEROWEJ
@@ -55,13 +55,17 @@ import llm  # noqa: F401  — import dla efektu: pomiar kosztów i cache odczyt�
 import tabele_z_obrazu
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-for _l in (ROOT / ".env.local").read_text(encoding="utf8").splitlines():
-    if "=" in _l and not _l.startswith("#"):
-        _k, _v = _l.split("=", 1)
-        os.environ.setdefault(_k.strip(), _v.strip().strip("\"'"))
+# Brak `.env.local` NIE MOŻE wywracać importu: rejestr odczytów i kontrole są
+# testowane bez sieci i bez sekretów. Klucze sprawdzamy dopiero w `main()`.
+if (ROOT / ".env.local").exists():
+    for _l in (ROOT / ".env.local").read_text(encoding="utf8").splitlines():
+        if "=" in _l and not _l.startswith("#"):
+            _k, _v = _l.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip().strip("\"'"))
 sys.path.insert(0, str(ROOT))
 
 from engine.analiza_ekonomiczna import WSKAZNIKI_EF, wartosc  # noqa: E402
+
 # `_liczba` i `_etykieta_tabeli` są prywatne, ale trzecia kopia parsera liczb
 # w zapisie polskim i trzecia lista etykiet PSR rozjechałyby się z silnikiem —
 # kontrola ma sprawdzać DOKŁADNIE te wiersze i liczby, które wchodzą do wskaźników.
@@ -73,8 +77,8 @@ from engine.sprawozdania import (  # noqa: E402
 )
 from engine.uslugi.bank import SCIEZKA_TABEL  # noqa: E402
 
-BASE = os.environ["NEXT_PUBLIC_SUPABASE_URL"].rstrip("/")
-KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+BASE = (os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or "").rstrip("/")
+KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 BUCKET = "case-files"
 
 # Dziedzina — twarda bramka. Ten krok czyta bilans banku; w sprawie o manipulację
@@ -367,6 +371,10 @@ def main() -> int:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("✗ brak ANTHROPIC_API_KEY", file=sys.stderr)
         return 2
+    if not BASE or not KEY:
+        print("✗ brak NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (.env.local)",
+              file=sys.stderr)
+        return 2
 
     c = sprawa_po_nazwie(a.sprawa)
     case_id, nazwa = c["id"], c["name"]
@@ -414,7 +422,7 @@ def main() -> int:
     for u in uwagi:
         print(f"   · {u}")
     for u in krzyzowe:
-        print(f"   ⚠ {u}")
+        print(f"   ⚑ {u}")
     if wykazane:
         print("   wykazany współczynnik wypłacalności: "
               + ", ".join(f"{d} = {v:.2f} %" for d, v in wykazane))
@@ -448,7 +456,7 @@ def main() -> int:
     if stary:
         poz_s, _, _, _ = pozycje_z_tabel(stary, uwagi=[])
         r2 = porownaj(nowe, wskazniki_z_pozycji(poz_s), "odczyt", "artefakt w aktach")
-        print(f"\n═ PORÓWNANIE Z ARTEFAKTEM W AKTACH ({len(stary)} tabel)")
+        print(f"\n═ PORÓWNANIE Z ARTEFAKTEM W AKTACH ({len(stary)} tabel wobec {len(tabele)} w odczycie)")
         if r2:
             print(f"⚠ ROZBIEŻNOŚCI ({len(r2)}):")
             for r in r2:
