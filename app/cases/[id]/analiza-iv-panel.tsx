@@ -129,7 +129,15 @@ export default function AnalizaIVPanel({
 
       {akt === "IV.2" && (
         <div className="mt-2 text-xs">
-          <Findings xs={espi?.findings} />
+          {/* NAJPIERW rejestr espi_events (świeży — rośnie z każdym ingestem utrwaleń),
+              dopiero potem ustalenia rozdziału `espi`, które są migawką z chwili jego
+              generacji. Odwrotna kolejność pokazywała „0 raportów" przy 9 w aktach. */}
+          <Findings xs={dane("espi_events")?.findings} />
+          <TabelaSkrot t={(dane("espi_events")?.table ?? null) as Tabela} maks={9} />
+          <div className="mt-3 border-t border-ink/10 pt-2 text-inksoft">
+            <p className="text-[11px] font-medium text-ink">Rozdział IV.2 (szkielet do redakcji)</p>
+            <Findings xs={espi?.findings} />
+          </div>
           <TabelaSkrot t={(espi?.table ?? null) as Tabela} />
           {!wg.get("espi_events") && (
             <div className="mt-3 border-l-2 border-amber-500 pl-3 text-inksoft">
