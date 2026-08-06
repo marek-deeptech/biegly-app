@@ -128,23 +128,24 @@ const IV_TITLE: Record<IVKind, string> = {
 };
 
 // Plan IV budowany z modułów wybranych w A2 (z dowodów), nie z presetu.
-// Reguła wzorca-matki (odtwarza DOKŁADNIE oba finały KM):
-//   IV.1 ekon-fin, IV.2 ESPI — zawsze;
-//   moduły techniczne w kolejności wyboru (KM nie ma jednej kanonicznej);
-//   relacje — gdy JEST moduł „aktywnosc": na końcu jako synteza (styl HUBTECH:
-//   3 aktywność … 7 relacje); gdy go BRAK: zaraz po ESPI jako identyfikacja
-//   Grupy przed technikami (styl MLM: 3 relacje, 4-6 techniki).
+//
+// SZKIELET ROZDZIAŁU IV JEST STAŁY, ZMIENNE SĄ TYLKO TECHNIKI:
+//   IV.1 ekon-fin, IV.2 ESPI/EBI, IV.3 aktywność Grupy — zawsze;
+//   dalej rozdziały technik w kolejności wyboru (tyle, ile wykryto);
+//   na końcu relacje między podmiotami — jako synteza.
+//
+// ⚠️ „AKTYWNOŚĆ" I „RELACJE" TO ROZDZIAŁY STRUKTURALNE, NIE TECHNIKI. Wcześniej
+// obie wchodziły do planu tylko wtedy, gdy znalazły się na liście wybranych modułów,
+// przez co w sprawie ZASTAL (dobór A2: wash, pumpdump, layering) rozdział o
+// aktywności Grupy — z tabelami obrotu i atrybucją per podmiot — NIE WSZEDŁ DO
+// OPINII WCALE, a relacje przeskoczyły na IV.3. Wydruk wyglądał na kompletny, bo
+// numeracja była ciągła. Dobór technik ma rozstrzygać, KTÓRE techniki opisujemy,
+// a nie czy opinia zawiera opis obrotu badanych podmiotów.
 export function buildPlanFromTechniques(selected: IVKind[]): IVChapter[] {
   const mods = selected.filter((k) => CATALOG_KINDS.includes(k));
-  const hasAkt = mods.includes("aktywnosc");
-  const techs = mods.filter((k) => k !== "aktywnosc");
-  const order: IVKind[] = [
-    "ekofin",
-    "espi",
-    ...((hasAkt ? ["aktywnosc"] : ["relacje"]) as IVKind[]),
-    ...techs,
-    ...((hasAkt ? ["relacje"] : []) as IVKind[]),
-  ];
+  const STRUKTURALNE: IVKind[] = ["ekofin", "espi", "aktywnosc", "relacje"];
+  const techs = mods.filter((k) => !STRUKTURALNE.includes(k));
+  const order: IVKind[] = ["ekofin", "espi", "aktywnosc", ...techs, "relacje"];
   return order.map((kind, i) => ({ kind, no: `IV.${i + 1}`, title: IV_TITLE[kind] }));
 }
 

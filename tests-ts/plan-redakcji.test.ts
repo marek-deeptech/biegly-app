@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { planRedakcji } from "@/lib/opinion/plan-redakcji";
+import { buildPlanFromTechniques } from "@/lib/opinion/chapters";
 
 const MODULY_BANK = ["makro", "media", "sprawozdania", "wskazniki_bank", "limity", "procedury"];
 
@@ -96,5 +97,31 @@ describe("blokady", () => {
     });
     expect(p.find((k) => k.kind === "wnioski")?.blokada).toBeTruthy();
     expect(p.find((k) => k.kind === "proza_iii")?.blokada).toBeTruthy();
+  });
+});
+
+describe("szkielet IV jest stały, zmienne są tylko techniki", () => {
+  it("aktywność i relacje wchodzą ZAWSZE, choćby nie było ich w doborze technik", () => {
+    // Regresja ze sprawy ZASTAL: dobór A2 = [wash, pumpdump, layering] dał plan bez
+    // rozdziału o aktywności Grupy (tabele obrotu i atrybucja per podmiot NIE weszły
+    // do opinii), a relacje przeskoczyły na IV.3. Wydruk wyglądał na kompletny, bo
+    // numeracja była ciągła.
+    const plan = buildPlanFromTechniques(["wash", "pumpdump", "layering"]);
+    expect(plan.map((c) => `${c.no} ${c.kind}`)).toEqual([
+      "IV.1 ekofin",
+      "IV.2 espi",
+      "IV.3 aktywnosc",
+      "IV.4 wash",
+      "IV.5 pumpdump",
+      "IV.6 layering",
+      "IV.7 relacje",
+    ]);
+  });
+
+  it("nie dubluje rozdziałów strukturalnych, gdy są też w doborze", () => {
+    const plan = buildPlanFromTechniques(["aktywnosc", "relacje", "wash"]);
+    expect(plan.filter((c) => c.kind === "aktywnosc")).toHaveLength(1);
+    expect(plan.filter((c) => c.kind === "relacje")).toHaveLength(1);
+    expect(plan[plan.length - 1].kind).toBe("relacje");
   });
 });

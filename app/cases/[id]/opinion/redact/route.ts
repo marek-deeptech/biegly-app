@@ -10,7 +10,8 @@ import {
   type IvRedactKind,
   type RedactChapter,
 } from "@/lib/opinion/redact";
-import { buildWnioskiSubanaliza, sessionFacts, type StoredSub } from "@/lib/opinion/build";
+import { buildWnioskiSubanaliza, type StoredSub } from "@/lib/opinion/build";
+import { wejscieIV } from "@/lib/opinion/redact-iv-input";
 import { buildStyleCorpus } from "@/lib/opinion/korekty";
 import { buildWzorzecBlock } from "@/lib/opinion/wzorce";
 import { buildWiedzaBlock } from "@/lib/opinion/wiedza";
@@ -224,103 +225,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     userPrompt = p.user;
     meta = { kind: chapter };
   } else if (isIv) {
-    const sub = (subs ?? []).find((s) => s.kind === chapter);
-    if (!sub)
-      return Response.json({ ok: false, reason: "Najpierw wygeneruj ten rozdział (Generuj), potem rozwiń prozą." });
-    type Tbl = { caption?: string; head?: string[]; rows?: string[][] };
-    const many = (sub.data?.tables as Tbl[] | undefined) ?? [];
-    const tbls: Tbl[] = many.length ? many : sub.data?.table ? [sub.data.table as Tbl] : [];
-    const asText = (t: Tbl) =>
-      t.head && t.rows?.length
-        ? `${t.caption ? t.caption.replace(/^Tabela\.\s*/, "") + ":\n" : ""}${t.head.join(" | ")}\n` +
-          t.rows.slice(0, 120).map((r) => r.join(" | ")).join("\n")
-        : null;
-    const blocks = tbls.map(asText).filter((s): s is string => !!s);
-    const tableText = blocks.length ? blocks.join("\n\n") : null;
-    const { data: docsData } = await supabase.from("documents").select("doc_type,rel_path").eq("case_id", id);
-    const counts: Record<string, number> = {};
-    for (const d of docsData ?? []) counts[d.doc_type as string] = (counts[d.doc_type as string] ?? 0) + 1;
-    // Pomiń typy niemerytoryczne — inaczej model raportuje „N × UNKNOWN" jako lukę [do uzupełnienia].
-    const SKIP_TYPES = new Set(["UNKNOWN", "LITERATURA"]);
-    const inventory = Object.entries(counts)
-      .filter(([k]) => !SKIP_TYPES.has(k))
-      .map(([k, v]) => `${v} × ${k}`);
-    // Aktywność/ESPI: dołącz zdarzenia ESPI/EBI do cross-linku czasowego. Jeśli wyciągnięto
-    // datowane zdarzenia z PDF (subanaliza espi_events) — użyj ich; inaczej same nazwy plików.
-    if (chapter === "aktywnosc" || chapter === "espi") {
-      const ev = (subs ?? []).find((s) => s.kind === "espi_events");
-      const events =
-        (ev?.data?.events as
-          | { date?: string; type?: string; subject?: string; content?: string; session?: string; chg?: number | null; vol?: number | null }[]
-          | undefined) ?? [];
-      if (events.length) {
-        inventory.push(
-          ...events
-            .slice(0, 15)
-            .map(
-              (e) =>
-                `ESPI zdarzenie: ${e.date || "—"} — ${(e.type || "").trim()}${e.subject ? " — " + e.subject : ""}` +
-                (e.content ? ` | treść: ${e.content}` : "") +
-                (e.session
-                  ? ` | zbieżna sesja ${e.session}` +
-                    (e.chg != null ? `: zmiana kursu ${e.chg > 0 ? "+" : ""}${e.chg.toLocaleString("pl-PL")}%` : "") +
-                    (e.vol != null ? `, wolumen ${e.vol.toLocaleString("pl-PL")} szt` : "")
-                  : ""),
-            ),
-        );
-      } else {
-        inventory.push(
-          ...(docsData ?? [])
-            .filter((d) => d.doc_type === "RAPORT_ESPI_EBI")
-            .map((d) => "ESPI/EBI: " + String(d.rel_path).split("/").pop())
-            .slice(0, 15),
-        );
-      }
-    }
-    // Ekofin: dołącz pozycje finansowe emitenta z wyciągu ze sprawozdań (fin_stats).
-    if (chapter === "ekofin") {
-      const fin = (subs ?? []).find((s) => s.kind === "fin_stats");
-      const items =
-        (fin?.data as { items?: { position?: string; period?: string; value?: string; unit?: string }[] } | null)
-          ?.items ?? [];
-      inventory.push(
-        ...items
-          .slice(0, 20)
-          .map((i) => `Dane finansowe: ${i.position} ${i.period ?? ""}: ${i.value} ${i.unit ?? ""}`.trim()),
-      );
-    }
-    // Relacje: dołącz osoby pełniące funkcje w wielu podmiotach (z wyciągu KRS).
-    if (chapter === "relacje") {
-      const kb = (subs ?? []).find((s) => s.kind === "krs_boards");
-      const shared = (kb?.data?.shared as { name?: string; entities?: string[] }[] | undefined) ?? [];
-      inventory.push(
-        ...shared
-          .slice(0, 15)
-          .map((sh) => `KRS — osoba w wielu podmiotach: ${sh.name} (${(sh.entities || []).join(", ")})`),
-      );
-    }
-    const ivIntro = String((subs ?? []).find((s) => s.kind === "proza_i")?.body_md ?? "").slice(0, 500) || null;
-    // Fakty dnia dla akapitów sesyjnych — sesje z captionów tabel rozbicia.
-    const sessDays = [
-      ...new Set(
-        tbls
-          .map((t) => (t.caption ?? "").match(/w sesji (\d{4}-\d{2}-\d{2})/)?.[1])
-          .filter((d): d is string => !!d),
-      ),
-    ].sort();
-    const p = buildIvRedactPrompt({
-      kind: chapter as IvRedactKind,
-      title: (sub.title as string) || chapter,
-      caseName: caseRow.name,
-      signature: caseRow.signature,
+    // Wejście składa `wejscieIV` — ta sama funkcja, której używa CLI
+    // (scripts/redakcja_iv.ts); patrz komentarz w lib/opinion/redact-iv-input.ts.
+    const wejscie = await wejscieIV(supabase, id, chapter as IvRedactKind, {
+      caseRow: { name: caseRow.name, signature: caseRow.signature },
+      subs: (subs ?? []) as never,
+      metrics: m,
       period,
-      caseIntro: ivIntro,
-      tableText,
-      findings: (sub.data?.findings ?? []) as string[],
-      inventory,
-      legalRefs: (sub.data?.legalRefs ?? []) as string[],
-      sessionFacts: sessDays.length ? sessionFacts(m, sessDays) : undefined,
     });
+    if (!wejscie)
+      return Response.json({ ok: false, reason: "Najpierw wygeneruj ten rozdział (Generuj), potem rozwiń prozą." });
+    const p = buildIvRedactPrompt(wejscie);
     system = p.system;
     userPrompt = p.user;
     meta = { kind: chapter };

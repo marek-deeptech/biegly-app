@@ -1,5 +1,10 @@
-// Montaż i wydruk opinii bankowej (PDF + DOCX) z wiersza poleceń.
-//   npx tsx scripts/opinia_bank_wydruk.ts <fragment nazwy sprawy> [--final]
+// Montaż i wydruk opinii (PDF + DOCX) z wiersza poleceń — OBIE DZIEDZINY.
+//   npx tsx scripts/opinia_wydruk.ts <fragment nazwy sprawy> [--final]
+//
+// Szkielet dobiera `buildOpinionDla` po `cases.typ`, więc jeden skrypt obsługuje
+// i opinię bankową (I–VIII), i manipulacyjną (I–VI). Wcześniej wydruk istniał
+// wyłącznie dla dziedziny bankowej, a sprawy GPW dało się wydrukować tylko przez
+// trasę HTTP po zalogowaniu — czyli nie dało się ich zweryfikować skryptem.
 //
 // Bez `--final` dokument nosi „(projekt roboczy)" — status rozdziałów pozostaje
 // `szkic`, bo zatwierdzenie jest AKTEM BIEGŁEGO, nie skryptu (bramka-finalna.ts).
@@ -27,7 +32,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 
 async function main() {
   const fraza = process.argv[2];
-  if (!fraza) throw new Error("użycie: npx tsx scripts/opinia_bank_wydruk.ts <sprawa> [--final]");
+  if (!fraza) throw new Error("użycie: npx tsx scripts/opinia_wydruk.ts <sprawa> [--final]");
   const final = process.argv.includes("--final");
 
   const { data: cases } = await sb
@@ -36,7 +41,6 @@ async function main() {
     .ilike("name", `%${fraza}%`);
   if (!cases?.length) throw new Error("nie znaleziono sprawy");
   const c = cases[0];
-  if (c.typ !== "ryzyko_bankowe") throw new Error("ten wydruk jest dla spraw o ryzyko bankowe");
 
   const metrics = await fetchAllMetrics(sb, c.id);
   const { data: documents } = await sb.from("documents").select("rel_path,provenance").eq("case_id", c.id);
