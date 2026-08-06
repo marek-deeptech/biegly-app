@@ -14,7 +14,8 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createClient } from "@supabase/supabase-js";
-import { buildIVChapter, type IVKind } from "@/lib/opinion/build";
+import { buildIVChapter } from "@/lib/opinion/build";
+import type { IVKind } from "@/lib/opinion/chapters";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
