@@ -42,6 +42,8 @@ DOZWOLONE_TYPY = {
     "NOTOWANIA_REF",
     # dziedzina GPW — IV.2: utrwalenia raportów bieżących/okresowych z serwisu ESPI/EBI PAP
     "RAPORT_ESPI_EBI",
+    # dziedzina GPW — IV.1: sprawozdania finansowe emitenta (załączniki raportów okresowych)
+    "SPRAWOZDANIE_FIN",
 }
 
 
