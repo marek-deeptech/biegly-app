@@ -2101,6 +2101,9 @@ export function buildOpinion(
   const AUX_TABLES: [IVKind, string][] = [
     ["espi", "espi_events"],
     ["relacje", "krs_boards"],
+    // Zbieżność adresów IP — w sprawach bez odpisów KRS to jedyny materiał tabelaryczny
+    // rozdziału o relacjach (ZASTAL: 55 par podmiotów dzielących logowania).
+    ["relacje", "powiazania_dane"],
     ["ekofin", "fin_stats"],
   ];
   for (const [kind, auxKind] of AUX_TABLES) {

@@ -52,6 +52,17 @@ export async function wejscieIV(
 
   const many = (sub.data?.tables as Tbl[] | undefined) ?? [];
   const tbls: Tbl[] = many.length ? many : sub.data?.table ? [sub.data.table as Tbl] : [];
+
+  // ⚠️ TABELA POWIĄZAŃ IP MIESZKA W INNEJ SUBANALIZIE. Rozdział o relacjach między
+  // podmiotami powstawał bez niej — miał zero tabel, choć zbieżność logowań (55 par,
+  // najsilniejsza 204 wspólne adresy) jest w tej sprawie głównym dowodem powiązania.
+  // Dokładamy ją tutaj, a nie kopiujemy do `relacje`, bo źródłem pozostaje moduł,
+  // który ją policzył.
+  if (chapter === "relacje") {
+    const ip = ctx.subs.find((s) => s.kind === "powiazania_dane");
+    const tIp = ip?.data?.table as Tbl | undefined;
+    if (tIp?.rows?.length && !tbls.some((t) => t.caption === tIp.caption)) tbls.push(tIp);
+  }
   const blocks = tbls.map((t) => tabelaJakoTekst(t)).filter((s): s is string => !!s);
   const tableText = blocks.length ? blocks.join("\n\n") : null;
 
