@@ -219,9 +219,25 @@ export async function wykonajEkofin(
   const peers = cfg.peers.map((p) => ({ ...p, ticker: czystyTicker(p.ticker) }));
 
   // Okres badany: z konfiguracji, a bez niej — z metryk silnika (sesje objęte analizą).
+  //
+  // ⚠️ OKRES Z METRYK TO PRZYBLIŻENIE, NIE USTALENIE. Zakres metryk zależy od tego,
+  // jaki plik akurat policzono; w sprawie ZASTAL dał 2017-12-04–2018-03-21, podczas
+  // gdy postanowienie wskazuje 11.12.2017–30.09.2019 (CSY) i –27.09.2019 (RSY).
+  // Różnica weszła do wstępu rozdziału IV jako zdanie o „okresie objętym
+  // postanowieniem" — czyli nieprawdziwe twierdzenie o zakresie badania. Odtąd
+  // wyprowadzenie z metryk jest ZNACZONE i trafia do uwag, żeby biegły je podmienił
+  // na daty z postanowienia.
+  const doPozyskania: string[] = [];
+  const uwagi: string[] = [];
+  const findings: string[] = [];
+  const tables: Tabela[] = [];
+  const charts: WykresEkofin[] = [];
+  const zrodla: string[] = [];
+
   let odBadany = cfg.odBadany ?? null;
   let doBadany = cfg.doBadany ?? null;
-  if (!odBadany || !doBadany) {
+  const okresZMetryk = !odBadany || !doBadany;
+  if (okresZMetryk) {
     const { data: mdni } = await sb
       .from("metrics")
       .select("session_day")
@@ -234,13 +250,13 @@ export async function wykonajEkofin(
     odBadany = odBadany ?? dni[0];
     doBadany = doBadany ?? dni[dni.length - 1];
   }
-
-  const doPozyskania: string[] = [];
-  const uwagi: string[] = [];
-  const findings: string[] = [];
-  const tables: Tabela[] = [];
-  const charts: WykresEkofin[] = [];
-  const zrodla: string[] = [];
+  if (!odBadany || !doBadany)
+    return { ok: false, powod: "nie ustalono okresu badanego — podaj daty z postanowienia w konfiguracji kroku 4" };
+  if (okresZMetryk)
+    uwagi.push(
+      `Okresu badanego nie podano w konfiguracji — przyjęto zakres metryk silnika (${odBadany}–${doBadany}). ` +
+        "To NIE są daty z postanowienia: zweryfikuj je i uzupełnij konfigurację kroku 4, zanim wejdą do opinii.",
+    );
 
   // ── spółki porównawcze (wspólne dla wszystkich instrumentów) ─────────────
   const seriePeers: { ticker: string; nazwa?: string; notowania: NotowanieDzienne[] }[] = [];
