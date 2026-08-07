@@ -21,6 +21,7 @@ import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
 import AnalizaEfPanel from "./analiza-ef-panel";
 import AkcjonariatPanel from "./akcjonariat-panel";
+import WskaznikiDodatkowePanel from "./wskazniki-dodatkowe-panel";
 import AnalizaIVPanel from "./analiza-iv-panel";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
 import WarsztatBankPanel from "./warsztat-bank-panel";
@@ -141,6 +142,10 @@ export default function CaseDetail({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
   const [tab, setTab] = useState<"overview" | "files" | "analysis" | "ekonomia" | "akcjonariat" | "warsztat" | "opinion">("overview");
+  // Krok „Wskaźniki” urósł do jednego długiego zwoju: karty, obrót, podmioty, IMO,
+  // pary wash, fazy kursu i tabela per sesja jedno pod drugim. Rozbicie na zakładki
+  // odpowiada temu, o co biegły pyta naraz — nie temu, jak liczy silnik.
+  const [wskZakladka, setWskZakladka] = useState<"przeglad" | "podmioty" | "techniki" | "sesje" | "dodatkowe">("przeglad");
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [authorFilter, setAuthorFilter] = useState("");
   const [provFilter, setProvFilter] = useState("");
@@ -1295,7 +1300,29 @@ export default function CaseDetail({
         )}
         {analyzeMsg && <p className="mb-3 text-sm text-red-600">{analyzeMsg}</p>}
 
-        {tremInstr.length > 0 ? (
+        <div className="mb-4 flex flex-wrap gap-1 border-b border-line pb-2">
+          {([
+            ["przeglad", "Przegląd"],
+            ["podmioty", "Podmioty"],
+            ["techniki", "Sygnały technik"],
+            ["sesje", "Sesje"],
+            ["dodatkowe", "Wskaźniki dodatkowe"],
+          ] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setWskZakladka(k)}
+              className={`border px-2.5 py-1 text-[11px] ${
+                wskZakladka === k ? "border-ink bg-ink text-card" : "border-ink/40 hover:bg-ink/5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {wskZakladka === "dodatkowe" ? (
+          <WskaznikiDodatkowePanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
+        ) : tremInstr.length > 0 ? (
           // Tryb ROZDZIELONY (np. ZASTAL: CSY i RSY) — osobny blok wskaźników na instrument.
           <>
             <p className="mb-3 text-xs text-inksoft">
@@ -1306,11 +1333,12 @@ export default function CaseDetail({
                 key={s.kind}
                 title={`${s.title}${s.data?.transactions ? ` — ${s.data.transactions.toLocaleString("pl-PL")} transakcji` : ""}`}
                 metrics={(s.data?.metrics ?? []) as Metric[]}
+                zakladka={wskZakladka}
               />
             ))}
           </>
         ) : (
-          metrics.length > 0 && <MetricsBlock metrics={metrics} />
+          metrics.length > 0 && <MetricsBlock metrics={metrics} zakladka={wskZakladka} />
         )}
       </section>
       )}
@@ -1379,7 +1407,18 @@ function fmt(m: Metric): string {
 type EntActivity = { entity: string; sellShare: Metric | null; sellVal: Metric | null; sellVol: Metric | null; buyVal: Metric | null };
 // Blok wskaźników dla JEDNEGO zestawu metryk (łącznych albo per instrument CSY/RSY).
 // Wydzielony, by „Wskaźniki" mogła pokazać osobną sekcję dla każdego instrumentu.
-function MetricsBlock({ metrics, title }: { metrics: Metric[]; title?: string | null }) {
+type ZakladkaWsk = "przeglad" | "podmioty" | "techniki" | "sesje" | "dodatkowe";
+
+function MetricsBlock({
+  metrics,
+  title,
+  zakladka = "przeglad",
+}: {
+  metrics: Metric[];
+  title?: string | null;
+  /** Która część wskaźników ma być widoczna — patrz pasek zakładek w kroku. */
+  zakladka?: ZakladkaWsk;
+}) {
   if (!metrics.length) return null;
   const find = (k: string) => metrics.find((m) => m.key === k) ?? null;
   const peak = (prefix: string) =>
@@ -1400,13 +1439,15 @@ function MetricsBlock({ metrics, title }: { metrics: Metric[]; title?: string | 
       {computedAt && (
         <p className="mb-3 text-xs text-inksoft">Policzono: {new Date(computedAt).toLocaleString("pl-PL")}</p>
       )}
-      <div className="mb-4 grid grid-cols-3 gap-3">
-        <MetricCard label="Udział Grupy w obrocie" value={groupShare ? fmt(groupShare) : "—"} />
-        <MetricCard label="Wash-trades — szczyt" value={washPeak ? fmt(washPeak) : "—"} sub={washPeak?.session_day ?? undefined} />
-        <MetricCard label="Anulacje — szczyt" value={cancelPeak ? fmt(cancelPeak) : "—"} sub={cancelPeak?.session_day ?? undefined} />
-      </div>
-      <MetricSection title="Obrót ogółem" rows={S.totals} />
-      {S.entities.length > 0 && (
+      {zakladka === "przeglad" && (
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          <MetricCard label="Udział Grupy w obrocie" value={groupShare ? fmt(groupShare) : "—"} />
+          <MetricCard label="Wash-trades — szczyt" value={washPeak ? fmt(washPeak) : "—"} sub={washPeak?.session_day ?? undefined} />
+          <MetricCard label="Anulacje — szczyt" value={cancelPeak ? fmt(cancelPeak) : "—"} sub={cancelPeak?.session_day ?? undefined} />
+        </div>
+      )}
+      {zakladka === "przeglad" && <MetricSection title="Obrót ogółem" rows={S.totals} />}
+      {zakladka === "podmioty" && S.entities.length > 0 && (
         <div className="mt-4">
           <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">
             Aktywność podmiotów (per podmiot)
@@ -1437,12 +1478,20 @@ function MetricsBlock({ metrics, title }: { metrics: Metric[]; title?: string | 
           </div>
         </div>
       )}
-      <MetricSection title="Dopasowane zlecenia (matched orders)" rows={S.imo} />
-      <MetricSection title="Dopasowania — pary podmiotów" rows={S.imoPairs} limit={12} />
-      <MetricSection title="Pary wewnątrzgrupowe (wash)" rows={S.washPairs} limit={12} />
-      <MetricSection title="Fazy kursu (pump/dump)" rows={S.phases} />
-      <MetricSection title="Pozostałe wskaźniki" rows={S.rest} />
-      {days.length > 0 && (
+      {zakladka === "techniki" && (
+        <>
+          <MetricSection title="Dopasowane zlecenia (matched orders)" rows={S.imo} />
+          <MetricSection title="Dopasowania — pary podmiotów" rows={S.imoPairs} limit={12} />
+          <MetricSection title="Pary wewnątrzgrupowe (wash)" rows={S.washPairs} limit={12} />
+        </>
+      )}
+      {zakladka === "przeglad" && (
+        <>
+          <MetricSection title="Fazy kursu (pump/dump)" rows={S.phases} />
+          <MetricSection title="Pozostałe wskaźniki" rows={S.rest} />
+        </>
+      )}
+      {zakladka === "sesje" && days.length > 0 && (
         <div className="mt-5">
           <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-inksoft">Per sesja</h3>
           <div className="overflow-x-auto">

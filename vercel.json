@@ -8,13 +8,41 @@
     }
   },
   "rewrites": [
-    { "source": "/api/analyze", "destination": "/api/silnik?fn=analyze" },
-    { "source": "/api/bank", "destination": "/api/silnik?fn=bank" },
-    { "source": "/api/ip", "destination": "/api/silnik?fn=ip" },
-    { "source": "/api/makro", "destination": "/api/silnik?fn=makro" },
-    { "source": "/api/spoofing", "destination": "/api/silnik?fn=spoofing" },
-    { "source": "/api/sygnaly", "destination": "/api/silnik?fn=sygnaly" },
-    { "source": "/api/trem", "destination": "/api/silnik?fn=trem" },
-    { "source": "/api/health", "destination": "/api/silnik" }
+    {
+      "source": "/api/analyze",
+      "destination": "/api/silnik?fn=analyze"
+    },
+    {
+      "source": "/api/bank",
+      "destination": "/api/silnik?fn=bank"
+    },
+    {
+      "source": "/api/ip",
+      "destination": "/api/silnik?fn=ip"
+    },
+    {
+      "source": "/api/makro",
+      "destination": "/api/silnik?fn=makro"
+    },
+    {
+      "source": "/api/spoofing",
+      "destination": "/api/silnik?fn=spoofing"
+    },
+    {
+      "source": "/api/sygnaly",
+      "destination": "/api/silnik?fn=sygnaly"
+    },
+    {
+      "source": "/api/trem",
+      "destination": "/api/silnik?fn=trem"
+    },
+    {
+      "source": "/api/wskazniki",
+      "destination": "/api/silnik?fn=wskazniki"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/silnik"
+    }
   ]
 }
