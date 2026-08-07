@@ -144,8 +144,9 @@ export async function zlozAkcjonariat(
             "a w drugiej emitentem.",
         ]
       : []),
-    `Źródła zdarzeń: zawiadomienia o stanie posiadania ${wgZrodla("zawiadomienie")}, ` +
-      `serwis Bankier.pl ${wgZrodla("bankier")}, sprawozdania opisowe zarządu ${wgZrodla("sprawozdanie")}.`,
+    `Źródła zdarzeń: zawiadomienia o stanie posiadania ${wgZrodla("zawiadomienie")}, wykazy akcjonariuszy ` +
+      `z walnych zgromadzeń ${wgZrodla("wykaz_wza")}, serwis Bankier.pl ${wgZrodla("bankier")}, ` +
+      `sprawozdania opisowe zarządu ${wgZrodla("sprawozdanie")}.`,
     `Kwalifikacja zdarzeń: nabycia ${ile("nabycie")}, zbycia ${ile("zbycie")}, objęcia nowych emisji ` +
       `${ile("objęcie emisji")}, rozwodnienia wskutek emisji ${ile("rozwodnienie")}, ` +
       `wymagających wyjaśnienia ${ile("nieokreślone")}.`,
@@ -357,9 +358,15 @@ const SYSTEM_ZAW =
   "(transakcji, rejestracji), nie data pisma ani wpływu; (4) `akcjonariusz` to podmiot, którego stan " +
   "posiadania się zmienił, a `spolka` — emitent, którego akcji dotyczy zawiadomienie; (5) do każdej " +
   "pozycji dołącz krótki cytat. " +
-  'Zwróć wyłącznie JSON: {"spolka":"…"|null,"zdarzenia":[{"data":"RRRR-MM-DD","akcjonariusz":"…",' +
-  '"akcjePrzed":liczba|null,"akcjePo":liczba|null,"procentPrzed":liczba|null,"procentPo":liczba|null,' +
-  '"cytat":"…"}]}. Gdy dokument nie jest zawiadomieniem o stanie posiadania, zwróć puste `zdarzenia`.';
+  "(6) `podstawa` rozstrzyga naturę liczb: „art69” — zawiadomienie o zmianie stanu posiadania (podaje stan " +
+  "przed i po); „art70pkt3” — wykaz akcjonariuszy z walnego zgromadzenia (podaje GŁOSY ZAREJESTROWANE na " +
+  "zgromadzeniu i ich udział w ogólnej liczbie głosów, a NIE stan posiadania); „inne” — pozostałe. " +
+  "Dla „art70pkt3” wpisz zarejestrowane głosy w `akcjePo`, a udział w ogólnej liczbie głosów w `procentPo`; " +
+  "pól `akcjePrzed`/`procentPrzed` NIE wypełniaj. " +
+  'Zwróć wyłącznie JSON: {"spolka":"…"|null,"podstawa":"art69"|"art70pkt3"|"inne","zdarzenia":' +
+  '[{"data":"RRRR-MM-DD","akcjonariusz":"…","akcjePrzed":liczba|null,"akcjePo":liczba|null,' +
+  '"procentPrzed":liczba|null,"procentPo":liczba|null,"cytat":"…"}]}. ' +
+  "Gdy dokument nie mówi o stanie posiadania ani o wykazie akcjonariuszy, zwróć puste `zdarzenia`.";
 
 type PozZaw = {
   data?: string;
@@ -394,14 +401,28 @@ export async function wykonajZawiadomienia(
   // zamiast zawiadomień. Typ dokumentu jest sygnałem pierwszym, nazwa drugim.
   const nazwaPliku = (d: { rel_path: string }) => String(d.rel_path).split("/").pop() ?? "";
   const wszystkie = (docs ?? [])
-    .filter((d) => d.storage_path && /\.pdf$/i.test(d.rel_path) && !/\.pobrane|loader|cookie/i.test(d.rel_path))
+    // Raporty pozyskane z serwisu ESPI/EBI są tekstem, nie PDF-em — treść raportu
+    // stoi w HTML węzła, bez załącznika. Odcięcie ich rozszerzeniem wyrzuciłoby
+    // najlepsze dostępne źródło dla spółki wykluczonej z obrotu.
+    .filter((d) => d.storage_path && /\.(pdf|txt)$/i.test(d.rel_path) && !/\.pobrane|loader|cookie/i.test(d.rel_path))
     .filter(
       (d) =>
         /ZAWIAD|ESPI|EBI/i.test(String(d.doc_type)) ||
         /zawiadomien|stan\w* posiadan|art\.?\s*69|zej[śs]ci\w* z prog|znaczn\w+ pakiet/i.test(nazwaPliku(d)),
     );
-  const kandydaci = wszystkie.slice(0, 60);
-  const pominietoNadLimit = wszystkie.length - kandydaci.length;
+  // Ten sam raport bywa w aktach dwa razy: jako PDF i jako tekst pobrany z serwisu.
+  // Klucz to numer węzła ESPI z nazwy pliku — bez tego zdarzenie liczy się podwójnie.
+  const widziane = new Set<string>();
+  const bezPowtorzen = wszystkie.filter((d) => {
+    const n = nazwaPliku(d);
+    const klucz = (n.match(/node[_-]?(\d+)/i) ?? [])[1] ?? n.toLowerCase();
+    if (widziane.has(klucz)) return false;
+    widziane.add(klucz);
+    return true;
+  });
+  const kandydaci = bezPowtorzen.slice(0, 60);
+  const pominietoNadLimit = bezPowtorzen.length - kandydaci.length;
+  const powtorzenia = wszystkie.length - bezPowtorzen.length;
   if (!kandydaci.length)
     return { ok: false, powod: "w aktach nie ma dokumentów wyglądających na zawiadomienia o stanie posiadania" };
 
@@ -416,12 +437,20 @@ export async function wykonajZawiadomienia(
     const nazwa = String(d.rel_path).split("/").pop() ?? "";
     const { data: blob } = await sb.storage.from("case-files").download(d.storage_path as string);
     if (!blob) continue;
-    const tekst = await pdfText(await blob.arrayBuffer(), 30000);
-    if (tekst.replace(/\s/g, "").length < 300) {
+    const tekst = /\.txt$/i.test(nazwa) ? (await blob.text()).slice(0, 30000) : await pdfText(await blob.arrayBuffer(), 30000);
+    if (tekst.replace(/\s/g, "").length < 200) {
       bezTekstu.push(nazwa);
       continue;
     }
-    if (!/stan\w* posiadan|art\.?\s*69|znaczn\w+ pakiet|prog\w* (ogólnej liczby głosów|[0-9])/i.test(tekst)) continue;
+    // ⚠️ BRAMKA MUSI ZNAĆ OBIE PODSTAWY. Pierwsza wersja szukała tylko słów
+    // z zawiadomień art. 69 i cicho odrzucała wykazy akcjonariuszy z WZA
+    // (art. 70 pkt 3) — czyli jedyne dostępne punkty stanu posiadania dla spółki
+    // wykluczonej z obrotu.
+    if (
+      !/stan\w* posiadan|art\.?\s*69|znaczn\w+ pakiet|prog\w* (ogólnej liczby głosów|[0-9])/i.test(tekst) &&
+      !/wykaz\w* akcjonariuszy|art\.?\s*70 pkt 3|liczb\w* głosów na (ZWZ|NWZ|WZA)|powyżej 5\s*%/i.test(tekst)
+    )
+      continue;
     zbadane.push(nazwa);
     uzyte += 1;
 
@@ -434,7 +463,7 @@ export async function wykonajZawiadomienia(
     const raw = (msg.content as Anthropic.ContentBlock[])
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text).join("\n").replace(/```json|```/g, "").trim();
-    const parsed = ostatniJson<{ spolka?: string | null; zdarzenia?: PozZaw[] }>(raw);
+    const parsed = ostatniJson<{ spolka?: string | null; podstawa?: string; zdarzenia?: PozZaw[] }>(raw);
     if (!parsed) {
       log(`✗ ${nazwa}: model nie zwrócił poprawnego JSON`);
       continue;
@@ -452,22 +481,24 @@ export async function wykonajZawiadomienia(
       const zmianaAkcji = z.akcjePrzed != null && z.akcjePo != null ? z.akcjePo - z.akcjePrzed : null;
       const zmianaProc =
         z.procentPrzed != null && z.procentPo != null ? Math.round((z.procentPo - z.procentPrzed) * 100) / 100 : null;
+      const wykaz = String(parsed.podstawa ?? "").includes("70");
       zmiany.push({
         data: String(z.data),
         akcjonariusz: String(z.akcjonariusz).trim(),
         akcje: z.akcjePo ?? null,
-        akcjeZmiana: zmianaAkcji,
+        akcjeZmiana: wykaz ? null : zmianaAkcji,
         procent: z.procentPo ?? null,
-        procentZmiana: zmianaProc,
+        procentZmiana: wykaz ? null : zmianaProc,
         glosy: null,
         glosyZmiana: null,
-        zrodlo: "zawiadomienie",
+        zrodlo: wykaz ? "wykaz_wza" : "zawiadomienie",
         plik: nazwa,
         emitentAkcji: spolka || null,
       });
       dodane += 1;
     }
-    if (dodane) log(`✓ ${nazwa}: ${dodane} zdarzeń stanu posiadania`);
+    if (dodane)
+      log(`✓ ${nazwa}: ${dodane} ${String(parsed.podstawa ?? "").includes("70") ? "pozycji wykazu z WZA" : "zdarzeń stanu posiadania"}`);
   }
 
   const { error } = await sb.from("subanalyses").upsert(
@@ -478,7 +509,7 @@ export async function wykonajZawiadomienia(
       title: "Zawiadomienia o stanie posiadania (dane źródłowe)",
       status: "szkic",
       body_md: "",
-      data: { zmiany, zbadane, bezTekstu, obce, emitent: cfg.emitent, nazwy, pominietoNadLimit },
+      data: { zmiany, zbadane, bezTekstu, obce, emitent: cfg.emitent, nazwy, pominietoNadLimit, powtorzenia },
     },
     { onConflict: "case_id,kind" },
   );
@@ -490,6 +521,7 @@ export async function wykonajZawiadomienia(
     podsumowanie:
       `Odczytano ${zmiany.length} zdarzeń z ${zbadane.length} zawiadomień` +
       // Odsiew ponad limit musi być powiedziany — inaczej „tyle jest” brzmi jak „tyle było”.
+      (powtorzenia > 0 ? `; pominięto ${powtorzenia} kopii tych samych raportów` : "") +
       (pominietoNadLimit > 0 ? `; ${pominietoNadLimit} kandydatów poza limitem biegu` : "") +
       (obce.length ? `; pominięto ${obce.length} dotyczących akcji innej spółki` : "") +
       (bezTekstu.length ? `; ${bezTekstu.length} skanów wymaga OCR` : "") +

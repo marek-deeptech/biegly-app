@@ -36,7 +36,7 @@ export type ZmianaAkcjonariatu = {
   procentZmiana: number | null;
   glosy: number | null;
   glosyZmiana: number | null;
-  zrodlo: "bankier" | "sprawozdanie" | "zawiadomienie";
+  zrodlo: "bankier" | "sprawozdanie" | "zawiadomienie" | "wykaz_wza";
   plik?: string;
   /**
    * ⚠️ CZYJE AKCJE. W sprawie wieloinstrumentowej (ZASTAL: CSY i RSY) ten sam
@@ -56,7 +56,10 @@ export type Emisja = {
   dataWza: string | null;
 };
 
-export type Kwalifikacja = "nabycie" | "zbycie" | "rozwodnienie" | "objęcie emisji" | "bez zmiany" | "nieokreślone";
+export type Kwalifikacja =
+  | "nabycie" | "zbycie" | "rozwodnienie" | "objęcie emisji" | "bez zmiany" | "nieokreślone"
+  /** Stan wykazany w raporcie z art. 70 pkt 3 — GŁOSY ZAREJESTROWANE NA WZA, nie stan posiadania. */
+  | "stan na WZA";
 
 export type ZdarzenieAkcjonariatu = ZmianaAkcjonariatu & {
   kwalifikacja: Kwalifikacja;
@@ -203,6 +206,18 @@ export function kwalifikuj(zmiany: ZmianaAkcjonariatu[], emisje: Emisja[], dniTo
     return wOknie.reduce((a, b) => (Math.abs(b.ts - ts) < Math.abs(a.ts - ts) ? b : a));
   };
   return zmiany.map((z) => {
+    // ⚠️ WYKAZ Z WZA TO NIE STAN POSIADANIA. Raport z art. 70 pkt 3 podaje głosy
+    // ZAREJESTROWANE na zgromadzeniu; akcjonariusz może zgłosić część pakietu albo
+    // nie przyjść wcale. Liczby stąd nie wchodzą do rachunku nabyć i zbyć.
+    if (z.zrodlo === "wykaz_wza")
+      return {
+        ...z,
+        kwalifikacja: "stan na WZA" as const,
+        uzasadnienie:
+          `wykaz akcjonariuszy z walnego zgromadzenia (art. 70 pkt 3): ${pl(z.akcje)} głosów ` +
+          `zarejestrowanych, ${z.procent == null ? "udziału nie podano" : `${pl(z.procent, 2)} % ogólnej liczby głosów`}` +
+          " — wielkość odnosi się do zgromadzenia, nie do stanu posiadania na ten dzień",
+      };
     const em = emisjaPrzy(z.data);
     if (z.akcjeZmiana != null && z.akcjeZmiana > 0)
       return {
@@ -235,6 +250,7 @@ export function kwalifikuj(zmiany: ZmianaAkcjonariatu[], emisje: Emisja[], dniTo
 // ── Tabele ────────────────────────────────────────────────────────────────
 
 const KIERUNEK: Record<Kwalifikacja, string> = {
+  "stan na WZA": "stan wykazany na WZA",
   nabycie: "nabycie",
   zbycie: "zbycie",
   rozwodnienie: "rozwodnienie (emisja)",
@@ -251,7 +267,11 @@ export function tabelaHistorii(zdarzenia: ZdarzenieAkcjonariatu[], emitent?: str
       `Tabela. Historia zmian w stanie posiadania akcji${emitent ? ` ${emitent}` : ""} — stan po każdej ` +
       "odnotowanej zmianie, z kwalifikacją zdarzenia i źródłem",
     head: ["Data zmiany", "Akcjonariusz", "Liczba akcji", "Zmiana akcji", "Udział w kapitale", "Zmiana udziału", "Kwalifikacja", "Źródło"],
-    rows: zdarzenia.map((z) => [
+    // Chronologicznie od najnowszego — zdarzenia z różnych źródeł wpadają w kolejności
+    // odczytu plików, a czytelnik tabeli akcjonariatu szuka ciągu dat, nie kolejności biegu.
+    rows: [...zdarzenia]
+      .sort((a, b) => b.data.localeCompare(a.data) || a.akcjonariusz.localeCompare(b.akcjonariusz))
+      .map((z) => [
       z.data,
       z.akcjonariusz,
       pl(z.akcje),
@@ -261,7 +281,13 @@ export function tabelaHistorii(zdarzenia: ZdarzenieAkcjonariatu[], emitent?: str
       KIERUNEK[z.kwalifikacja],
       z.zrodlo === "bankier"
         ? "Bankier.pl"
-        : `${z.zrodlo === "zawiadomienie" ? "zawiadomienie o stanie posiadania" : "sprawozdanie zarządu"}` +
+        : `${
+            z.zrodlo === "zawiadomienie"
+              ? "zawiadomienie o stanie posiadania"
+              : z.zrodlo === "wykaz_wza"
+                ? "wykaz akcjonariuszy na WZA"
+                : "sprawozdanie zarządu"
+          }` +
           `${z.plik ? ` (${z.plik})` : ""}`,
     ]),
   };
@@ -381,6 +407,13 @@ export function uwagiZrodel(zdarzenia: ZdarzenieAkcjonariatu[]): string[] {
       "Zawiadomienia o stanie posiadania (art. 69 ustawy o ofercie publicznej) są źródłem PIERWOTNYM: " +
         "podają stan przed transakcją i po niej wprost, wraz z datą zdarzenia. Zmiany liczby akcji i udziału " +
         "wyliczono z tych dwóch stanów, nie przepisano z narracji dokumentu.",
+    );
+  if (ma("wykaz_wza"))
+    uwagi.push(
+      "Wykazy akcjonariuszy publikowane na podstawie art. 70 pkt 3 ustawy o ofercie podają liczbę głosów " +
+        "ZAREJESTROWANYCH na walnym zgromadzeniu oraz jej stosunek do ogólnej liczby głosów. Akcjonariusz może " +
+        "zgłosić do udziału część posiadanego pakietu albo nie stawić się wcale, dlatego wielkości te wyznaczają " +
+        "DOLNĄ granicę stanu posiadania i nie służą do obliczania nabyć ani zbyć.",
     );
   if (ma("sprawozdanie"))
     uwagi.push(

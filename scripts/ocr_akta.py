@@ -170,6 +170,48 @@ def domknij_sprawe(sprawa: str, jezyk: str, wykonaj: bool) -> int:
 
     nfc = lambda s: unicodedata.normalize("NFC", s)  # noqa: E731
     nazwa = lambda rp: nfc(rp.split("/")[-1])  # noqa: E731
+
+    # ⚠️ NAJPIERW ZMIERZ, POTEM ORZEKAJ. Tryb brał pod uwagę wyłącznie dokumenty
+    # z ustawionym `warstwa_tekstu`, a ustawia je `--oznacz`, który działa na
+    # katalogu NA DYSKU. Dla sprawy trzymanej wyłącznie w chmurze pole zostawało
+    # puste i bramka meldowała „DO OCR: 1" przy 207 nieprzejrzanych PDF-ach —
+    # czyli dokładnie ta cisza, przed którą ostrzega nagłówek tego pliku.
+    niezmierzone = [
+        d for d in docs
+        if d.get("warstwa_tekstu") is None and d.get("storage_path")
+        and nazwa(d["rel_path"]).lower().endswith(".pdf")
+    ]
+    if niezmierzone:
+        print(f"Pomiar warstwy tekstu dla {len(niezmierzone)} dokumentów bez oznaczenia…")
+        zmierzono = {"jest": 0, "ocr": 0, "brak": 0}
+        for d in niezmierzone:
+            try:
+                sciezka = urllib.parse.quote(d["storage_path"])
+                with urllib.request.urlopen(
+                        urllib.request.Request(f"{url}/storage/v1/object/case-files/{sciezka}", headers=h),
+                        timeout=180) as r:
+                    blob = r.read()
+            except Exception as e:  # noqa: BLE001
+                print(f"   ✗ {nazwa(d['rel_path'])}: nie pobrano ({e})")
+                continue
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
+                tmp.write(blob)
+                tmp.flush()
+                stron, znakow = tekst_pdf(Path(tmp.name))
+            if not stron:
+                continue
+            ma = znakow / stron >= PROG_ZNAKOW_NA_STRONE
+            w = ("ocr" if nazwa(d["rel_path"]).endswith(".ocr.pdf") else "jest") if ma else "brak"
+            zmierzono[w] += 1
+            d["warstwa_tekstu"] = w
+            req = urllib.request.Request(
+                f"{url}/rest/v1/documents?id=eq.{d['id']}",
+                data=json.dumps({"warstwa_tekstu": w}).encode(),
+                headers={**h, "Content-Type": "application/json", "Prefer": "return=minimal"},
+                method="PATCH")
+            urllib.request.urlopen(req, timeout=60).read()
+        print(f"   zmierzono: czytelnych {zmierzono['jest']}, po OCR {zmierzono['ocr']}, BEZ TEKSTU {zmierzono['brak']}\n")
+
     po_ocr = {nazwa(d["rel_path"]) for d in docs if d.get("warstwa_tekstu") == "ocr"}
 
     do_zrobienia = []
