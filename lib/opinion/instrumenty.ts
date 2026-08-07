@@ -131,3 +131,36 @@ export function tabelaFaz(
     ]),
   };
 }
+
+/**
+ * Zestawienie notowań (OHLC) JEDNEGO instrumentu.
+ *
+ * ⚠️ Odpowiednik `ohlcTable` z build.ts, ale bez założenia „jeden walor na sprawę".
+ * Na zestawie łącznym ta sama sesja występuje dwa razy — raz z kursem CSY, raz RSY —
+ * a deduplikacja po dacie cicho zostawia jeden z nich. Podpis niesie nazwę waloru,
+ * bo tabela bez tej informacji jest w opinii nie do zweryfikowania.
+ */
+export function tabelaOhlc(metryki: Metryka[], label: string): { caption: string; head: string[]; rows: string[][] } | null {
+  const dni = [...new Set(metryki.filter((m) => m.key === "day_close" && m.session_day).map((m) => m.session_day as string))].sort();
+  if (!dni.length) return null;
+  const at = (k: string, d: string) => metryki.find((m) => m.key === k && m.session_day === d)?.value ?? null;
+  const zl = (v: number | null) => (v == null ? "—" : `${pl(v, 4)} zł`);
+  return {
+    caption:
+      `Tabela. ${label} — kurs (OHLC) i wolumen per sesja; zmiana kursu zamknięcia względem ` +
+      "poprzedniej sesji objętej analizą",
+    head: ["Sesja", "Otwarcie", "Najwyższy", "Najniższy", "Zamknięcie", "Zmiana", "Wolumen sesji"],
+    rows: dni.map((d) => {
+      const pct = at("day_change_pct", d);
+      return [
+        d,
+        zl(at("day_open", d)),
+        zl(at("day_high", d)),
+        zl(at("day_low", d)),
+        zl(at("day_close", d)),
+        pct == null ? "—" : `${pct > 0 ? "+" : ""}${pl(pct)} %`,
+        at("day_sess_vol", d) == null ? "—" : `${pl(at("day_sess_vol", d)!, 0)} szt.`,
+      ];
+    }),
+  };
+}

@@ -96,6 +96,13 @@ Pliki **wyłącznie manipulacyjne**: `ekofin*`, `aktywnosc-iv3`, `techniki-iv46`
   nie `case_id=eq.…`. Inaczej bieg jednego modułu wymazuje dorobek innego.
 - **Okres badany bierze się z POSTANOWIENIA**, nigdy z zakresu metryk. W ZASTAL
   różnica wynosiła 3,5 miesiąca wobec niecałych dwóch lat.
+- **Jedno źródło okresu badanego.** Każdy rozdział liczbowy bierze okno z
+  `lib/opinion/okres.ts` (konfiguracja kroku 4 = daty z postanowienia), nigdy
+  z zakresu metryk ani z własnej flagi. Inaczej ta sama faza wzrostowa CSY wychodzi
+  +1175 % w IV.1 i +920 % w IV.5 — obie policzone poprawnie, sprzeczne wejściem.
+- **Liczby PER INSTRUMENT.** Sprawa może obejmować kilka walorów; zestaw łączny
+  sumuje wolumeny różnych papierów i podstawia kurs jednego pod oba
+  (`lib/opinion/instrumenty.ts`, `czyZmieszane`).
 - **`npx vitest` uruchamiaj z katalogu repo** — z katalogu domowego nie wczyta
   aliasu `@` i zgłosi „Cannot find package".
 

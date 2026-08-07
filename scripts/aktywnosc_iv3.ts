@@ -14,6 +14,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createClient } from "@supabase/supabase-js";
+import { okresBadany, opisOkresu, wOknie as wOknieOkresu } from "@/lib/opinion/okres";
 import { instrumentySprawy, metrykiInstrumentu } from "@/lib/opinion/instrumenty";
 import {
   PROGI_DOMYSLNE,
@@ -54,7 +55,9 @@ async function main() {
   const od = arg("od");
   const doD = arg("do");
   const maks = Number(arg("maks") ?? 20);
-  const wOknie = (d?: string | null) => !d || ((!od || d >= od) && (!doD || d <= doD));
+  // Okno z POSTANOWIENIA (konfiguracja kroku 4); flagi --od/--do tylko nadpisują.
+  const okres = okresBadany((subs ?? []) as never, { od, do: doD });
+  const wOknie = wOknieOkresu(okres);
 
   const tables: Tabela[] = [];
   const findings: string[] = [];
@@ -91,6 +94,7 @@ async function main() {
   }
 
   findings.push(`Kryterium doboru sesji do tabel szczegółowych: ${opisProgow(PROGI_DOMYSLNE)}.`);
+  findings.push(opisOkresu(okres));
   // Odsiew ponad limit MUSI być powiedziany: milczenie sugerowałoby, że tabele
   // szczegółowe wyczerpują listę sesji istotnych.
   if (pominietych > 0)
@@ -106,6 +110,10 @@ async function main() {
       "i zestawianie ich kursów nie daje wielkości o znaczeniu ekonomicznym.",
   );
 
+  // ⚠️ Proza przeżywa przeliczenie — patrz komentarz w scripts/techniki_iv46.ts.
+  const { data: stara } = await sb
+    .from("subanalyses").select("body_md").eq("case_id", c.id).eq("kind", "aktywnosc").maybeSingle();
+  const proza = String(stara?.body_md ?? "");
   const { error } = await sb.from("subanalyses").upsert(
     {
       case_id: c.id,
@@ -113,7 +121,7 @@ async function main() {
       chapter_no: "IV.3",
       title: "Aktywność podmiotów z Grupy",
       status: "szkic",
-      body_md: "",
+      body_md: proza,
       data: {
         table: tables[0] ?? null,
         tables,
@@ -121,7 +129,8 @@ async function main() {
         sesjeIstotneWgInstrumentu: sesjeWgInstrumentu,
         instrumenty: instrumenty.map((i) => i.label),
         progi: PROGI_DOMYSLNE,
-        okno: { od, do: doD },
+        proza_sprzed_przeliczenia: proza.length > 0,
+        okno: { od: okres.od, do: okres.do, zrodlo: okres.zrodlo },
       },
     },
     { onConflict: "case_id,kind" },

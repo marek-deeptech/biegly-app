@@ -13,12 +13,15 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createClient } from "@supabase/supabase-js";
+import { okresBadany, opisOkresu, wOknie as wOknieOkresu } from "@/lib/opinion/okres";
 import { fazyKursu, instrumentySprawy, metrykiInstrumentu, tabelaFaz } from "@/lib/opinion/instrumenty";
 import {
   tabelaAnulacjiPodmiotow,
   tabelaParWewnatrzgrupowych,
   tabelaSekwencji,
   tabelaSesjiLayering,
+  tabelaFixingu,
+  tabelaKoncentracji,
   tabelaSesjiWash,
   type DzienSpoof,
   type Metryka,
@@ -40,9 +43,27 @@ async function metrykiSprawy(id: string): Promise<Metryka[]> {
   }
 }
 
-async function zapisz(id: string, kind: string, chapter_no: string, title: string, tables: unknown[], findings: string[]) {
+async function zapisz(
+  id: string, kind: string, chapter_no: string, title: string, tables: unknown[], findings: string[], oOkresie?: string,
+) {
+  // ⚠️ PROZA PRZEŻYWA PRZELICZENIE. `body_md: ""` w upsercie kasował gotowe rozdziały
+  // przy każdym powtórzeniu biegu — tak zniknęła zredagowana treść IV.4 i IV.6.
+  // Prozę zachowujemy i ZNACZAMY jako opisującą poprzednie liczby, żeby biegły
+  // wiedział, że wymaga ponownej redakcji.
+  const { data: stara } = await sb
+    .from("subanalyses").select("body_md").eq("case_id", id).eq("kind", kind).maybeSingle();
+  const proza = String(stara?.body_md ?? "");
   const { error } = await sb.from("subanalyses").upsert(
-    { case_id: id, kind, chapter_no, title, status: "szkic", body_md: "", data: { table: tables[0] ?? null, tables, findings } },
+    {
+      case_id: id, kind, chapter_no, title, status: "szkic", body_md: proza,
+      // Okres badany dopisujemy do KAŻDEGO rozdziału: liczby bez odcinka czasu,
+      // którego dotyczą, nie dają się zweryfikować.
+      data: {
+        table: tables[0] ?? null, tables,
+        findings: oOkresie ? [...findings, oOkresie] : findings,
+        proza_sprzed_przeliczenia: proza.length > 0,
+      },
+    },
     { onConflict: "case_id,kind" },
   );
   if (error) throw new Error(`zapis ${kind}: ${error.message}`);
@@ -60,13 +81,19 @@ async function main() {
   const { data: subs } = await sb.from("subanalyses").select("kind,data").eq("case_id", c.id);
   const instrumenty = instrumentySprawy((subs ?? []) as never);
   if (!instrumenty.length) throw new Error("brak subanaliz trem_<ticker> — uruchom najpierw „Policz z TREM”");
-  const wOknie = (d?: string | null) => !d || ((!od || d >= od) && (!doD || d <= doD));
+  // Okno z POSTANOWIENIA (konfiguracja kroku 4); flagi --od/--do tylko nadpisują.
+  const okres = okresBadany((subs ?? []) as never, { od, do: doD });
+  const wOknie = wOknieOkresu(okres);
   const metrykiLaczne = (await metrykiSprawy(c.id as string)).filter((m) => wOknie(m.session_day));
 
   const wash4: unknown[] = [];
   const fWash: string[] = [];
   const t6: unknown[] = [];
   const f6: string[] = [];
+  const tFix: unknown[] = [];
+  const fFix: string[] = [];
+  const tKonc: unknown[] = [];
+  const fKonc: string[] = [];
   const fazy: { label: string; fazy: NonNullable<ReturnType<typeof fazyKursu>> }[] = [];
 
   for (const inst of instrumenty) {
@@ -81,6 +108,22 @@ async function main() {
       fWash.push(`${inst.label}: obrót wewnątrzgrupowy przekroczył 20 % wolumenu sesji w ${sesjeWash.rows.length} sesjach.`);
     } else {
       fWash.push(`${inst.label}: w żadnej sesji obrót wewnątrzgrupowy nie przekroczył 20 % wolumenu sesji.`);
+    }
+
+    // ── Fixing (zał. I lit. g) i koncentracja (lit. e) — też per instrument ──
+    const tf = tabelaFixingu(m, 50);
+    if (tf) {
+      tFix.push({ ...tf, caption: `Tabela. ${inst.label} — ${tf.caption.replace(/^Tabela\.\s*/, "")}` });
+      fFix.push(`${inst.label}: w ${tf.rows.length} sesjach podmioty z Grupy objęły co najmniej połowę wolumenu fixingu.`);
+    } else {
+      fFix.push(`${inst.label}: w żadnej sesji udział Grupy w wolumenie fixingu nie osiągnął 50 %.`);
+    }
+    const tk = tabelaKoncentracji(m, 50);
+    if (tk) {
+      tKonc.push({ ...tk, caption: `Tabela. ${inst.label} — ${tk.caption.replace(/^Tabela\.\s*/, "")}` });
+      fKonc.push(`${inst.label}: w ${tk.rows.length} sesjach zlecenia Grupy skupiły się w oknie 15 minut na poziomie co najmniej 50 % wolumenu sesji.`);
+    } else {
+      fKonc.push(`${inst.label}: koncentracja zleceń w oknie 15 minut nie osiągnęła 50 % wolumenu w żadnej sesji.`);
     }
 
     // ── IV.6 — layering/spoofing z zestawienia zleceń FILTROWANEGO PO ISIN ──
@@ -140,8 +183,15 @@ async function main() {
       "ponieważ sumowanie wolumenów różnych papierów nie daje wielkości o znaczeniu ekonomicznym.",
   );
 
-  if (wash4.length) await zapisz(c.id as string, "wash", "IV.4", "Wash trades", wash4, fWash);
-  if (t6.length || f6.length) await zapisz(c.id as string, "layering", "IV.6", "Layering and spoofing", t6, f6);
+  const wspolne =
+    "Wielkości ustalono odrębnie dla każdego instrumentu; zestawień łącznych nie sporządzano, ponieważ " +
+    "sumowanie wolumenów różnych papierów nie daje wielkości o znaczeniu ekonomicznym.";
+  if (wash4.length) await zapisz(c.id as string, "wash", "IV.4", "Wash trades", wash4, fWash, opisOkresu(okres));
+  if (tFix.length || fFix.length)
+    await zapisz(c.id as string, "fixing", "IV", "Manipulacja na fixingu (marking the close)", tFix, [...fFix, wspolne], opisOkresu(okres));
+  if (tKonc.length || fKonc.length)
+    await zapisz(c.id as string, "concentration", "IV", "Koncentracja zleceń w krótkim odcinku sesji", tKonc, [...fKonc, wspolne], opisOkresu(okres));
+  if (t6.length || f6.length) await zapisz(c.id as string, "layering", "IV.6", "Layering and spoofing", t6, f6, opisOkresu(okres));
 
   // ── IV.5 — fazy kursu PER INSTRUMENT (zamiast przeplotu z zestawu łącznego) ──
   const tFaz = tabelaFaz(fazy);
@@ -161,12 +211,14 @@ async function main() {
       "Fazy policzono odrębnie dla każdego instrumentu z jego własnego szeregu kursów zamknięcia; " +
         "wartości ustalone na zestawie łącznym obu walorów nie opisywały żadnego z nich.",
     );
-    await zapisz(c.id as string, "pumpdump", "IV.5", "Pump and dump", [tFaz, ...stare], fPd);
+    await zapisz(c.id as string, "pumpdump", "IV.5", "Pump and dump", [tFaz, ...stare], fPd, opisOkresu(okres));
     console.log(`✓ IV.5: fazy per instrument — ${fazy.map((x) => `${x.label} +${x.fazy.pumpPct}%`).join(", ")}`);
   }
 
   console.log(`✓ IV.4: ${wash4.length} tabel`);
   for (const f of fWash) console.log(`   • ${f.slice(0, 130)}`);
+  console.log(`✓ fixing: ${tFix.length} tabel; koncentracja: ${tKonc.length} tabel`);
+  for (const f of [...fFix, ...fKonc]) console.log(`   • ${f.slice(0, 130)}`);
   console.log(`✓ IV.6: ${t6.length} tabel`);
   for (const f of f6) console.log(`   • ${f.slice(0, 150)}`);
 }

@@ -86,8 +86,13 @@ async function main() {
       console.log(`✗ ${kind}: model nie zwrócił treści`);
       continue;
     }
+    // Znacznik „proza starsza od liczb" gaśnie DOPIERO tutaj — inaczej ostrzeżenie
+    // zostawałoby na zawsze i biegły przestałby na nie patrzeć.
+    const { data: biezaca } = await sb
+      .from("subanalyses").select("data").eq("case_id", c.id).eq("kind", kind).maybeSingle();
+    const daneRozdzialu = { ...((biezaca?.data as Record<string, unknown>) ?? {}), proza_sprzed_przeliczenia: false };
     const { data, error } = await sb
-      .from("subanalyses").update({ body_md: text, status: "szkic" })
+      .from("subanalyses").update({ body_md: text, status: "szkic", data: daneRozdzialu })
       .eq("case_id", c.id).eq("kind", kind).select("id");
     if (error) throw new Error(`zapis ${kind}: ${error.message}`);
     if (!data?.length) {
