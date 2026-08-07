@@ -123,9 +123,9 @@ const KROKI_BANK: Krok[] = [
     gotowy: (s) => s.subanalizy.includes("otoczenie_prawne") },
   { klucz: "makro", label: "Otoczenie makro",
     opis:
-      "Kalendarium wydarzeń światowych (kryzysy, wojny, pandemie), szeregi z akt (inflacja, kursy, " +
-      "stopy) i sygnały rynkowe CDS/ratingi (wzorzec: opinia MBR, rozdz. V.A–C i V.K)",
-    gotowy: (s) => s.subanalizy.includes("makro") || s.subanalizy.includes("sygnaly_rynkowe") },
+      "Kalendarium wydarzeń światowych (kryzysy, wojny, pandemie) i szeregi z akt: inflacja, " +
+      "kursy, stopy (wzorzec: opinia MBR, rozdz. V.A–C i V.K); sygnały CDS/ratingi — w Analizie",
+    gotowy: (s) => s.subanalizy.includes("makro") },
   { klucz: "wskazniki", label: "Lista wskaźników",
     opis:
       "Katalog wymogów kapitałowych wg typu instytucji (bank, bank spółdzielczy) z progami " +
@@ -133,8 +133,9 @@ const KROKI_BANK: Krok[] = [
     gotowy: () => true },
   { klucz: "analysis", label: "Analiza ekonomiczno-finansowa",
     opis:
-      "Podzakładki wg wzorca MBR: sprawozdania i współczynniki kapitałowe, rubryka 16 wskaźników, " +
-      "oceny zrzeszającego, chronologia nadzorcza oraz proces decyzyjny i limity (warsztat)",
+      "Podzakładki wg wzorca MBR (rozdz. V, z jawną mapą A–L): sprawozdania i współczynniki " +
+      "(V.I–J), ratingi i CDS (V.G–H), prasa i sektor (V.D–F) oraz suplement SK: rubryka 16 " +
+      "wskaźników, oceny zrzeszającego, chronologia, proces i limity",
     gotowy: (s) => s.metryk > 0 || s.subanalizy.includes("wskazniki_bank") },
   { klucz: "opinion", label: "Opinia", opis: "Rozdziały I–VIII wg szkieletu opinii bankowej",
     gotowy: (s) => s.zatwierdzone > 0 },
