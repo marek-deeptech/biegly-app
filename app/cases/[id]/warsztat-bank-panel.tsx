@@ -108,14 +108,22 @@ function Blok({ tytul, d }: { tytul: string; d: DaneWarsztatu | null }) {
   );
 }
 
+type BlokWarsztatu = "proces" | "limity" | "media" | "sektor" | "prawne";
+
 export default function WarsztatBankPanel({
   caseId,
   subanalyses,
   onDone,
+  // Które bloki wyników pokazywać. Przebieg „Odtwórz z akt" ZAWSZE buduje komplet
+  // modułów — ale media/sektor mają własną podzakładkę analizy (MBR V.D–F),
+  // a otoczenie prawne własny krok, więc osadzenie w zakładce „Proces i limity"
+  // pokazuje tylko swoje bloki zamiast dublować cudze.
+  pokaz = ["proces", "limity", "media", "sektor", "prawne"],
 }: {
   caseId: string;
   subanalyses: Sub[];
   onDone: () => void;
+  pokaz?: BlokWarsztatu[];
 }) {
   const [busy, setBusy] = useState(false);
   const [blad, setBlad] = useState<string | null>(null);
@@ -217,11 +225,15 @@ export default function WarsztatBankPanel({
         ) : null}
       </div>
 
-      <Blok tytul="Chronologia procesu decyzyjnego" d={proc} />
-      <Blok tytul="Limity zaangażowania" d={lim} />
-      <Blok tytul="Publikacje prasowe i komunikaty" d={media} />
-      <Blok tytul="Skala sektora bankowego wobec gospodarki" d={dane("ekspozycja_sektor")} />
-      <Blok tytul="Otoczenie prawne w dacie zdarzenia" d={dane("otoczenie_prawne")} />
+      {pokaz.includes("proces") && <Blok tytul="Chronologia procesu decyzyjnego" d={proc} />}
+      {pokaz.includes("limity") && <Blok tytul="Limity zaangażowania" d={lim} />}
+      {pokaz.includes("media") && <Blok tytul="Publikacje prasowe i komunikaty" d={media} />}
+      {pokaz.includes("sektor") && (
+        <Blok tytul="Skala sektora bankowego wobec gospodarki" d={dane("ekspozycja_sektor")} />
+      )}
+      {pokaz.includes("prawne") && (
+        <Blok tytul="Otoczenie prawne w dacie zdarzenia" d={dane("otoczenie_prawne")} />
+      )}
     </section>
   );
 }

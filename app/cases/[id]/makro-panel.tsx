@@ -4,15 +4,17 @@
 // kurs walutowy, stopy procentowe — oraz V.K, s. 73: „Inne istotne wydarzenia
 // makroekonomiczne sprzed 11 września 2008 roku").
 //
-// TRZY WARSTWY O RÓŻNYM STATUSIE DOWODOWYM, celowo NIE zlane w jedno:
+// DWIE WARSTWY O RÓŻNYM STATUSIE DOWODOWYM, celowo NIE zlane w jedno:
 // 1. Szeregi z AKT (inflacja, kursy, stopy, indeks) — liczy /api/makro; czego nie ma
 //    w aktach jako danych, to jest ustaleniem („w aktach brak szeregu X"), nie luką UI.
-// 2. Sygnały rynkowe (CDS, ratingi) — liczy /api/sygnaly; tu najczęściej wychodzi
-//    luka dowodowa i ona ma być widoczna.
-// 3. KALENDARIUM świata (kryzysy, wojny, pandemie) — wiedza powszechna z katalogu
+// 2. KALENDARIUM świata (kryzysy, wojny, pandemie) — wiedza powszechna z katalogu
 //    (lib/domain/kalendarium-makro.ts), TŁO opinii, nie materiał dowodowy.
 // Wydarzenia PO dacie zdarzenia — tylko za przełącznikiem, z ostrzeżeniem
 // o wnioskowaniu wstecznym (następstwa ≠ stan wiedzy z dnia decyzji).
+//
+// ⚠️ SYGNAŁY RYNKOWE (CDS, ratingi — wzorzec V.G–H) NIE SĄ tłem makro: to rdzeń
+// analizy kontrahenta i żyją jako podzakładka kroku „Analiza ekonomiczno-
+// -finansowa”. Ten krok pokrywa moduły V.A–C i V.K wzorca MBR.
 
 import { useMemo, useState } from "react";
 
@@ -98,35 +100,34 @@ export default function MakroPanel({
 }) {
   const dane = (k: string) => (subanalyses.find((s) => s.kind === k)?.data ?? null) as DaneModulu | null;
   const makro = dane("makro");
-  const sygnaly = dane("sygnaly_rynkowe");
   const znany =
     makro?.dzienZdarzenia ??
-    sygnaly?.dzienZdarzenia ??
+    (subanalyses.find((s) => s.kind === "sygnaly_rynkowe")?.data as DaneModulu | undefined)?.dzienZdarzenia ??
     (subanalyses.find((s) => s.kind === "chronologia_nadzoru")?.data as DaneModulu | undefined)?.dzienZdarzenia ??
     (subanalyses.find((s) => s.kind === "limity")?.data as DaneModulu | undefined)?.dzienZdarzenia ??
     "";
   const [dzien, setDzien] = useState(znany || "");
-  const [busy, setBusy] = useState<"makro" | "sygnaly" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [blad, setBlad] = useState<string | null>(null);
   const [pokazPo, setPokazPo] = useState(false);
   const [kategoria, setKategoria] = useState<string>("");
 
-  async function policz(fn: "makro" | "sygnaly") {
-    setBusy(fn);
+  async function policz() {
+    setBusy(true);
     setBlad(null);
     try {
-      const r = await fetch(`/api/${fn}`, {
+      const r = await fetch("/api/makro", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ caseId, dzienZdarzenia: dzien || undefined }),
       });
       const j = await r.json();
-      if (!j.ok) setBlad(j.error ?? `Nie udało się policzyć modułu ${fn}.`);
+      if (!j.ok) setBlad(j.error ?? "Nie udało się policzyć modułu makro.");
       else onDone();
     } catch {
       setBlad("Błąd sieci przy liczeniu modułu.");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -141,8 +142,9 @@ export default function MakroPanel({
           <div>
             <h2 className="text-sm font-semibold">Otoczenie makroekonomiczne</h2>
             <p className="mt-0.5 text-xs text-inksoft">
-              Szeregi z akt (inflacja, kursy, stopy), sygnały rynkowe (CDS, ratingi) i kalendarium
-              wydarzeń światowych. Wzorzec: opinia MBR, rozdz. V.A–C i V.K.
+              Szeregi z akt (inflacja, kursy, stopy) i kalendarium wydarzeń światowych — wzorzec:
+              opinia MBR, rozdz. V.A–C i V.K. Sygnały rynkowe kontrahenta (CDS, ratingi — V.G–H)
+              są rdzeniem analizy i żyją w kroku „Analiza ekonomiczno-finansowa”.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -155,18 +157,15 @@ export default function MakroPanel({
                 className="mt-1 rounded-lg border border-ink/30 px-2 py-1.5 text-sm outline-none focus:border-neutral-500"
               />
             </label>
-            <Button onClick={() => policz("makro")} loading={busy === "makro"} loadingLabel="Liczę…">
+            <Button onClick={policz} loading={busy} loadingLabel="Liczę…">
               {makro ? "Przelicz szeregi z akt" : "Policz szeregi z akt"}
-            </Button>
-            <Button onClick={() => policz("sygnaly")} loading={busy === "sygnaly"} loadingLabel="Liczę…">
-              {sygnaly ? "Przelicz CDS i ratingi" : "Policz CDS i ratingi"}
             </Button>
           </div>
         </div>
         {blad && <p className="mt-3 border border-red-300 bg-red-50 p-2 text-xs text-red-800">{blad}</p>}
-        {!makro && !sygnaly && (
+        {!makro && (
           <p className="mt-3 text-[11px] text-inksoft">
-            Moduły liczą wyłącznie z szeregów danych W AKTACH (typ DANE_RYNKOWE_SZEREG) — czego tam
+            Moduł liczy wyłącznie z szeregów danych W AKTACH (typ DANE_RYNKOWE_SZEREG) — czego tam
             nie ma, to zostaje nazwane brakiem, a nie dopisane z internetu. Kalendarium poniżej jest
             niezależne od akt (tło ogólnoświatowe).
           </p>
@@ -174,7 +173,6 @@ export default function MakroPanel({
       </div>
 
       <BlokModulu tytul="Szeregi z akt: inflacja, kursy, stopy, indeks" d={makro} />
-      <BlokModulu tytul="Sygnały rynkowe: CDS i ratingi" d={sygnaly} />
 
       <div className="border border-ink/60 bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">

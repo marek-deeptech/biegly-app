@@ -218,10 +218,12 @@ describe("rejestr pakietów dziedzinowych", () => {
     // Otoczenie prawne: kończy zapisany moduł otoczenie_prawne.
     expect(krok("prawo").gotowy(stan)).toBe(false);
     expect(krok("prawo").gotowy({ ...stan, subanalizy: ["otoczenie_prawne"] })).toBe(true);
-    // Otoczenie makro: makro LUB sygnały rynkowe (w aktach bywa tylko jedno z dwojga).
+    // Otoczenie makro: kończą go szeregi tła (moduł makro). Sygnały rynkowe
+    // (CDS/ratingi, wzorzec V.G–H) należą do ANALIZY, nie do tła — same nie
+    // kończą kroku makro.
     expect(krok("makro").gotowy(stan)).toBe(false);
     expect(krok("makro").gotowy({ ...stan, subanalizy: ["makro"] })).toBe(true);
-    expect(krok("makro").gotowy({ ...stan, subanalizy: ["sygnaly_rynkowe"] })).toBe(true);
+    expect(krok("makro").gotowy({ ...stan, subanalizy: ["sygnaly_rynkowe"] })).toBe(false);
     // Lista wskaźników: katalog referencyjny — zawsze dostępny, niczego nie liczy.
     expect(krok("wskazniki").gotowy(stan)).toBe(true);
     // Analiza EF: jak dotąd — metryki silnika albo subanaliza wskazniki_bank.
