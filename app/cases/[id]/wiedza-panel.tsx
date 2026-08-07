@@ -13,7 +13,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { rejestrWgRodzaju, statusNaDzien, type AktBankowy } from "@/lib/domain/akty-bankowe";
 import { createClient } from "@/lib/supabase/client";
+
+type Sub = { kind: string; data?: unknown };
 
 type Zrodlo = {
   id: string;
@@ -39,10 +42,59 @@ const RODZAJ: Record<string, string> = {
   orzecznictwo: "orzecznictwo",
 };
 
-export default function WiedzaPanel({ dziedzina }: { dziedzina: string }) {
+/** Dzień zdarzenia zapamiętany w którejkolwiek subanalizie — dla znaczników rejestru. */
+function znanyDzien(subanalyses: Sub[]): string {
+  for (const kind of ["otoczenie_prawne", "limity", "chronologia_nadzoru", "makro", "sygnaly_rynkowe"]) {
+    const d = (subanalyses.find((s) => s.kind === kind)?.data as { dzienZdarzenia?: string | null } | undefined)
+      ?.dzienZdarzenia;
+    if (d) return d;
+  }
+  return "";
+}
+
+/** Znacznik statusu aktu względem daty zdarzenia — odpowiedź na „czy MiFID II?". */
+function StatusAktu({ akt, dzien }: { akt: AktBankowy; dzien: string }) {
+  if (!dzien) return null;
+  const s = statusNaDzien(akt, dzien);
+  if (s === "po_zdarzeniu")
+    return (
+      <span
+        className="rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-800"
+        title={`Wszedł w życie ${akt.od} — PO dacie zdarzenia (${dzien}). Nie stanowi podstawy oceny tego zdarzenia.`}
+      >
+        po zdarzeniu — anachronizm
+      </span>
+    );
+  if (s === "uchylony_przed")
+    return (
+      <span
+        className="rounded-full border border-ink/30 px-2 py-0.5 text-[11px] text-inksoft"
+        title={`Obowiązywał do ${akt.do} — przed datą zdarzenia (${dzien}).`}
+      >
+        uchylony przed zdarzeniem
+      </span>
+    );
+  return (
+    <span
+      className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800"
+      title={akt.wersjonowany ? "Istniał w dacie zdarzenia — ustal WERSJĘ z tej daty." : "Obowiązywał w dacie zdarzenia."}
+    >
+      {akt.wersjonowany ? "istniał — sprawdź wersję" : "obowiązywał w dacie zdarzenia"}
+    </span>
+  );
+}
+
+const ZAKRES_BS: Record<string, { label: string; title: string }> = {
+  wprost: { label: "BS: wprost", title: "Dotyczy banków spółdzielczych wprost" },
+  posrednio: { label: "BS: pośrednio", title: "Dotyczy banków spółdzielczych pośrednio (tło systemowe)" },
+  warunkowo: { label: "BS: warunkowo", title: "Dotyczy banku spółdzielczego tylko w szczególnej roli — patrz uwaga" },
+};
+
+export default function WiedzaPanel({ dziedzina, subanalyses = [] }: { dziedzina: string; subanalyses?: Sub[] }) {
   const [zrodla, setZrodla] = useState<Zrodlo[] | null>(null);
   const [fragmenty, setFragmenty] = useState<Fragment[]>([]);
   const [blad, setBlad] = useState<string | null>(null);
+  const dzien = useMemo(() => znanyDzien(subanalyses), [subanalyses]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -119,6 +171,62 @@ export default function WiedzaPanel({ dziedzina }: { dziedzina: string }) {
             <code className="rounded bg-ink/5 px-1">python3 scripts/ingest_wiedza.py --dziedzina bank --dir &lt;katalog&gt; --zapisz</code>
           </p>
         )}
+      </div>
+
+      {/* REJESTR REGULACJI — pełny krajobraz prawny banków (w tym spółdzielczych)
+          z odnośnikami do tekstów urzędowych. Znaczniki przy dacie zdarzenia
+          odpowiadają na pytania w rodzaju „czy MiFID II?": jest w rejestrze,
+          ale dla zdarzeń sprzed 3.01.2018 nosi czerwony znacznik anachronizmu. */}
+      <div className="border border-ink/60 bg-card p-4">
+        <h3 className="text-sm font-semibold">Regulacje dotyczące banków — rejestr z odnośnikami</h3>
+        <p className="mt-0.5 text-xs text-inksoft">
+          Ustawy, prawo UE, rozporządzenia i rekomendacje nadzoru — z linkami do ISAP, EUR-Lex, KNF
+          i BIS (odniesienie albo pobranie tekstu).{" "}
+          {dzien ? (
+            <>Znaczniki odnoszą każdy akt do daty zdarzenia <strong>{dzien}</strong> — akt „po
+            zdarzeniu" nie stanowi podstawy oceny.</>
+          ) : (
+            <>Po ustaleniu daty zdarzenia (krok „Otoczenie prawne") rejestr oznaczy, które akty
+            wtedy obowiązywały, a które są anachronizmem.</>
+          )}{" "}
+          Do powołania w opinii służy datowany katalog kroku „Otoczenie prawne"; pozycje
+          wersjonowane (rekomendacje) wymagają ustalenia wersji z daty zdarzenia.
+        </p>
+        {rejestrWgRodzaju().map(({ rodzaj, akty }) => (
+          <div key={rodzaj.id} className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-inksoft">{rodzaj.label}</p>
+            <ul className="mt-1.5 space-y-2">
+              {akty.map((a) => (
+                <li key={a.id} className="border-l-2 border-ink/40 pl-3 text-xs">
+                  <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <a
+                      href={a.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+                      title={`Otwórz tekst źródłowy: ${a.nazwa}`}
+                    >
+                      {a.skrot}
+                    </a>
+                    <span
+                      className="rounded-full bg-ink/5 px-2 py-0.5 text-[11px]"
+                      title={ZAKRES_BS[a.dotyczyBS]?.title}
+                    >
+                      {ZAKRES_BS[a.dotyczyBS]?.label}
+                    </span>
+                    <StatusAktu akt={a} dzien={dzien} />
+                    <span className="text-[11px] text-inksoft tabular-nums">
+                      {a.wersjonowany ? `pierwsza wersja: ${a.od.slice(0, 4)}` : `${a.od} – ${a.do ?? "nadal"}`}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 text-inksoft">{a.nazwa}</p>
+                  <p className="mt-0.5">{a.zakres}</p>
+                  {a.uwagaBS ? <p className="mt-0.5 text-[11px] italic text-inksoft">⚠ {a.uwagaBS}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
 
       {(zrodla ?? []).map((z) => {
