@@ -13,7 +13,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  doWspolnejJednostki,
   dynamikaFin,
+  mnoznikJednostki,
   indeks100,
   kluczOkresu,
   kontrastObrotu,
@@ -152,13 +154,82 @@ describe("dynamikaFin", () => {
     expect(rsy[4]).toBe("-60,2%"); // 912 → 363, a NIE 19 501 → 363
   });
 
-  it("pozycja z niejednolitą jednostką NIE dostaje dynamiki — tylko uwagę", () => {
+  it("jednostki pieniężne SPROWADZA do wspólnej i liczy dynamikę", () => {
+    // ⚠️ ZMIANA REGUŁY (7.08.2026). Dawniej pozycja z niejednolitą jednostką
+    // zostawała bez dynamiki — bezpiecznie, ale w sprawie ZASTAL siedem pozycji
+    // CSY S.A. nie było w ogóle policzonych, bo sprawozdania podają te same
+    // wielkości raz w tysiącach, raz w złotych. Mnożnik jest ze SŁOWNIKA jednostek,
+    // więc przeliczenie nie jest domysłem co do rzędu wielkości.
     const { table, uwagi } = dynamikaFin([
       { position: "Suma bilansowa", period: "2019", value: "10", unit: "mln zł" },
       { position: "Suma bilansowa", period: "2020", value: "12000", unit: "tys. zł" },
     ]);
+    const w = table!.rows.find((r) => r[2] === "2020")!;
+    expect(w[3].replace(/[\s\u00a0]/g, " ")).toBe("12 000 tys. zł"); // jednostka najczęstsza w serii
+    expect(w[4]).toBe("20,0%"); // 10 mln zł = 10 000 tys. zł → 12 000 tys. zł
+    expect(uwagi.join(" ")).toMatch(/sprowadzono do jednostki/);
+  });
+
+  it("wielkości RÓŻNEJ MIARY nadal zostają bez dynamiki", () => {
+    // Procentu i sztuk nie wolno sprowadzać do złotych — tu odmowa jest jedyną
+    // uczciwą odpowiedzią.
+    const { table, uwagi } = dynamikaFin([
+      { position: "Rentowność", period: "2019", value: "10", unit: "%" },
+      { position: "Rentowność", period: "2020", value: "12000", unit: "tys. zł" },
+    ]);
     expect(table).toBeNull();
-    expect(uwagi.join(" ")).toMatch(/niejednolite/);
+    expect(uwagi.join(" ")).toMatch(/różnej miary/);
+  });
+
+  it("słownik jednostek zna skalę złotego i odrzuca resztę", () => {
+    expect(mnoznikJednostki("zł")).toBe(1);
+    expect(mnoznikJednostki("tys. zł")).toBe(1e3);
+    expect(mnoznikJednostki("w tys. PLN")).toBe(1e3);
+    expect(mnoznikJednostki("mln zł")).toBe(1e6);
+    expect(mnoznikJednostki("mld zł")).toBe(1e9);
+    expect(mnoznikJednostki("%")).toBeNull();
+    expect(mnoznikJednostki("szt.")).toBeNull();
+    expect(mnoznikJednostki("")).toBeNull();
+  });
+
+  it("okres narastający „I-III kw.” to WŁASNY rodzaj, nie kwartał", () => {
+    // ⚠️ Sprawozdanie kwartalne podaje obok siebie kwartał i narastająco od początku
+    // roku. Wcześniej etykieta nie pasowała do żadnego wzorca i obserwacja wypadała
+    // z tabeli BEZ ŚLADU — dla CSY S.A. dwie z sześciu.
+    expect(kluczOkresu("I-III kw. 2017")).toEqual({ rok: 2017, pod: 3, rodzaj: "narast" });
+    expect(kluczOkresu("I–III kw. 2016")).toEqual({ rok: 2016, pod: 3, rodzaj: "narast" });
+    expect(kluczOkresu("III kw. 2017")).toEqual({ rok: 2017, pod: 3, rodzaj: "kw" });
+
+    const { table } = dynamikaFin([
+      { issuer: "CSY S.A.", position: "przychody", period: "I-III kw. 2016", value: "13 415 324", unit: "zł" },
+      { issuer: "CSY S.A.", position: "przychody", period: "I-III kw. 2017", value: "14 923 773", unit: "zł" },
+      { issuer: "CSY S.A.", position: "przychody", period: "III kw. 2016", value: "4 169 878", unit: "zł" },
+      { issuer: "CSY S.A.", position: "przychody", period: "III kw. 2017", value: "4 957 136", unit: "zł" },
+    ]);
+    const narast = table!.rows.find((r) => r[2] === "I-III kw. 2017")!;
+    const kwartal = table!.rows.find((r) => r[2] === "III kw. 2017")!;
+    expect(narast[5]).toBe("11,2%"); // r/r wobec I-III kw. 2016, NIE wobec kwartału
+    expect(kwartal[5]).toBe("18,9%");
+  });
+
+  it("obserwacja z nierozpoznanym okresem trafia do uwag, nie ginie", () => {
+    const { uwagi } = dynamikaFin([
+      { position: "przychody", period: "2016", value: "100", unit: "zł" },
+      { position: "przychody", period: "2017", value: "120", unit: "zł" },
+      { position: "przychody", period: "okres świąteczny", value: "5", unit: "zł" },
+    ]);
+    expect(uwagi.join(" ")).toMatch(/nie rozpoznano okresu/);
+  });
+
+  it("jednostką docelową jest ta, w której podano NAJWIĘCEJ okresów", () => {
+    const w = doWspolnejJednostki([
+      { unit: "tys. zł", value: "1 000" },
+      { unit: "tys. zł", value: "2 000" },
+      { unit: "zł", value: "3 000 000" },
+    ])!;
+    expect(w.jednostka).toBe("tys. zł");
+    expect(w.wartosci).toEqual([1000, 2000, 3000]);
+    expect(w.przeliczonych).toBe(1);
   });
 });
 

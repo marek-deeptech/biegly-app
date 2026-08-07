@@ -134,6 +134,61 @@ export function kontrastObrotu(
   return { przed, badany, krotnoscWolumenu };
 }
 
+/**
+ * Kontrast WEWNĄTRZ dostępnego materiału — gdy historii od debiutu nie ma.
+ *
+ * ⚠️ POWÓD. Spółki wykluczone z obrotu (ZASTAL: CSY, RSY) nie mają kartoteki
+ * notowań w serwisach, a notowania odtworzone z arkusza TREM zaczynają się razem
+ * z okresem badanym. Wzorcowy kontrast „od debiutu wobec okresu badanego" jest
+ * wtedy niepoliczalny i krok kończył się samą uwagą — 203 i 210 sesji leżało
+ * nieużytych. Tu porównujemy okresy WEWNĄTRZ materiału (rok albo kwartał), co
+ * odpowiada na to samo pytanie: czy obrót w okresie objętym postanowieniem
+ * odstaje od obrotu w pozostałych okresach z akt.
+ *
+ * To NIE jest kontrast od debiutu i podpis tabeli musi to mówić wprost.
+ */
+export function kontrastOkresow(
+  notowania: NotowanieDzienne[],
+  granulacja: "rok" | "kwartal" = "rok",
+): { okresy: (OkresObrotu & { etykieta: string; krotnoscWobecPierwszego: number | null })[]; uwagi: string[] } {
+  const uwagi: string[] = [];
+  if (!notowania.length) return { okresy: [], uwagi };
+  const etykieta = (d: string) =>
+    granulacja === "rok" ? d.slice(0, 4) : `${d.slice(0, 4)} kw. ${Math.floor((Number(d.slice(5, 7)) - 1) / 3) + 1}`;
+
+  const wg = new Map<string, NotowanieDzienne[]>();
+  for (const n of notowania) {
+    const k = etykieta(n.dzien);
+    if (!wg.has(k)) wg.set(k, []);
+    wg.get(k)!.push(n);
+  }
+  const klucze = [...wg.keys()].sort();
+  const okresy = klucze.map((k) => {
+    const xs = wg.get(k)!;
+    return {
+      etykieta: k,
+      od: xs[0].dzien,
+      do: xs[xs.length - 1].dzien,
+      dniSesyjnych: xs.length,
+      ...srednie(xs),
+      krotnoscWobecPierwszego: null as number | null,
+    };
+  });
+  const baza = okresy[0]?.sredniWolumen ?? null;
+  for (const o of okresy) {
+    o.krotnoscWobecPierwszego = baza && o.sredniWolumen ? o.sredniWolumen / baza : null;
+  }
+  // Okres brzegowy bywa urwany (kilka sesji) i jego średnia nie jest porównywalna
+  // z pełnym rokiem — mówimy o tym, zamiast liczyć krotność w milczeniu.
+  const urwane = okresy.filter((o) => o.dniSesyjnych < 20);
+  if (urwane.length)
+    uwagi.push(
+      `okresy o niepełnej liczbie sesji (${urwane.map((o) => `${o.etykieta}: ${o.dniSesyjnych}`).join(", ")}) ` +
+        "obejmują fragment przedziału — ich średnie nie są porównywalne z okresami pełnymi",
+    );
+  return { okresy, uwagi };
+}
+
 export type SeriaIndeksu = { ticker: string; nazwa?: string; notowania: NotowanieDzienne[] };
 
 /**
@@ -223,6 +278,64 @@ export type PozycjaFin = {
   issuer?: string;
 };
 
+/**
+ * Mnożnik jednostki pieniężnej wobec złotego. `null` = jednostka spoza tej miary.
+ *
+ * ⚠️ POWÓD ISTNIENIA. Sprawozdania tej samej spółki podają te same pozycje raz
+ * w tysiącach, raz w złotych (CSY S.A.: „kapitał własny" w „tys. zł" i w „zł").
+ * Dynamika liczona na pomieszanych jednostkach dałaby zmianę o trzy rzędy
+ * wielkości, a wyglądałaby wiarygodnie — dlatego wcześniej krok w ogóle
+ * odmawiał liczenia. Odmowa była bezpieczna, ale zostawiała siedem pozycji bez
+ * analizy; przeliczenie rozwiązuje to bez ryzyka, bo mnożnik jest ze słownika,
+ * a nie zgadywany z rzędu wielkości.
+ */
+export function mnoznikJednostki(jednostka: string): number | null {
+  const j = String(jednostka).toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[.]/g, "").trim();
+  if (!j) return null;
+  if (/^(w )?(zł|zl|pln)$/.test(j)) return 1;
+  if (/^(w )?(tys|tysi[ąa]c\w*) (zł|zl|pln)$/.test(j)) return 1e3;
+  if (/^(w )?(mln|milion\w*) (zł|zl|pln)$/.test(j)) return 1e6;
+  if (/^(w )?(mld|miliard\w*) (zł|zl|pln)$/.test(j)) return 1e9;
+  return null;
+}
+
+/**
+ * Sprowadza pozycje jednej serii do WSPÓLNEJ jednostki pieniężnej.
+ *
+ * Jednostką docelową jest ta, w której podano najwięcej okresów — dzięki temu
+ * tabela zachowuje idiom dokumentu (sprawozdania mówią w tysiącach), a nie zamienia
+ * wszystkiego na złote. Zwraca `null`, gdy choć jedna jednostka nie jest pieniężna:
+ * procentu i sztuk nie wolno sprowadzać do złotych.
+ */
+export function doWspolnejJednostki(
+  xs: { unit: string; value: string }[],
+): { jednostka: string; wartosci: (number | null)[]; przeliczonych: number } | null {
+  if (!xs.length) return null;
+  const mn = xs.map((x) => mnoznikJednostki(x.unit));
+  if (mn.some((m) => m == null)) return null;
+  const licznik = new Map<string, number>();
+  for (const x of xs) {
+    const k = x.unit.trim();
+    licznik.set(k, (licznik.get(k) ?? 0) + 1);
+  }
+  // Jednostka docelowa: najczęstsza, a przy remisie — najmniejszy mnożnik
+  // (bliżej danych źródłowych, mniej zaokrągleń).
+  const docelowa = [...licznik.entries()].sort(
+    (a, b) => b[1] - a[1] || (mnoznikJednostki(a[0]) ?? 0) - (mnoznikJednostki(b[0]) ?? 0),
+  )[0][0];
+  const mDoc = mnoznikJednostki(docelowa) as number;
+  let przeliczonych = 0;
+  const wartosci = xs.map((x, i) => {
+    const v = liczbaPl(x.value);
+    if (v == null) return null;
+    const m = mn[i] as number;
+    if (m === mDoc) return v;
+    przeliczonych += 1;
+    return (v * m) / mDoc;
+  });
+  return { jednostka: docelowa, wartosci, przeliczonych };
+}
+
 /** „1 234,56" / „(123)" / „−45,3" → liczba; nawias księgowy = minus. */
 export function liczbaPl(s: string): number | null {
   let t = String(s).replace(/[\s  ]/g, "").replace("−", "-");
@@ -248,9 +361,18 @@ const KW: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 4 };
  */
 export function kluczOkresu(
   period: string,
-): { rok: number; pod: number; rodzaj: "kw" | "pol" | "rok" | "dzien" } | null {
-  const p = period.toLowerCase().replace(/\s+/g, " ").trim();
-  let m = p.match(/^(i{1,3}|iv)\s*kw\w*\.?\s*(\d{4})/);
+): { rok: number; pod: number; rodzaj: "kw" | "pol" | "rok" | "dzien" | "narast" } | null {
+  const p = period.toLowerCase().replace(/\s+/g, " ").replace(/[–—]/g, "-").trim();
+  // ⚠️ OKRES NARASTAJĄCY („I-III kw. 2017") to WŁASNY rodzaj, nie kwartał.
+  // Sprawozdania kwartalne podają obok siebie kwartał i narastająco od początku
+  // roku; wrzucenie obu do jednego szeregu porównywałoby strumień trzymiesięczny
+  // z dziewięciomiesięcznym. Wcześniej etykieta nie pasowała do żadnego wzorca,
+  // więc obserwacja WYPADAŁA z tabeli bez śladu — dla CSY S.A. dwie z sześciu.
+  let m = p.match(/^(i{1,3}|iv)\s*-\s*(i{1,3}|iv)\s*kw\w*\.?\s*(\d{4})/);
+  if (m) return { rok: Number(m[3]), pod: KW[m[2]], rodzaj: "narast" };
+  m = p.match(/^(narastaj\w*|od pocz\w+ roku)[^0-9]*(\d{4})/);
+  if (m) return { rok: Number(m[2]), pod: 0, rodzaj: "narast" };
+  m = p.match(/^(i{1,3}|iv)\s*kw\w*\.?\s*(\d{4})/);
   if (m) return { rok: Number(m[2]), pod: KW[m[1]], rodzaj: "kw" };
   m = p.match(/^(i{1,2})\s*p[óo][łl]rocze\s*(\d{4})/);
   if (m) return { rok: Number(m[2]), pod: m[1] === "i" ? 1 : 2, rodzaj: "pol" };
@@ -295,13 +417,40 @@ export function dynamikaFin(items: PozycjaFin[]): {
     const emitent = (xs[0].issuer ?? "—").trim();
     const pozycja = xs[0].position.trim();
     const etykieta = emitent === "—" ? `„${pozycja}”` : `${emitent} — „${pozycja}”`;
+    // ⚠️ JEDNOSTKI SPROWADZAMY, NIE ODRZUCAMY. Sprawozdania tej samej spółki podają
+    // te same pozycje raz w tysiącach, raz w złotych. Dawniej pozycja z niejednolitą
+    // jednostką zostawała bez dynamiki — bezpiecznie, ale siedem pozycji CSY S.A.
+    // (kapitał własny, przychody, wynik operacyjny, brutto, netto, suma bilansowa,
+    // przepływy) nie było w ogóle policzonych. Mnożnik bierzemy ze słownika jednostek,
+    // nie z rzędu wielkości liczby, więc przeliczenie nie jest domysłem.
     const jednostki = new Set(xs.map((x) => x.unit.trim().toLowerCase()).filter(Boolean));
-    if (jednostki.size > 1) {
-      uwagi.push(`${etykieta}: jednostki niejednolite (${[...jednostki].join(", ")}) — dynamiki nie policzono`);
+    const wspolne = jednostki.size > 1 ? doWspolnejJednostki(xs) : null;
+    if (jednostki.size > 1 && !wspolne) {
+      uwagi.push(
+        `${etykieta}: jednostki różnej miary (${[...jednostki].join(", ")}) — dynamiki nie policzono; ` +
+          "sprowadzić do wspólnej miary można wielkości pieniężne, nie procenty ani sztuki",
+      );
       continue;
     }
-    const okresy = xs
-      .map((x) => ({ x, k: kluczOkresu(x.period), v: liczbaPl(x.value) }))
+    if (wspolne) {
+      uwagi.push(
+        `${etykieta}: wartości sprowadzono do jednostki „${wspolne.jednostka}” ` +
+          `(przeliczono ${wspolne.przeliczonych} z ${xs.length} okresów podanych w innej jednostce).`,
+      );
+    }
+    const wszystkieOkresy = xs.map((x, i) => ({
+      x: wspolne ? { ...x, unit: wspolne.jednostka } : x,
+      k: kluczOkresu(x.period),
+      v: wspolne ? wspolne.wartosci[i] : liczbaPl(x.value),
+    }));
+    // Cisza tutaj oznaczałaby, że pozycji po prostu nie ma w sprawozdaniach.
+    const nierozpoznane = wszystkieOkresy.filter((o) => !o.k).map((o) => o.x.period);
+    if (nierozpoznane.length)
+      uwagi.push(
+        `${etykieta}: ${nierozpoznane.length} obserwacji pominięto — nie rozpoznano okresu ` +
+          `(${[...new Set(nierozpoznane)].slice(0, 4).join(", ")}); do dopisania w kluczu okresów.`,
+      );
+    const okresy = wszystkieOkresy
       .filter((o): o is { x: PozycjaFin; k: NonNullable<ReturnType<typeof kluczOkresu>>; v: number } => !!o.k && o.v != null)
       .sort((a, b) => a.k.rok - b.k.rok || a.k.pod - b.k.pod);
     if (okresy.length < 2) continue;

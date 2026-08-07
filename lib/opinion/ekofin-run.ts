@@ -13,6 +13,7 @@ import {
   dynamikaFin,
   indeks100,
   kontrastObrotu,
+  kontrastOkresow,
   mnoznikiWykazane,
   parsujStooqCsv,
   type NotowanieDzienne,
@@ -296,12 +297,42 @@ export async function wykonajEkofin(
         notEm = zTrem;
         zrodloNotowan = "akta sprawy (arkusz UTP/TREM — metryki silnika)";
         uwagi.push(
-          `${nazwaEm}: notowania z akt obejmują ${zTrem.length} sesji (${zTrem[0].dzien}–${zTrem[zTrem.length - 1].dzien}) — ` +
-            "wystarczają na wykres okresu, nie na kontrast od debiutu",
+          `${nazwaEm}: notowania odtworzono z arkusza transakcji w aktach — ${zTrem.length} sesji ` +
+            `(${zTrem[0].dzien}–${zTrem[zTrem.length - 1].dzien}). Kontrastu OD DEBIUTU nie da się z nich policzyć ` +
+            "(historia zaczyna się razem z okresem badanym); policzono kontrast okresów wewnątrz materiału.",
         );
       }
     }
     if (!notEm.length) continue;
+
+    // Kontrast OKRESÓW z dostępnego materiału — liczony ZAWSZE, także gdy historii
+    // od debiutu nie ma. Bez tego 203 sesje CSY i 210 sesji RSY leżały nieużyte,
+    // a rozdział IV.1 nie miał ani jednej liczby o dynamice obrotu.
+    {
+      const ko = kontrastOkresow(notEm, "rok");
+      if (ko.okresy.length > 1) {
+        tables.push({
+          caption:
+            `Tabela. ${nazwaEm} — obrót w kolejnych latach z materiału dostępnego w aktach ` +
+            `(${notEm.length} sesji, ${notEm[0].dzien}–${notEm[notEm.length - 1].dzien}); ` +
+            "krotność liczona wobec pierwszego okresu. NIE jest to kontrast od debiutu instrumentu.",
+          head: ["Okres", "Od", "Do", "Dni sesyjnych", "Średni dzienny wolumen [szt.]", "Średnia dzienna wartość obrotu [zł]", "Krotność wolumenu"],
+          rows: ko.okresy.map((o) => [
+            o.etykieta, o.od, o.do, String(o.dniSesyjnych),
+            o.sredniWolumen == null ? "—" : Math.round(o.sredniWolumen).toLocaleString("pl-PL"),
+            o.sredniaWartoscObrotu == null ? "—" : Math.round(o.sredniaWartoscObrotu).toLocaleString("pl-PL"),
+            o.krotnoscWobecPierwszego == null ? "—" : `${o.krotnoscWobecPierwszego.toFixed(2).replace(".", ",")}×`,
+          ]),
+        });
+        uwagi.push(...ko.uwagi.map((u) => `${nazwaEm}: ${u}`));
+        const naj = ko.okresy.reduce((a, b) => ((b.sredniWolumen ?? 0) > (a.sredniWolumen ?? 0) ? b : a));
+        findings.push(
+          `${nazwaEm}: najwyższy średni dzienny wolumen odnotowano w okresie ${naj.etykieta} ` +
+            `(${Math.round(naj.sredniWolumen ?? 0).toLocaleString("pl-PL")} szt., ` +
+            `${naj.krotnoscWobecPierwszego?.toFixed(2).replace(".", ",") ?? "—"}× wobec pierwszego okresu z akt).`,
+        );
+      }
+    }
 
     // Kontrast od debiutu — tylko przy pełnej historii (stooq).
     if (csvEm) {
