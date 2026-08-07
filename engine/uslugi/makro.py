@@ -34,6 +34,11 @@ OCZEKIWANE = [
     ("inflacja", ["cpi", "inflacj", "inflation"], "Inflacja konsumencka (CPI)"),
     ("kurs", ["kurs", "fx", "exchange", "eurisk", "usd", "eur"], "Kurs walutowy"),
     ("stopy", ["stop", "rate", "interest", "wibor", "libor"], "Stopy procentowe"),
+    # Wzorzec MBR, rozdz. V.K: wykresy ropy WTI obok kalendarium wydarzeń — ceny
+    # surowców są częścią tła makro, nie ozdobą. Szeregi wchodzą do akt trasą
+    # pozyskiwania (lib/opinion/szeregi-bank-run.ts) albo ręcznie.
+    # Rdzenie, nie mianowniki: etykieta mówi „cena ZŁOTA", a fraza „zloto" by jej nie trafiła.
+    ("surowce", ["ropa", "ropy", "brent", "wti", "zlot", "złot", "gold", "surowc"], "Ceny surowców (ropa, złoto)"),
 ]
 
 
@@ -48,10 +53,20 @@ def _etykieta(nazwa):
     rdzen = nazwa.rsplit(".", 1)[0].strip()
     rdzen = rdzen.lstrip("^").replace("_d", "").replace("_", " ").strip()
     rdzen = rdzen.split("(")[0].strip()
+    # ⚠️ KOLEJNOŚĆ MA ZNACZENIE: dopasowanie jest podciągiem, więc fraza węższa
+    # („wig banki") musi stać PRZED szerszą („wig"), inaczej nigdy nie trafi.
     znane = {
         "icex": "Indeks giełdowy ICEX (Islandia)",
         "omx": "Indeks giełdowy OMX",
+        "wig banki": "Indeks WIG-banki (GPW)",
         "wig": "Indeks WIG",
+        # Szeregi pozyskiwane trasą bankową (pozyskane/szeregi/…) — patrz
+        # lib/opinion/szeregi-bank-run.ts; nazwy plików są tam ustalane.
+        "inflacja cpi": "Inflacja CPI r/r (Polska)",
+        "stopy procentowe": "Stopa referencyjna NBP (Polska)",
+        "ropa": "Cena ropy naftowej WTI",
+        "zloto": "Cena złota (NBP, PLN za 1 g)",
+        "obligacje": "Notowania obligacji emitenta (Catalyst)",
     }
     for k, v in znane.items():
         if k in rdzen.lower():
@@ -99,6 +114,12 @@ def policz(case_id, dzien=None):
         szeregi, odrzucone = [], []
         for d in docs:
             nazwa = d["rel_path"].split("/")[-1]
+            # Szeregi SYGNAŁOWE (CDS, ratingi, obligacje emitenta) analizuje moduł
+            # sygnałów rynkowych (V.G–H wzorca) — zdublowanie ich w tle makro
+            # dałoby tę samą tabelę w dwóch rozdziałach opinii.
+            if any(f in nazwa.lower() for f in ("cds", "rating", "obligacj")):
+                odrzucone.append(f"{nazwa}: szereg sygnałowy — analizuje go moduł sygnałów rynkowych (CDS/ratingi/obligacje)")
+                continue
             if not nazwa.lower().endswith(".csv"):
                 # .xls (OLE2) i .xlsx z pojedynczymi komórkami nie są szeregami —
                 # mówimy o tym wprost zamiast wpuszczać śmieci do tabeli.

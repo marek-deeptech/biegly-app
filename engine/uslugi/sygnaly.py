@@ -30,6 +30,22 @@ AUTH = {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
 
 CDS = ("cds", "credit default", "spread")
 RATING = ("rating", "moody", "fitch", "standard", "s&p", "ecai")
+# Odpowiednik CDS dla banku BEZ rynku CDS (bank spółdzielczy): notowania jego
+# obligacji — rynkowa wycena ryzyka emitenta (SK Bank: BSW0424 na Catalyst).
+# Szereg wchodzi do akt trasą pozyskiwania (pozyskane/szeregi/obligacje_*.csv).
+OBLIGACJE = ("obligacj", "bond", "catalyst", "rentownosc", "bsw")
+
+
+def _istotny(rel_path: str, doc_type: str) -> bool:
+    """Czy plik należy do modułu sygnałów rynkowych (CDS / ratingi / obligacje).
+
+    Wydzielone z pętli, żeby dobór plików dało się testować bez serwera —
+    rozporządzenie O ratingach to podstawa prawna, nie dane, i nie może tu wpaść.
+    """
+    return (
+        any(f in rel_path.lower() for f in CDS + RATING + OBLIGACJE)
+        and doc_type != "AKT_PRAWNY"
+    )
 
 
 def _req(method, url, data=None, headers=None):
@@ -115,11 +131,7 @@ def policz(case_id, dzien=None):
                             f"&select=rel_path,doc_type,storage_path,warstwa_tekstu")
         docs = json.loads(db or b"[]")
 
-        istotne = [
-            d for d in docs
-            if any(f in d["rel_path"].lower() for f in CDS + RATING)
-            and d["doc_type"] != "AKT_PRAWNY"  # rozporządzenie o ratingach to podstawa prawna, nie dane
-        ]
+        istotne = [d for d in docs if _istotny(d["rel_path"], d["doc_type"])]
 
         szeregi, obliczenia, obrazy, tabele, findings = [], [], [], [], []
         for d in istotne:
@@ -184,6 +196,17 @@ def policz(case_id, dzien=None):
             braki.append(
                 "Decyzje i perspektywy agencji ratingowych nie występują w aktach jako dane. "
                 "Do rozdziału potrzebne są komunikaty agencji z datami zmian ocen."
+            )
+        # Bank bez rynku CDS (bank spółdzielczy) ma jeden sygnał rynkowy: notowania
+        # własnych obligacji. Brak OBU szeregów oznacza, że rozdział o sygnałach
+        # nie ma żadnego oparcia liczbowego — i to trzeba nazwać razem z wyjściem.
+        if (not any("cds" in s.nazwa.lower() or "spread" in s.nazwa.lower() for s in szeregi)
+                and not any(any(f in s.nazwa.lower() for f in OBLIGACJE) for s in szeregi)):
+            braki.append(
+                "Notowania obligacji emitenta (np. z rynku Catalyst) również nie występują w aktach "
+                "jako dane. Dla banku bez rynku CDS rentowność i cena jego obligacji są jedyną rynkową "
+                "wyceną ryzyka — odpowiednik modułu V.H wzorca; szereg można pozyskać w kroku "
+                "„Otoczenie makro” (pole „obligacje emitenta”)."
             )
 
         proza, byla = _zachowaj_proze(case_id, "sygnaly_rynkowe")

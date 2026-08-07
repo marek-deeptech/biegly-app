@@ -26,6 +26,7 @@ import { buildCompleteness } from "@/lib/intake/completeness";
 import AnalizaEfPanel from "./analiza-ef-panel";
 import WarsztatBankPanel from "./warsztat-bank-panel";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
+import WykresyBank from "./wykresy-bank";
 
 type Doc = { id: string; rel_path: string; doc_type: string; storage_path: string | null };
 type Sub = { kind: string; status?: string; body_md?: string; data?: unknown };
@@ -304,6 +305,9 @@ export default function AnalizaBankPanel({
       {akt === "sprawozdania" && (
         <div className="mt-2 -mx-4 border-t border-ink/10 [&>section]:border-0">
           <WskaznikiBankPanel caseId={caseId} documents={documents} subanalyses={subanalyses} onDone={onDone} />
+          <div className="px-4">
+            <WykresyBank subanalyses={subanalyses} kinds={["wskazniki_bank", "sprawozdania"]} dzien={dzien || null} />
+          </div>
         </div>
       )}
 
@@ -334,9 +338,12 @@ export default function AnalizaBankPanel({
             gdyBrak={
               "Sygnałów rynkowych nie policzono. W sprawie MBR spread CDS Glitnira powyżej " +
               "1000 pb był najsilniejszym zignorowanym sygnałem (rozdz. V.H wzorca) — jeżeli " +
-              "akta zawierają szereg CDS lub decyzje ratingowe, uruchom obliczenie powyżej."
+              "akta zawierają szereg CDS lub decyzje ratingowe, uruchom obliczenie powyżej. " +
+              "Dla banku bez rynku CDS odpowiednikiem są notowania jego obligacji — pozyskasz " +
+              "je w kroku „Otoczenie makro” (pole „obligacje emitenta”, np. bsw0424)."
             }
           />
+          <WykresyBank subanalyses={subanalyses} kinds={["sygnaly_rynkowe"]} dzien={dzien || null} />
         </div>
       )}
 

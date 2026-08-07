@@ -21,6 +21,8 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui";
 import { KATEGORIE_WYDARZEN, wydarzeniaWzgledemDnia } from "@/lib/domain/kalendarium-makro";
 
+import WykresyBank from "./wykresy-bank";
+
 type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
 type DaneModulu = {
   table?: Tabela;
@@ -111,6 +113,15 @@ export default function MakroPanel({
   const [blad, setBlad] = useState<string | null>(null);
   const [pokazPo, setPokazPo] = useState(false);
   const [kategoria, setKategoria] = useState<string>("");
+  // Pozyskiwanie szeregów publicznych (NBP, stooq) — luka nr 1 audytu: bez tego
+  // sprawa bez DANE_RYNKOWE_SZEREG w aktach (SK Bank) nie miała żadnego wejścia.
+  const [obligacje, setObligacje] = useState("");
+  const [pozyskuje, setPozyskuje] = useState(false);
+  const [wynikPozyskania, setWynikPozyskania] = useState<{
+    pobrane: string[];
+    istniejace: string[];
+    bledy: string[];
+  } | null>(null);
 
   async function policz() {
     setBusy(true);
@@ -128,6 +139,32 @@ export default function MakroPanel({
       setBlad("Błąd sieci przy liczeniu modułu.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function pozyskaj() {
+    setPozyskuje(true);
+    setBlad(null);
+    setWynikPozyskania(null);
+    try {
+      const r = await fetch(`/cases/${caseId}/bank/szeregi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dzienZdarzenia: dzien || undefined, obligacje: obligacje || undefined }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        setBlad(j.reason ?? "Nie udało się pozyskać szeregów.");
+        return;
+      }
+      setWynikPozyskania({ pobrane: j.pobrane ?? [], istniejace: j.istniejace ?? [], bledy: j.bledy ?? [] });
+      // Świeżo pozyskane akta od razu przeliczamy — pozyskanie bez przeliczenia
+      // zostawiałoby zakładkę wyglądającą tak samo jak przed pozyskaniem.
+      if ((j.pobrane ?? []).length || (j.istniejace ?? []).length) await policz();
+    } catch {
+      setBlad("Błąd sieci przy pozyskiwaniu szeregów.");
+    } finally {
+      setPozyskuje(false);
     }
   }
 
@@ -163,6 +200,45 @@ export default function MakroPanel({
           </div>
         </div>
         {blad && <p className="mt-3 border border-red-300 bg-red-50 p-2 text-xs text-red-800">{blad}</p>}
+
+        {/* POZYSKANIE ŹRÓDEŁ PUBLICZNYCH — wzorzec MBR stał na materiale, który
+            biegły pozyskał SAM (załączniki 1–6). Trasa zapisuje szeregi do akt
+            z proweniencją „pozyskane przez biegłego" i URL-em źródła; liczy dalej
+            ten sam silnik co przy materiale wgranym ręcznie. Kursy walutowe
+            świadomie poza kompletem (decyzja klienta). */}
+        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-ink/15 pt-3">
+          <label className="text-xs">
+            <span className="block text-inksoft">Obligacje emitenta (Catalyst, opcjonalnie)</span>
+            <input
+              type="text"
+              value={obligacje}
+              onChange={(e) => setObligacje(e.target.value)}
+              placeholder="np. bsw0424 (SK Bank)"
+              className="mt-1 rounded-lg border border-ink/30 px-2 py-1.5 text-sm outline-none focus:border-neutral-500"
+            />
+          </label>
+          <Button onClick={pozyskaj} loading={pozyskuje} loadingLabel="Pozyskuję…">
+            Pozyskaj szeregi publiczne (NBP, stooq)
+          </Button>
+          <p className="max-w-md text-[11px] text-inksoft">
+            Inflacja CPI, stopa referencyjna, WIG-banki, ropa WTI, złoto NBP — do akt jako
+            DANE_RYNKOWE_SZEREG z proweniencją „pozyskane przez biegłego”; po pozyskaniu moduł
+            przelicza się sam.
+          </p>
+        </div>
+        {wynikPozyskania && (
+          <div className="mt-2 space-y-0.5 text-[11px]">
+            {wynikPozyskania.pobrane.map((p) => (
+              <p key={p} className="text-emerald-800">✓ pozyskano: {p}</p>
+            ))}
+            {wynikPozyskania.istniejace.map((p) => (
+              <p key={p} className="text-inksoft">= już w aktach: {p}</p>
+            ))}
+            {wynikPozyskania.bledy.map((b) => (
+              <p key={b} className="border-l-2 border-amber-500 pl-2 text-inksoft">✗ {b}</p>
+            ))}
+          </div>
+        )}
         {!makro && (
           <p className="mt-3 text-[11px] text-inksoft">
             Moduł liczy wyłącznie z szeregów danych W AKTACH (typ DANE_RYNKOWE_SZEREG) — czego tam
@@ -172,7 +248,8 @@ export default function MakroPanel({
         )}
       </div>
 
-      <BlokModulu tytul="Szeregi z akt: inflacja, kursy, stopy, indeks" d={makro} />
+      <BlokModulu tytul="Szeregi z akt: inflacja, stopy, indeks, surowce" d={makro} />
+      {makro ? <WykresyBank subanalyses={subanalyses} kinds={["makro"]} dzien={dzien || null} /> : null}
 
       <div className="border border-ink/60 bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
