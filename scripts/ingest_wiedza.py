@@ -123,6 +123,28 @@ ZRODLA_BANK = {
         tytul="Decyzje finansowe w przedsiębiorstwie bankowym, rozdział 5", autor=None, rok=None,
         wydawca=None, rodzaj="monografia", ranga=3, uwagi="OCR ze skanu w aktach MBR",
     ),
+    # ── Teoria NUK/Bazylei — audyt kroku Analiza EF (7.08.2026) wykazał, że rozdział
+    # o otoczeniu prawnym (wzorzec MBR V.L, 48 tys. zn) stoi w 60% na piśmiennictwie
+    # o Umowach Kapitałowych, którego w repozytorium bankowym nie było.
+    "Gwizdała BASEL III.pdf": dict(
+        tytul="Nowa Umowa Kapitałowa (Basel III) i jej rola w ograniczaniu ryzyka kredytowego w banku",
+        autor="Jerzy P. Gwizdała", rok=2015, wydawca=None,
+        rodzaj="artykul", ranga=2,
+        uwagi="Artykuł naukowy (ResearchGate, V 2015) — Bazylea III wobec ryzyka kredytowego; materiał z akt MBR",
+    ),
+    "Domanska_Szaruga_Ryzyko_kredytowe_w_swietle NUK.pdf": dict(
+        tytul="Ryzyko kredytowe w świetle Nowej Umowy Kapitałowej",
+        autor="Beata Domańska-Szaruga", rok=2010,
+        wydawca="Zeszyty Naukowe UPH w Siedlcach, nr 87, seria Administracja i Zarządzanie",
+        rodzaj="artykul", ranga=2,
+        uwagi="Teoria NUK/Bazylei II (trzy filary) — fundament rozdz. V.L wzorca MBR; materiał z akt MBR",
+    ),
+    "ryzyko kredytowe w banku a kryzys subprime.pdf": dict(
+        tytul="Istota i znaczenie zarządzania ryzykiem kredytowym w obliczu załamania na amerykańskim rynku kredytów hipotecznych",
+        autor="Karolina Przenajkowska", rok=2008, wydawca="Equilibrium 1–2 (1) 2008",
+        rodzaj="artykul", ranga=2,
+        uwagi="Zarządzanie ryzykiem kredytowym na tle kryzysu subprime — tło rozdz. V.K wzorca MBR; materiał z akt MBR",
+    ),
 }
 
 # Zrzuty tej samej publikacji łączone w jedno źródło; wartość = numer strony z oryginału.
