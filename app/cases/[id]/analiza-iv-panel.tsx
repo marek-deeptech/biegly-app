@@ -11,87 +11,10 @@
 
 import { useMemo, useState } from "react";
 import EkofinPanel from "./ekofin-panel";
+import { NaglowekSekcji, TabelaDanych, TrescZakladki, Ustalenia, Zastrzezenia, type Tabela } from "./ui-analizy";
 
 type Sub = { kind: string; status?: string; body_md?: string; data?: unknown };
 type Metric = { key: string; value: number | null };
-type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
-
-/**
- * Wyrównanie kolumny do prawej TYLKO wtedy, gdy niesie liczby.
- *
- * ⚠️ Wcześniej do prawej szło wszystko poza pierwszą kolumną, więc tytuły raportów
- * ESPI („Zmiana stanu posiadania akcji…") uciekały na prawą krawędź i czytało się je
- * gorzej niż kolumnę liczbową. Liczbą nazywamy komórkę, w której poza cyframi,
- * separatorami i jednostką (%, zł, szt., p.p.) nie ma liter.
- */
-function kolumnyLiczbowe(t: Tabela): boolean[] {
-  const rows = t.rows ?? [];
-  const ile = Math.max(0, ...rows.map((r) => r.length));
-  return Array.from({ length: ile }, (_, j) => {
-    const wartosci = rows.map((r) => String(r[j] ?? "").trim()).filter((v) => v && v !== "—");
-    if (!wartosci.length) return false;
-    const liczbowe = wartosci.filter((v) => /^[+-]?[\d\s\u00a0.,]+(%|zł|szt\.?|p\.p\.)?$/.test(v));
-    return liczbowe.length / wartosci.length >= 0.8;
-  });
-}
-
-function TabelaSkrot({ t, maks = 6 }: { t: Tabela; maks?: number }) {
-  if (!t?.rows?.length) return null;
-  const doPrawej = kolumnyLiczbowe(t);
-  return (
-    <div className="mt-4">
-      {t.caption ? <p className="mb-1.5 text-xs font-medium text-inksoft">{t.caption}</p> : null}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-ink/40 text-left">
-              {(t.head ?? []).map((h, i) => (
-                <th key={i} className={`py-2 pr-3 text-xs font-semibold uppercase tracking-wide text-inksoft ${doPrawej[i] ? "text-right" : "text-left"}`}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {t.rows.slice(0, maks).map((r, i) => (
-              <tr key={i} className="border-b border-ink/10">
-                {r.map((v, j) => (
-                  // Pełna wartość w tytule — skrót w komórce nie może być jedynym,
-                  // co biegły zobaczy; tabele mają kolumny na 100+ znaków.
-                  <td key={j} title={String(v)} className={`py-1.5 pr-3 ${doPrawej[j] ? "text-right tabular-nums" : "text-left"}`}>
-                    {String(v).length > 90 ? `${String(v).slice(0, 90)}…` : String(v)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {t.rows.length > maks ? (
-        <p className="mt-1.5 text-xs text-inksoft">… i {t.rows.length - maks} kolejnych wierszy (pełne tabele w opinii).</p>
-      ) : null}
-    </div>
-  );
-}
-
-function Findings({ xs, maks = 8 }: { xs?: unknown; maks?: number }) {
-  const wszystkie = Array.isArray(xs) ? (xs as string[]) : [];
-  const lista = wszystkie.slice(0, maks);
-  if (!lista.length) return null;
-  return (
-    <>
-      <ul className="mt-3 space-y-2 text-sm leading-relaxed">
-        {lista.map((f) => (
-          <li key={f} className="border-l-2 border-ink/40 pl-3">{String(f)}</li>
-        ))}
-      </ul>
-      {wszystkie.length > lista.length ? (
-        <p className="mt-1.5 text-xs text-inksoft">… i {wszystkie.length - lista.length} dalszych ustaleń.</p>
-      ) : null}
-    </>
-  );
-}
-
 export default function AnalizaIVPanel({
   caseId,
   subanalyses,
@@ -188,9 +111,9 @@ export default function AnalizaIVPanel({
         const moje = wszystkie.filter((b) => (akt === "Wstęp" ? b.podrozdzial.includes("wstęp") : b.podrozdzial.startsWith(akt)));
         if (!moje.length) return null;
         return (
-          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-            <p className="text-sm font-semibold">Brakujący materiał ({moje.length})</p>
-            <ul className="mt-2 space-y-2 text-sm text-inksoft">
+          <div className="mt-5 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+            <p className="text-base font-semibold">Brakujący materiał ({moje.length})</p>
+            <ul className="mt-3 space-y-3 text-sm text-inksoft">
               {moje.map((b) => (
                 <li key={b.czego}>
                   <span className="text-ink">◐ {b.czego}</span>
@@ -204,7 +127,7 @@ export default function AnalizaIVPanel({
       })()}
 
       {akt === "Wstęp" && (
-        <div className="mt-4 text-sm leading-relaxed">
+        <TrescZakladki>
           {wg.get("proza_iv") ? (
             <>
               <p className="text-sm text-inksoft">
@@ -219,7 +142,7 @@ export default function AnalizaIVPanel({
           ) : (
             <p className="text-inksoft">Brak szkicu wstępu — zostanie zaproponowany przy pracy nad rozdziałem IV.</p>
           )}
-        </div>
+        </TrescZakladki>
       )}
 
       {akt === "IV.1" && (
@@ -229,17 +152,28 @@ export default function AnalizaIVPanel({
       )}
 
       {akt === "IV.2" && (
-        <div className="mt-4 text-sm leading-relaxed">
+        <TrescZakladki>
           {/* NAJPIERW rejestr espi_events (świeży — rośnie z każdym ingestem utrwaleń),
               dopiero potem ustalenia rozdziału `espi`, które są migawką z chwili jego
               generacji. Odwrotna kolejność pokazywała „0 raportów" przy 9 w aktach. */}
-          <Findings xs={dane("espi_events")?.findings} />
-          <TabelaSkrot t={(dane("espi_events")?.table ?? null) as Tabela} maks={9} />
-          <div className="mt-3 border-t border-ink/10 pt-2 text-inksoft">
-            <p className="text-sm font-semibold text-ink">Rozdział IV.2 (szkielet do redakcji)</p>
-            <Findings xs={espi?.findings} />
-          </div>
-          <TabelaSkrot t={(espi?.table ?? null) as Tabela} />
+          <section>
+            <NaglowekSekcji opis="Rejestr rośnie z każdym ingestem utrwaleń — to stan bieżący akt, nie migawka.">
+              Rejestr raportów ESPI i EBI
+            </NaglowekSekcji>
+            <Ustalenia xs={dane("espi_events")?.findings} />
+            <div className="mt-5">
+              <TabelaDanych t={(dane("espi_events")?.table ?? null) as Tabela} maks={9} uwagaPonad="pełny wykaz w rozdziale IV.2" />
+            </div>
+          </section>
+          <section className="border-t border-line pt-6">
+            <NaglowekSekcji opis="Ustalenia wygenerowane przy ostatnim montażu rozdziału — mogą być starsze od rejestru powyżej.">
+              Rozdział IV.2 — szkielet do redakcji
+            </NaglowekSekcji>
+            <Ustalenia xs={espi?.findings} />
+            <div className="mt-5">
+              <TabelaDanych t={(espi?.table ?? null) as Tabela} />
+            </div>
+          </section>
           {!wg.get("espi_events") && (
             <div className="mt-3 border-l-2 border-amber-500 pl-3 text-inksoft">
               <p className="font-medium text-ink">Do pozyskania: rejestr raportów ESPI/EBI (CSY, RSY)</p>
@@ -251,11 +185,11 @@ export default function AnalizaIVPanel({
               </p>
             </div>
           )}
-        </div>
+        </TrescZakladki>
       )}
 
       {akt === "IV.3" && (
-        <div className="mt-4 text-sm leading-relaxed">
+        <TrescZakladki>
           {tremy.length ? (
             <p className="text-inksoft">
               Instrumenty (TREM): {tremy.map((t) => t.kind.replace("trem_", "").toUpperCase()).join(", ")} — pełne
@@ -263,24 +197,26 @@ export default function AnalizaIVPanel({
               automatycznie przy montażu opinii.
             </p>
           ) : null}
-          <Findings xs={aktywnosc?.findings} />
-          <TabelaSkrot t={(aktywnosc?.table ?? null) as Tabela} />
-        </div>
+          <NaglowekSekcji>Aktywność podmiotów z Grupy</NaglowekSekcji>
+          <Ustalenia xs={aktywnosc?.findings} />
+          <TabelaDanych t={(aktywnosc?.table ?? null) as Tabela} />
+        </TrescZakladki>
       )}
 
       {akt === "IV.4" && (
-        <div className="mt-4 text-sm leading-relaxed">
-          <Findings xs={wash?.findings} />
-          <TabelaSkrot t={(wash?.table ?? null) as Tabela} />
-        </div>
+        <TrescZakladki>
+          <NaglowekSekcji>Transakcje wzajemne (wash trades)</NaglowekSekcji>
+          <Ustalenia xs={wash?.findings} />
+          <TabelaDanych t={(wash?.table ?? null) as Tabela} />
+        </TrescZakladki>
       )}
 
       {akt === "IV.5" && (
-        <div className="mt-4 text-sm leading-relaxed">
+        <TrescZakladki>
           {imoCount === 0 ? (
             <div className="border-l-2 border-ink/40 pl-3">
-              <p className="font-medium">Ustalenie negatywne (jawne zero)</p>
-              <p className="mt-1 text-inksoft">
+              <p className="text-base font-semibold">Ustalenie negatywne (jawne zero)</p>
+              <p className="mt-2 text-inksoft">
                 Silnik zbadał zlecenia wewnątrzgrupowe progiem ≤2 s i nie stwierdził żadnych dopasowań — dla
                 żadnego z instrumentów. W opinii weryfikacyjnej to ustalenie wchodzi do rozdziału IV.5 wprost
                 (z progiem badania). Technika pozostaje POZA zatwierdzonym doborem (A2) — rozszerzenie doboru
@@ -288,25 +224,27 @@ export default function AnalizaIVPanel({
               </p>
             </div>
           ) : imoCount != null ? (
-            <Findings xs={dane("imo")?.findings ?? [`Dopasowane zlecenia (≤2s): ${imoCount}`]} />
+            <Ustalenia xs={dane("imo")?.findings ?? [`Dopasowane zlecenia (≤2 s): ${imoCount}`]} />
           ) : (
             <p className="text-inksoft">Brak biegu IMO — uruchom „Policz z TREM” w Analizie liczbowej.</p>
           )}
-        </div>
+        </TrescZakladki>
       )}
 
       {akt === "IV.6" && (
-        <div className="mt-4 text-sm leading-relaxed">
-          <Findings xs={(layering?.findings ?? spoof?.findings) as unknown} />
-          <TabelaSkrot t={((layering?.table ?? spoof?.table) ?? null) as Tabela} />
-        </div>
+        <TrescZakladki>
+          <NaglowekSekcji>Layering i spoofing — warstwy zleceń</NaglowekSekcji>
+          <Ustalenia xs={(layering?.findings ?? spoof?.findings) as unknown} />
+          <TabelaDanych t={((layering?.table ?? spoof?.table) ?? null) as Tabela} />
+        </TrescZakladki>
       )}
 
       {akt === "IV.7" && (
-        <div className="mt-4 text-sm leading-relaxed">
-          <Findings xs={(relacje?.findings ?? powiazania?.findings) as unknown} />
-          <TabelaSkrot t={((powiazania?.table ?? relacje?.table) ?? null) as Tabela} />
-        </div>
+        <TrescZakladki>
+          <NaglowekSekcji>Relacje kapitałowe, osobowe i techniczne</NaglowekSekcji>
+          <Ustalenia xs={(relacje?.findings ?? powiazania?.findings) as unknown} />
+          <TabelaDanych t={((powiazania?.table ?? relacje?.table) ?? null) as Tabela} />
+        </TrescZakladki>
       )}
     </section>
   );

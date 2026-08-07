@@ -26,14 +26,14 @@ function Tabelka({ t, maks }: { t: Tabela; maks: number }) {
   if (!t?.rows?.length) return null;
   const kolKwal = (t.head ?? []).indexOf("Kwalifikacja");
   return (
-    <div className="mt-3">
-      {t.caption ? <p className="text-[11px] font-medium">{t.caption}</p> : null}
+    <div className="mt-8">
+      {t.caption ? <p className="mb-2 text-xs font-medium text-inksoft">{t.caption}</p> : null}
       <div className="mt-1 overflow-x-auto">
-        <table className="w-full border-collapse text-xs">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-ink/30 text-left">
               {(t.head ?? []).map((h, i) => (
-                <th key={i} className={`py-1 pr-2 font-medium ${i ? "text-right" : ""}`}>{h}</th>
+                <th key={i} className={`py-2.5 pr-4 text-xs font-semibold uppercase tracking-wide text-inksoft ${i ? "text-right" : "text-left"}`}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -43,7 +43,7 @@ function Tabelka({ t, maks }: { t: Tabela; maks: number }) {
                 {r.map((v, j) => (
                   <td
                     key={j}
-                    className={`py-1 pr-2 tabular-nums ${j ? "text-right" : ""} ${
+                    className={`py-2 pr-4 tabular-nums ${j ? "text-right" : ""} ${
                       j === kolKwal ? (KOLOR[String(v)] ?? "") : ""
                     }`}
                   >
@@ -56,7 +56,7 @@ function Tabelka({ t, maks }: { t: Tabela; maks: number }) {
         </table>
       </div>
       {t.rows.length > maks ? (
-        <p className="mt-1 text-[11px] text-inksoft">… i {t.rows.length - maks} kolejnych wierszy.</p>
+        <p className="mt-2 max-w-4xl text-sm text-inksoft">… i {t.rows.length - maks} kolejnych wierszy.</p>
       ) : null}
     </div>
   );
@@ -117,7 +117,7 @@ export default function AkcjonariatPanel({
   return (
     <section className="border border-ink/60 bg-card p-4">
       <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Historia zmian w akcjonariacie</h2>
-      <p className="mt-1 text-[11px] text-inksoft">
+      <p className="mt-2 max-w-4xl text-sm text-inksoft">
         Stan posiadania na każdy dzień, w którym odnotowano zmianę. Trzy źródła: zawiadomienia z art. 69
         (dowód — stan przed i po zdarzeniu), sprawozdania opisowe zarządu (stan na dzień bilansowy) oraz
         historia serwisu Bankier.pl. Spadek udziału bez zbycia akcji jest oznaczany jako rozwodnienie emisją,
@@ -189,9 +189,9 @@ export default function AkcjonariatPanel({
       ) : (
         <>
           {dane.findings?.length ? (
-            <ul className="mt-3 space-y-1 text-xs">
+            <ul className="mt-6 space-y-2.5 text-sm leading-relaxed">
               {dane.findings.map((f) => (
-                <li key={f} className="border-l-2 border-ink/40 pl-2">{f}</li>
+                <li key={f} className="border-l-2 border-ink/40 pl-3">{f}</li>
               ))}
             </ul>
           ) : null}
@@ -204,7 +204,7 @@ export default function AkcjonariatPanel({
             </button>
           ) : null}
           {dane.zrodla?.length ? (
-            <p className="mt-3 text-[11px] text-inksoft">Źródła: {dane.zrodla.join(" · ")}</p>
+            <p className="mt-8 text-xs text-inksoft">Źródła: {dane.zrodla.join(" · ")}</p>
           ) : null}
         </>
       )}

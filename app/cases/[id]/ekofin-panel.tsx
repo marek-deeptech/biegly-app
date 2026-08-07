@@ -93,53 +93,53 @@ export default function EkofinPanel({
     }
   }
 
-  const pole = "w-full rounded-lg border border-ink/30 px-2 py-1.5 text-xs";
+  const pole = "w-full rounded-lg border border-ink/30 px-2.5 py-2 text-sm";
   return (
     <section className="border border-ink/60 bg-card p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.12em]">
           Ekonomia emitenta (krok 4 — wzorzec IV.1)
         </h2>
         {dane ? (
-          <p className="text-xs text-inksoft">
+          <p className="text-sm text-inksoft">
             {dane.tables?.length ?? 0} tabel · {dane.charts?.length ?? 0} wykresów
           </p>
         ) : null}
       </div>
-      <p className="mt-1 text-[11px] text-inksoft">
+      <p className="mt-2 max-w-4xl text-sm text-inksoft">
         Kontrast obrotu od debiutu, tło branżowe (=100, mediana), dynamika pozycji sprawozdawczych
         i wskaźniki WYKAZANE przez portale. Notowania pobierane ze stooq.pl trafiają do materiału
         pozyskanego sprawy (typ NOTOWANIA_REF) z URL-em źródła.
       </p>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <label className="text-[11px] text-inksoft">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="text-xs text-inksoft">
           Ticker(y) instrumentów — po przecinku
           <input className={pole} value={emitent} onChange={(e) => setEmitent(e.target.value)} placeholder="np. csy, rsy" />
         </label>
-        <label className="text-[11px] text-inksoft">
+        <label className="text-xs text-inksoft">
           Nazwy (po średniku, w tej samej kolejności)
           <input className={pole} value={nazwa} onChange={(e) => setNazwa(e.target.value)} placeholder="np. CSY S.A.; RSY S.A." />
         </label>
-        <label className="text-[11px] text-inksoft">
+        <label className="text-xs text-inksoft">
           Spółki porównawcze (tickery po przecinku)
           <input className={pole} value={peers} onChange={(e) => setPeers(e.target.value)} placeholder="np. pcr, pce, pwx" />
         </label>
-        <label className="text-[11px] text-inksoft">
+        <label className="text-xs text-inksoft">
           Okres badany od (puste = z metryk)
           <input className={pole} value={od} onChange={(e) => setOd(e.target.value)} placeholder="RRRR-MM-DD" />
         </label>
-        <label className="text-[11px] text-inksoft">
+        <label className="text-xs text-inksoft">
           Okres badany do
           <input className={pole} value={do_} onChange={(e) => setDo(e.target.value)} placeholder="RRRR-MM-DD" />
         </label>
-        <label className="text-[11px] text-inksoft">
+        <label className="text-xs text-inksoft">
           Baza indeksu =100 (puste = początek okresu)
           <input className={pole} value={baza} onChange={(e) => setBaza(e.target.value)} placeholder="np. 2020-01-01" />
         </label>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-5 flex flex-wrap items-center gap-2">
         <Button variant="outline" size="md" onClick={() => wykonaj("pobierz")} loading={busy === "pobierz"} loadingLabel="Pobieram…">
           Pobierz notowania (stooq)
         </Button>
@@ -150,7 +150,7 @@ export default function EkofinPanel({
       </div>
 
       {dane?.findings?.length ? (
-        <ul className="mt-4 space-y-1 text-xs">
+        <ul className="mt-6 space-y-2.5 text-sm leading-relaxed">
           {dane.findings.map((f) => (
             <li key={f} className="border-l-2 border-ink/40 pl-2">{f}</li>
           ))}
@@ -158,9 +158,9 @@ export default function EkofinPanel({
       ) : null}
 
       {dane?.doPozyskania?.length ? (
-        <div className="mt-3 border-l-2 border-amber-500 pl-3">
-          <p className="text-xs font-medium">Do pozyskania przez biegłego</p>
-          <ul className="mt-1 space-y-0.5 text-xs text-inksoft">
+        <div className="mt-8 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+          <p className="text-base font-semibold">Do pozyskania przez biegłego</p>
+          <ul className="mt-3 space-y-2 text-sm text-inksoft">
             {dane.doPozyskania.map((d) => (
               <li key={d}>◐ {d}</li>
             ))}
@@ -169,9 +169,9 @@ export default function EkofinPanel({
       ) : null}
 
       {(dane?.tables ?? []).slice(0, 2).map((t) => (
-        <div key={t.caption} className="mt-4 overflow-x-auto">
-          <p className="text-[11px] font-medium">{t.caption}</p>
-          <table className="mt-1 w-full border-collapse text-xs">
+        <div key={t.caption} className="mt-8 overflow-x-auto">
+          <p className="mb-2 text-xs font-medium text-inksoft">{t.caption}</p>
+          <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-ink/30 text-left">
                 {t.head.map((h, i) => (
@@ -190,13 +190,13 @@ export default function EkofinPanel({
             </tbody>
           </table>
           {t.rows.length > 8 ? (
-            <p className="mt-0.5 text-[11px] text-inksoft">… i {t.rows.length - 8} kolejnych wierszy (całość w rozdziale IV.1).</p>
+            <p className="mt-2 text-xs text-inksoft">… i {t.rows.length - 8} kolejnych wierszy (całość w rozdziale IV.1).</p>
           ) : null}
         </div>
       ))}
 
       {dane?.uwagi?.length ? (
-        <ul className="mt-3 space-y-0.5 text-[11px] text-inksoft">
+        <ul className="mt-6 space-y-2 text-sm text-inksoft">
           {dane.uwagi.map((u) => (
             <li key={u}>⚠ {u}</li>
           ))}

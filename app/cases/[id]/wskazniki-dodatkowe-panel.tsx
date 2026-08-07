@@ -21,7 +21,7 @@ function Tabelka({ t }: { t: Tabela }) {
   if (!t?.rows?.length) return null;
   const widoczne = wszystkie ? t.rows : t.rows.slice(0, 12);
   return (
-    <div className="mt-4">
+    <div className="mt-8">
       {t.caption ? <p className="mb-1.5 text-xs font-medium text-inksoft">{t.caption}</p> : null}
       <div className="mt-1 overflow-x-auto">
         <table className="w-full border-collapse text-sm">
@@ -123,7 +123,7 @@ export default function WskaznikiDodatkowePanel({
       ) : (
         <>
           {liczbowe.length > 0 && (
-            <ul className="mt-4 space-y-2 text-sm leading-relaxed">
+            <ul className="mt-6 space-y-2.5 text-sm leading-relaxed">
               {liczbowe.map((f) => (
                 <li key={f} className="border-l-2 border-ink/40 pl-3">{f}</li>
               ))}
@@ -133,11 +133,11 @@ export default function WskaznikiDodatkowePanel({
             <Tabelka key={t.caption ?? i} t={t} />
           ))}
           {metodyczne.length > 0 && (
-            <div className="mt-5 border-t border-line pt-3">
-              <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-inksoft">
+            <div className="mt-10 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+              <h4 className="text-base font-semibold">
                 Założenia i ograniczenia danych
               </h4>
-              <ul className="mt-2 space-y-2 text-sm text-inksoft">
+              <ul className="mt-3 space-y-2.5 text-sm text-inksoft">
                 {metodyczne.map((f) => (
                   <li key={f} className="border-l-2 border-amber-600 pl-2">{f}</li>
                 ))}
@@ -145,7 +145,7 @@ export default function WskaznikiDodatkowePanel({
             </div>
           )}
           {dane.pliki?.length ? (
-            <p className="mt-3 text-[11px] text-inksoft">Źródło: {dane.pliki.join(", ")}</p>
+            <p className="mt-8 text-xs text-inksoft">Źródło: {dane.pliki.join(", ")}</p>
           ) : null}
         </>
       )}
