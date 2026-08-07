@@ -680,7 +680,7 @@ function buildWashSubanaliza(caseName: string, metrics: Metric[]): SubResult {
       (washPeak?.value != null
         ? `Apogeum udziału transakcji wewnątrzgrupowych przypada na sesję ${washPeak.session_day} i ` +
           `wynosi ${plnum(washPeak.value, "%")} wolumenu sesyjnego.`
-        : `[Do uzupełnienia: brak policzonych wskaźników wash — policz wskaźniki na zakładce Analiza liczbowa.]`),
+        : `[Do uzupełnienia: brak policzonych wskaźników wash — uruchom krok Wskaźniki.]`),
   );
   sec.push(
     `Transakcje wzajemne nie powodują zmiany rzeczywistego właściciela ekonomicznego instrumentu i ` +
@@ -765,7 +765,7 @@ function buildLayeringSubanaliza(caseName: string, metrics: Metric[], perSession
       (cancelPeak?.value != null
         ? `Największe anulowanie zleceń kupna przypada na sesję ${cancelPeak.session_day} i wynosi ` +
           `${plnum(cancelPeak.value, "%")} zadeklarowanego wolumenu kupna.`
-        : `[Do uzupełnienia: brak policzonych wskaźników anulacji — policz wskaźniki na zakładce Analiza liczbowa.]`),
+        : `[Do uzupełnienia: brak policzonych wskaźników anulacji — uruchom krok Wskaźniki.]`),
   );
   // Rozbicie sesja po sesji (wzorzec KM MLM: 10 sesji, każda z odrębnym zestawieniem
   // aktywności podmiotów). Dobór sesji jawny — kryterium w treści rozdziału.
@@ -869,7 +869,7 @@ function buildImoSubanaliza(caseName: string, metrics: Metric[]): SubResult {
           `stanowi okoliczność istotną dla oceny działania w porozumieniu.`,
       );
   } else {
-    sec.push(`[Do uzupełnienia: brak policzonych dopasowań — policz wskaźniki na zakładce Analiza liczbowa.]`);
+    sec.push(`[Do uzupełnienia: brak policzonych dopasowań — uruchom krok Wskaźniki.]`);
   }
   sec.push(
     `Składanie zleceń o zbliżonych parametrach i bliskim czasie, prowadzących do wzajemnego dopasowania między ` +

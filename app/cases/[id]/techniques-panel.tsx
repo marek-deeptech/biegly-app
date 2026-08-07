@@ -150,7 +150,7 @@ export default function TechniquesPanel({
         <strong> zawiadomienia KNF</strong>: możesz potwierdzić technikę wskazaną przez KNF,
         <strong> dodać</strong> tę, której KNF nie podniósł, a którą widać w danych, albo <strong>odrzucić</strong>
         tę bez pokrycia w dowodach. Zatwierdzony zestaw buduje rozdziały uzasadnień. Brak sygnału? Policz wskaźniki
-        (zakładka Analiza liczbowa) lub dodaj technikę ręcznie.
+        (krok Wskaźniki) lub dodaj technikę ręcznie.
       </p>
       {/* Wiersz pozycji katalogu — wspólny dla technik MAR i modułu przeglądowego. */}
       {(() => {
@@ -186,7 +186,7 @@ export default function TechniquesPanel({
                 </p>
                 {utpDocs.length > 0 && (
                   <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] text-inksoft">Plik źródłowy (wspólny z zakładką Analiza liczbowa):</span>
+                    <span className="text-[11px] text-inksoft">Plik źródłowy (wspólny z krokiem Wskaźniki):</span>
                     <select
                       value={activeUtp}
                       onChange={(e) => onSelectUtp?.(e.target.value)}

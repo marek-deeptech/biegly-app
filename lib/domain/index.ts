@@ -73,7 +73,7 @@ const KROKI_GPW: Krok[] = [
     gotowy: (s) => s.dokumentow > 0 && s.checklistOk },
   { klucz: "files", label: "Pliki", opis: "Wgranie i klasyfikacja akt",
     gotowy: (s) => s.dokumentow > 0 },
-  { klucz: "analysis", label: "Analiza liczbowa", opis: "Wskaźniki manipulacji z arkusza zleceń i transakcji UTP",
+  { klucz: "analysis", label: "Wskaźniki", opis: "Liczby z arkusza zleceń i transakcji UTP: kursy, wolumeny, udziały Grupy — podstawa wszystkich rozdziałów",
     gotowy: (s) => s.metryk > 0 },
   // KROK 4 — wymóg klienta (sprawa ZASTAL, 2026-08): analiza ekonomiczno-finansowa
   // emitenta ma być osobnym krokiem PRZED konstruowaniem opinii, nie jej częścią.

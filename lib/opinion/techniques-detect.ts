@@ -54,7 +54,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
   const gap = (need: string) =>
     computed
       ? `policzono — brak danych do tego wskaźnika: ${need}`
-      : "brak policzonych wskaźników — policz wskaźniki (zakładka Analiza liczbowa)";
+      : "brak policzonych wskaźników — uruchom krok Wskaźniki";
   // Manipulacja informacją: komunikaty ESPI zbieżne z sesjami o dużej zmianie kursu.
   const events = (stored.find((s) => s.kind === "espi_events")?.data?.events ?? []).filter(
     (e) => e.session && e.chg != null && Math.abs(e.chg) >= INFO_MIN_CHG,
@@ -129,7 +129,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
           ? `odwrócenie pozycji do ${pl(rv.value)} zł w jednej sesji — ${rv.key.slice("rev_val::".length)} (${rv.session_day})`
           : computed
             ? "brak odwróceń pozycji ≥ 50 tys. zł w jednej sesji — brak sygnału"
-            : "brak policzonych wskaźników — policz wskaźniki (zakładka Analiza liczbowa)",
+            : "brak policzonych wskaźników — uruchom krok Wskaźniki",
     },
     {
       id: "concentration",
@@ -140,7 +140,7 @@ export function proposeTechniques(metrics: Metric[], stored: SubLite[] = []): Pr
             ((cc.value ?? 0) < CONC_MIN_SHARE ? ` — poniżej progu ${CONC_MIN_SHARE}%` : "")
           : computed
             ? "brak koncentracji śróddziennej w policzonym pliku (możliwa do uzupełnienia z danych transakcyjnych)"
-            : "brak policzonych wskaźników — policz wskaźniki (zakładka Analiza liczbowa)",
+            : "brak policzonych wskaźników — uruchom krok Wskaźniki",
     },
     {
       id: "infomanip",

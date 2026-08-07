@@ -145,7 +145,7 @@ export default function OpinionView({
 
   async function saveGenerated(result: SubResult | null, overwrite = false) {
     if (!result) {
-      setMsg("Brak danych do wygenerowania — najpierw policz wskaźniki na zakładce Analiza liczbowa.");
+      setMsg("Brak danych do wygenerowania — najpierw uruchom krok Wskaźniki.");
       return;
     }
     if (!confirmOverwrite(result.kind, result.bodyMd.length)) return;
@@ -574,7 +574,7 @@ export default function OpinionView({
                   "krs_boards",
                   "fin_stats",
                   "pytania_organu", // ma własny panel (Krok 1), nie jest rozdziałem opinii
-                ].includes(s.kind) && !s.kind.startsWith("trem_"), // sekcje wskaźników per instrument → zakładka Analiza liczbowa
+                ].includes(s.kind) && !s.kind.startsWith("trem_"), // sekcje wskaźników per instrument → krok Wskaźniki
             )
             .map((s) => {
             const approved = s.status === "zatwierdzona";

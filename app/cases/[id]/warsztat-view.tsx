@@ -9,7 +9,7 @@ import TechniquesPanel from "./techniques-panel";
 
 // Warsztat dowodowy (Kroki 3–5) jako osobny krok procesu, między Analizą liczbową
 // a Opinią: Techniki · Powiązania (dane) · OSINT. Podmioty są w zakładce Sprawa,
-// analiza liczbowa w zakładce Analiza liczbowa.
+// liczby powstają w kroku Wskaźniki.
 
 type Metric = { key: string; value: number | null; unit: string | null; session_day: string | null };
 type Doc = { rel_path: string; doc_type?: string | null; storage_path?: string | null };

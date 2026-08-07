@@ -189,6 +189,11 @@ describe("rejestr pakietów dziedzinowych", () => {
     expect(bank.some((k) => k.klucz === "ekonomia")).toBe(false);
     // …i inne etykiety oraz warunki ukończenia dla wspólnych kroków 3 i „warsztat"
     expect(gpw[2].label).not.toBe(bank[2].label);
+    // Etykiety kroku 3 są PRZYPIĘTE: „Wskaźniki" w manipulacjach (nazwa od biegłego,
+    // 7.08.2026 — wcześniej „Analiza liczbowa"), w dziedzinie bankowej bez zmian.
+    // Plik jest wspólny dla obu pakietów, więc łatwo tu przenieść zmianę na cudzą dziedzinę.
+    expect(gpw[2].label).toBe("Wskaźniki");
+    expect(bank[2].label).toBe("Analiza ekonomiczno-finansowa");
     const stan = {
       dokumentow: 5, metryk: 0, zatwierdzone: 0, checklistOk: true,
       subanalizy: ["techniki", "powiazania_dane"],

@@ -314,7 +314,7 @@ export default function CaseDetail({
   }, [documents, search, docTypeFilter, authorFilter, provFilter, docSort, pokazWarianty]);
 
   // Sekcje wskaźników PER INSTRUMENT (subanalizy trem_csy / trem_rsy zapisane przez api/trem
-  // w trybie rozdzielonym). Gdy są — „Analiza liczbowa" pokazuje osobny blok dla każdego z nich.
+  // w trybie rozdzielonym). Gdy są — „Wskaźniki" pokazuje osobny blok dla każdego z nich.
   const tremInstr = useMemo(
     () =>
       subanalyses
@@ -1242,7 +1242,7 @@ export default function CaseDetail({
       {tab === "analysis" && !dziedzinaBankowa && (
       <section className="border border-ink/60 bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Analiza liczbowa (silnik faktów)</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Wskaźniki (silnik faktów)</h2>
           <div className="flex items-center gap-2">
             {utpDocs.length > 0 && (
               <select
@@ -1370,7 +1370,7 @@ function fmt(m: Metric): string {
 // Grupowanie wskaźników niedziennych w sensowne sekcje (zamiast jednej długiej listy).
 type EntActivity = { entity: string; sellShare: Metric | null; sellVal: Metric | null; sellVol: Metric | null; buyVal: Metric | null };
 // Blok wskaźników dla JEDNEGO zestawu metryk (łącznych albo per instrument CSY/RSY).
-// Wydzielony, by „Analiza liczbowa" mogła pokazać osobną sekcję dla każdego instrumentu.
+// Wydzielony, by „Wskaźniki" mogła pokazać osobną sekcję dla każdego instrumentu.
 function MetricsBlock({ metrics, title }: { metrics: Metric[]; title?: string | null }) {
   if (!metrics.length) return null;
   const find = (k: string) => metrics.find((m) => m.key === k) ?? null;

@@ -210,7 +210,7 @@ export default function AnalizaIVPanel({
           {tremy.length ? (
             <p className="text-inksoft">
               Instrumenty (TREM): {tremy.map((t) => t.kind.replace("trem_", "").toUpperCase()).join(", ")} — pełne
-              rozbicia per sesja×podmiot w zakładce „Analiza liczbowa”; tabele zbiorcze wchodzą do rozdziału IV
+              rozbicia per sesja×podmiot w kroku „Wskaźniki”; tabele zbiorcze wchodzą do rozdziału IV
               automatycznie przy montażu opinii.
             </p>
           ) : null}
