@@ -108,7 +108,7 @@ Pliki **wyłącznie manipulacyjne**: `ekofin*`, `aktywnosc-iv3`, `techniki-iv46`
 
 ## Stan na moment podziału
 
-**Manipulacje (ZASTAL)** — opinia `Opinia_ZASTAL_2026-08-07_v9.pdf`, 171 stron.
+**Manipulacje (ZASTAL)** — opinia `Opinia_ZASTAL_2026-08-07_v10.pdf`, 169 stron.
 Wszystkie rozdziały liczbowe (IV.1, IV.3–IV.6, fixing, koncentracja) liczone PER
 INSTRUMENT i w oknie z postanowienia (11.12.2017–30.09.2019). Faza wzrostowa:
 CSY +920 %, RSY +742,86 %. Rejestr braków: `npx tsx scripts/braki_iv.ts ZASTAL`
@@ -119,10 +119,12 @@ CSY +920 %, RSY +742,86 %. Rejestr braków: `npx tsx scripts/braki_iv.ts ZASTAL`
 i `concentration` (CSY 127 sesji, RSY 116) są policzone i zredagowane, ale NIE
 wchodzą do opinii — zatwierdzony dobór technik obejmuje wash, pumpdump, layering.
 
+Layering: próg kalibrowany z mediany TEGO waloru (CSY 303 szt → 800; RSY 168 → 450);
+CSY 8 sesji ze znamionami z 148 zbadanych, RSY 0 z 120 (279 zleceń kupna na 124 547 szt,
+żadna sesja nie spełniła łącznie kryteriów).
+
 Do zrobienia: odpisy KRS z API MS → IV.7, audyt opinii, notowania CSY/RSY od debiutu
-(spółki wykluczone z obrotu — archiwum GPW/NewConnect), rekalibracja progu layeringu
-(1000 szt. wyliczone na medianie ZESTAWU ŁĄCZNEGO; mediany per instrument to 303 CSY
-i 168 RSY).
+(spółki wykluczone z obrotu — archiwum GPW/NewConnect).
 
 **Bankowe (SKOK)** — opinia `Opinia_SKOK_2026-08-06_v4.pdf`, 111 stron.
 Rubryka 16 wskaźników ma 17 wartości WŁASNYCH (policzonych z bilansu odczytanego
