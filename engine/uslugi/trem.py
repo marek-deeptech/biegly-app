@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler
 
 # Katalog repozytorium — o dwa poziomy wyżej niż ten plik (engine/uslugi/…).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from engine.rest_url import filtr_in, url_rest  # noqa: E402
 from engine.analysis import compute_trem  # noqa: E402
 from engine.loader import load_trem_paired  # noqa: E402
 
@@ -128,9 +129,11 @@ class handler(BaseHTTPRequestHandler):
             # bankowa i makro kasują swoje klucze zakresowo; ta robi to samo.
             payload = clean_metrics(case_id, rows)
             wlasne = sorted({m["key"] for m in payload})
+            # ⚠️ ADRES SKŁADA `url_rest`, NIE f-string. Klucze niosą nazwy podmiotów
+            # („ede_bval::profit estate"), a spacja w adresie wywraca urllib.
             for i in range(0, len(wlasne), 100):
-                warunek = ",".join(f'"{k}"' for k in wlasne[i:i + 100])
-                _req("DELETE", f"{BASE}/rest/v1/metrics?case_id=eq.{case_id}&key=in.({warunek})",
+                _req("DELETE",
+                     url_rest(BASE, "metrics", case_id=f"eq.{case_id}", key=filtr_in(wlasne[i:i + 100])),
                      headers={"Prefer": "return=minimal"})
             for i in range(0, len(payload), 500):
                 _req("POST", f"{BASE}/rest/v1/metrics",

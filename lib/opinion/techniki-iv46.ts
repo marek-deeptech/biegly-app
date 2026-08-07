@@ -203,3 +203,73 @@ export function tabelaSesjiWash(metryki: Metryka[], prog = 20): Tabela | null {
     }),
   };
 }
+
+// ── Fixing (zał. I lit. g MAR) i koncentracja zleceń (lit. e) ───────────────
+//
+// ⚠️ TE DWIE TECHNIKI TEŻ LICZĄ SIĘ PER INSTRUMENT. Udział w wolumenie fixingu
+// i szczyt koncentracji odnoszą się do obrotu KONKRETNYM walorem; policzone na
+// zestawie łącznym mieszałyby dwa arkusze zleceń w jeden.
+
+/** Sesje, w których Grupa objęła istotną część wolumenu fixingu zamknięcia lub otwarcia. */
+export function tabelaFixingu(metryki: Metryka[], prog = 50): Tabela | null {
+  const idx = new Map<string, Map<string, number>>();
+  for (const m of metryki) {
+    if (!m.session_day || m.value == null) continue;
+    if (!idx.has(m.key)) idx.set(m.key, new Map());
+    idx.get(m.key)!.set(m.session_day, m.value);
+  }
+  const g = (k: string, d: string) => idx.get(k)?.get(d) ?? null;
+  const dni = [...new Set(metryki.map((m) => m.session_day).filter((d): d is string => !!d))].sort();
+  const wiersze = dni
+    .filter((d) => Math.max(g("fix_close_share", d) ?? 0, g("fix_open_share", d) ?? 0) >= prog)
+    .map((d) => [
+      d,
+      proc(g("fix_close_share", d)),
+      proc(g("fix_open_share", d)),
+      g("fix_close_vol", d) != null ? pl(g("fix_close_vol", d)!) : "—",
+      g("day_close", d) != null ? pl(g("day_close", d)!, 4) : "—",
+      g("day_change_pct", d) != null ? `${g("day_change_pct", d)! > 0 ? "+" : ""}${proc(g("day_change_pct", d))}` : "—",
+    ]);
+  if (!wiersze.length) return null;
+  return {
+    caption:
+      `Tabela. Sesje, w których podmioty z Grupy objęły co najmniej ${prog} % wolumenu fixingu ` +
+      "(ustalanie kursu otwarcia lub zamknięcia — zał. I lit. g rozporządzenia MAR)",
+    head: ["Sesja", "Udział w fixingu zamknięcia", "Udział w fixingu otwarcia", "Wolumen fixingu zamk.", "Kurs zamknięcia", "Zmiana kursu"],
+    rows: wiersze,
+  };
+}
+
+/** Sesje o wysokiej koncentracji zleceń Grupy w oknie 15-minutowym. */
+export function tabelaKoncentracji(metryki: Metryka[], prog = 50): Tabela | null {
+  const idx = new Map<string, Map<string, number>>();
+  for (const m of metryki) {
+    if (!m.session_day || m.value == null) continue;
+    if (!idx.has(m.key)) idx.set(m.key, new Map());
+    idx.get(m.key)!.set(m.session_day, m.value);
+  }
+  const g = (k: string, d: string) => idx.get(k)?.get(d) ?? null;
+  const dni = [...new Set(metryki.map((m) => m.session_day).filter((d): d is string => !!d))].sort();
+  const wiersze = dni
+    .filter((d) => (g("conc_peak_share", d) ?? 0) >= prog)
+    .map((d) => {
+      const volS = g("day_sess_vol", d);
+      const volG = g("day_grp_vol", d);
+      return [
+        d,
+        proc(g("conc_peak_share", d)),
+        volS != null ? pl(volS) : "—",
+        volG != null ? pl(volG) : "—",
+        volS && volG != null ? proc((100 * volG) / volS) : "—",
+        g("day_change_pct", d) != null ? `${g("day_change_pct", d)! > 0 ? "+" : ""}${proc(g("day_change_pct", d))}` : "—",
+      ];
+    });
+  if (!wiersze.length) return null;
+  return {
+    caption:
+      `Tabela. Sesje, w których zlecenia Grupy skupiły się w oknie 15 minut na poziomie co najmniej ${prog} % ` +
+      "wolumenu sesji (zał. I lit. e rozporządzenia MAR)",
+    head: ["Sesja", "Szczyt koncentracji (15 min)", "Wolumen sesji", "Wolumen Grupy", "Udział Grupy", "Zmiana kursu"],
+    rows: wiersze,
+  };
+}

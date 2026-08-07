@@ -13,6 +13,8 @@ import {
   tabelaParWewnatrzgrupowych,
   tabelaSekwencji,
   tabelaSesjiLayering,
+  tabelaFixingu,
+  tabelaKoncentracji,
   tabelaSesjiWash,
   type DzienSpoof,
   type Metryka,
@@ -123,5 +125,64 @@ describe("IV.4 — wash trades", () => {
   it("brak par i brak sesji ponad próg dają null", () => {
     expect(tabelaParWewnatrzgrupowych([])).toBeNull();
     expect(tabelaSesjiWash(M, 99)).toBeNull();
+  });
+});
+
+/**
+ * ⚠️ Fixing (zał. I lit. g) i koncentracja (lit. e) odnoszą się do obrotu KONKRETNYM
+ * walorem. Wejście musi być metrykami JEDNEGO instrumentu — te testy pilnują, że
+ * funkcje czytają metryki takimi, jakie dostały, i nie sumują niczego samodzielnie.
+ */
+describe("IV — fixing i koncentracja (per instrument)", () => {
+  const CSY: Metryka[] = [
+    { key: "fix_close_share", value: 78.4, session_day: "2018-02-06" },
+    { key: "fix_open_share", value: 12, session_day: "2018-02-06" },
+    { key: "fix_close_vol", value: 15400, session_day: "2018-02-06" },
+    { key: "day_close", value: 2.98, session_day: "2018-02-06" },
+    { key: "day_change_pct", value: 6.43, session_day: "2018-02-06" },
+    { key: "conc_peak_share", value: 61.2, session_day: "2018-02-06" },
+    { key: "day_sess_vol", value: 5673, session_day: "2018-02-06" },
+    { key: "day_grp_vol", value: 2836, session_day: "2018-02-06" },
+    // sesja poniżej obu progów — nie może wejść do żadnej z tabel
+    { key: "fix_close_share", value: 11, session_day: "2018-02-07" },
+    { key: "conc_peak_share", value: 9, session_day: "2018-02-07" },
+  ];
+
+  it("fixing bierze sesję po WIĘKSZYM z dwóch udziałów i podaje kurs zamknięcia", () => {
+    const t = tabelaFixingu(CSY, 50)!;
+    expect(t.rows.map((r) => r[0])).toEqual(["2018-02-06"]);
+    expect(t.rows[0][1]).toBe("78,4 %");
+    expect(norm(t.rows[0][3])).toBe("15 400"); // wolumen fixingu zamknięcia
+    expect(t.rows[0][4]).toBe("2,98"); // kurs TEGO waloru, nie drugiego
+    expect(t.rows[0][5]).toBe("+6,43 %");
+    expect(t.caption).toMatch(/lit\. g/);
+  });
+
+  it("koncentracja liczy udział Grupy z wolumenów tej samej sesji", () => {
+    const t = tabelaKoncentracji(CSY, 50)!;
+    expect(t.rows.map((r) => r[0])).toEqual(["2018-02-06"]);
+    expect(t.rows[0][1]).toBe("61,2 %");
+    expect(t.rows[0][2]).toBe("5673"); // pl-PL nie grupuje liczb 4-cyfrowych
+    expect(t.rows[0][4]).toBe("49,99 %"); // 2836 / 5673 — liczone, nie przepisane
+    expect(t.caption).toMatch(/lit\. e/);
+  });
+
+  it("wolumen jednego waloru nie jest sumowany z drugim", () => {
+    // Gdyby wejście scalało dwa instrumenty, sesja niosłaby 5673 + 5321 = 10 994
+    // i jeden z dwóch kursów zamknięcia. Funkcja nie ma prawa nic dodawać.
+    const RSY: Metryka[] = [
+      { key: "conc_peak_share", value: 55, session_day: "2018-02-06" },
+      { key: "day_sess_vol", value: 5321, session_day: "2018-02-06" },
+      { key: "day_grp_vol", value: 1000, session_day: "2018-02-06" },
+    ];
+    expect(tabelaKoncentracji(RSY, 50)!.rows[0][2]).toBe("5321");
+    expect(tabelaKoncentracji(CSY, 50)!.rows[0][2]).toBe("5673");
+  });
+
+  it("brak sesji ponad progiem daje null", () => {
+    expect(tabelaFixingu(CSY, 99)).toBeNull();
+    expect(tabelaKoncentracji(CSY, 99)).toBeNull();
+    expect(tabelaFixingu([])).toBeNull();
+    expect(tabelaKoncentracji([])).toBeNull();
   });
 });

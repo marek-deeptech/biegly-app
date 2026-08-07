@@ -5,15 +5,51 @@ jedno repozytorium, `cases.typ` rozstrzyga dziedzinę. Klon oznaczałby dwie kop
 rendererów PDF/DOCX, korpusów stylu i wiedzy, klienta LLM i backupu — i rozjazd
 po pierwszej poprawce.
 
-## Gałęzie
+## Katalogi robocze i gałęzie
 
-| Wątek | Gałąź | Sprawy |
-|---|---|---|
-| Hochsztapler — Manipulacje | `manipulacje` | ZASTAL (CSY, RSY), HUBTECH, MLM |
-| Hochsztapler — Sprawy bankowe | `bankowe` | SKOK (SK Bank), MBR |
+| Wątek | Katalog roboczy | Gałąź | Sprawy |
+|---|---|---|---|
+| Hochsztapler — Manipulacje | `~/biegly-app` | `manipulacje` | ZASTAL (CSY, RSY), HUBTECH, MLM |
+| Hochsztapler — Sprawy bankowe | `~/biegly-bankowe` | `bankowe` | SKOK (SK Bank), MBR |
 
-Merge do `main` po przejściu pełnych testów. **Dwa agenty pushujące równolegle na
-`main` to jedyny scenariusz, w którym można stracić pracę** — stąd gałęzie.
+Merge do `main` po przejściu pełnych testów.
+
+### ⚠️ SAMA GAŁĄŹ NIE WYSTARCZA — potrzebny OSOBNY KATALOG
+
+Pierwsza wersja tego dokumentu przewidywała tylko gałęzie. To okazało się
+niewystarczające i zawiodło tego samego dnia: obie sesje pracowały w JEDNYM
+katalogu `~/biegly-app`, więc widziały nawzajem swoje niezapisane pliki, a wątek
+bankowy zacommitował cały przebieg MBR (siedem kroków, nowe panele i trasa) na
+gałąź `manipulacje`. Wcześniej w drugą stronę: `git add -A` w wątku manipulacji
+wciągnął bankowy `scripts/bilans_z_obrazu.py`.
+
+Gałąź rozdziela HISTORIĘ, katalog rozdziela PLIKI. Bez tego drugiego dwa agenty
+nadpisują sobie drzewo robocze i commitują cudzą pracę.
+
+Katalog dla wątku bankowego zakłada się raz:
+
+```bash
+git worktree add ~/biegly-bankowe bankowe
+cp ~/biegly-app/.env.local ~/biegly-bankowe/.env.local   # gitignore — nie kopiuje się sam
+```
+
+Od tej pory wątek bankowy pracuje WYŁĄCZNIE w `~/biegly-bankowe`, manipulacyjny
+w `~/biegly-app`. Oba katalogi dzielą jedno repozytorium (`git worktree list`
+pokazuje wszystkie), więc gałęzie, tagi i historia są wspólne — rozdzielone są
+tylko pliki na dysku.
+
+### Zabłąkane commity
+
+Commit `f41cdb4` (przebieg bankowy MBR) trafił na gałąź manipulacji i został
+z niej zdjęty; jest zachowany pod tagiem **`bankowe-kroki-mbr`**. Wątek bankowy
+wciąga go do siebie:
+
+```bash
+cd ~/biegly-bankowe && git cherry-pick bankowe-kroki-mbr
+```
+
+Sprawdzenie przed każdym commitem: `git branch --show-current` musi zgadzać się
+z dziedziną, której dotyczy zmiana.
 
 ## Pliki WSPÓLNE — wymagają ostrożności
 
@@ -60,16 +96,35 @@ Pliki **wyłącznie manipulacyjne**: `ekofin*`, `aktywnosc-iv3`, `techniki-iv46`
   nie `case_id=eq.…`. Inaczej bieg jednego modułu wymazuje dorobek innego.
 - **Okres badany bierze się z POSTANOWIENIA**, nigdy z zakresu metryk. W ZASTAL
   różnica wynosiła 3,5 miesiąca wobec niecałych dwóch lat.
+- **Jedno źródło okresu badanego.** Każdy rozdział liczbowy bierze okno z
+  `lib/opinion/okres.ts` (konfiguracja kroku 4 = daty z postanowienia), nigdy
+  z zakresu metryk ani z własnej flagi. Inaczej ta sama faza wzrostowa CSY wychodzi
+  +1175 % w IV.1 i +920 % w IV.5 — obie policzone poprawnie, sprzeczne wejściem.
+- **Liczby PER INSTRUMENT.** Sprawa może obejmować kilka walorów; zestaw łączny
+  sumuje wolumeny różnych papierów i podstawia kurs jednego pod oba
+  (`lib/opinion/instrumenty.ts`, `czyZmieszane`).
 - **`npx vitest` uruchamiaj z katalogu repo** — z katalogu domowego nie wczyta
   aliasu `@` i zgłosi „Cannot find package".
 
 ## Stan na moment podziału
 
-**Manipulacje (ZASTAL)** — opinia `Opinia_ZASTAL_2026-08-06_v3.pdf`, 157 stron,
-rozdział IV kompletny (7/7 podrozdziałów z prozą), Wnioski 14 434 zn.
-Rejestr braków: `npx tsx scripts/braki_iv.ts ZASTAL` (7 pozycji, 5/7 podrozdziałów
-kompletnych). Do zrobienia: odpisy KRS z API MS → IV.7, audyt opinii, notowania
-CSY/RSY od debiutu (spółki wykluczone z obrotu — archiwum GPW/NewConnect).
+**Manipulacje (ZASTAL)** — opinia `Opinia_ZASTAL_2026-08-07_v10.pdf`, 169 stron.
+Wszystkie rozdziały liczbowe (IV.1, IV.3–IV.6, fixing, koncentracja) liczone PER
+INSTRUMENT i w oknie z postanowienia (11.12.2017–30.09.2019). Faza wzrostowa:
+CSY +920 %, RSY +742,86 %. Rejestr braków: `npx tsx scripts/braki_iv.ts ZASTAL`
+(7 pozycji, 5/7 podrozdziałów kompletnych). Bramka przed wydrukiem:
+`npx tsx scripts/audyt_okresu.ts ZASTAL --poboczne 2019-09-27`.
+
+⚠️ **Do decyzji biegłego:** `fixing` (CSY 39 sesji ≥50 % wolumenu fixingu, RSY 42)
+i `concentration` (CSY 127 sesji, RSY 116) są policzone i zredagowane, ale NIE
+wchodzą do opinii — zatwierdzony dobór technik obejmuje wash, pumpdump, layering.
+
+Layering: próg kalibrowany z mediany TEGO waloru (CSY 303 szt → 800; RSY 168 → 450);
+CSY 8 sesji ze znamionami z 148 zbadanych, RSY 0 z 120 (279 zleceń kupna na 124 547 szt,
+żadna sesja nie spełniła łącznie kryteriów).
+
+Do zrobienia: odpisy KRS z API MS → IV.7, audyt opinii, notowania CSY/RSY od debiutu
+(spółki wykluczone z obrotu — archiwum GPW/NewConnect).
 
 **Bankowe (SKOK)** — opinia `Opinia_SKOK_2026-08-06_v4.pdf`, 111 stron.
 Rubryka 16 wskaźników ma 17 wartości WŁASNYCH (policzonych z bilansu odczytanego

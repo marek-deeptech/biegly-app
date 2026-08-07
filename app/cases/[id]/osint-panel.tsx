@@ -764,7 +764,7 @@ export default function OsintPanel({
           </div>
           {pairs.length === 0 ? (
             <p className="mb-3 text-xs text-inksoft">
-              Brak sygnałów — policz wskaźniki (Analiza liczbowa) i wykonaj analizę IP (zakładka Powiązania (dane)).
+              Brak sygnałów — uruchom krok Wskaźniki i wykonaj analizę IP (zakładka Powiązania (dane)).
             </p>
           ) : (
             <div className="mb-4 max-h-64 space-y-1 overflow-auto">

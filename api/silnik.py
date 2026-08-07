@@ -31,6 +31,7 @@ USLUGI = {
     "spoofing": "engine.uslugi.spoofing",
     "sygnaly": "engine.uslugi.sygnaly",
     "trem": "engine.uslugi.trem",
+    "wskazniki": "engine.uslugi.wskazniki",
 }
 
 

@@ -180,20 +180,34 @@ describe("rejestr pakietów dziedzinowych", () => {
     // Wymóg twardy: zmiana w jednej dziedzinie nie ma prawa dotknąć drugiej.
     const gpw = packDla("manipulacja_gpw").kroki;
     const bank = packDla("ryzyko_bankowe").kroki;
-    // GPW: przebieg z krokiem „Ekonomia emitenta" (sprawa ZASTAL 2026-08).
-    // BANK: przebieg 2026-08 (wzorzec MBR) — Baza wiedzy → Otoczenie prawne →
-    // Otoczenie makro → Lista wskaźników → Analiza EF (podzakładki) → Opinia.
-    // Dawny osobny krok „warsztat" żyje jako podzakładka analizy, NIE w stepperze.
-    expect(gpw.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "ekonomia", "warsztat", "opinion"]);
+    // GPW (2026-08): Wskaźniki → Analiza IV.1–7 → Historia akcjonariatu → Warsztat.
+    // BANK (wzorzec MBR): Baza wiedzy → Otoczenie prawne → Otoczenie makro →
+    // Lista wskaźników → Analiza EF (podzakładki) → Opinia; dawny krok „warsztat"
+    // żyje tam jako podzakładka analizy, NIE w stepperze.
+    expect(gpw.map((k) => k.klucz)).toEqual([
+      "overview", "files", "analysis", "ekonomia", "akcjonariat", "warsztat", "opinion",
+    ]);
     expect(bank.map((k) => k.klucz)).toEqual([
       "overview", "files", "wiedza", "prawo", "makro", "wskazniki", "analysis", "opinion",
     ]);
+    // Kroki jednej dziedziny nie mają prawa pojawić się w drugiej — w OBIE strony.
     expect(bank.some((k) => k.klucz === "ekonomia")).toBe(false);
     expect(bank.some((k) => k.klucz === "warsztat")).toBe(false);
-    // …a kroki bankowe 3–6 nie istnieją w pakiecie GPW
+    // Historia akcjonariatu jest krokiem WYŁĄCZNIE manipulacyjnym: w sprawie bankowej
+    // nie ma emitenta giełdowego, którego stan posiadania dałoby się śledzić.
+    expect(bank.some((k) => k.klucz === "akcjonariat")).toBe(false);
     for (const klucz of ["wiedza", "prawo", "makro", "wskazniki"]) {
       expect(gpw.some((k) => k.klucz === klucz)).toBe(false);
     }
+    expect(gpw.findIndex((k) => k.klucz === "akcjonariat")).toBeLessThan(gpw.findIndex((k) => k.klucz === "warsztat"));
+    // Etykiety kroku „analysis" są PRZYPIĘTE i różne: „Wskaźniki" w manipulacjach
+    // (nazwa od biegłego, 7.08.2026 — wcześniej „Analiza liczbowa"), w dziedzinie
+    // bankowej „Analiza ekonomiczno-finansowa". Plik jest wspólny dla obu pakietów,
+    // więc najłatwiej tu przenieść zmianę na cudzą dziedzinę.
+    const gpwAnaliza = gpw.find((k) => k.klucz === "analysis")!;
+    const bankAnaliza = bank.find((k) => k.klucz === "analysis")!;
+    expect(gpwAnaliza.label).toBe("Wskaźniki");
+    expect(bankAnaliza.label).not.toBe(gpwAnaliza.label);
     const stan = {
       dokumentow: 5, metryk: 0, zatwierdzone: 0, checklistOk: true,
       subanalizy: ["techniki", "powiazania_dane"],

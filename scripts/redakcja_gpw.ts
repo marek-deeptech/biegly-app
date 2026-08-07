@@ -15,7 +15,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 import { klientLLM } from "@/lib/llm/klient";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
+import { okresBadany } from "@/lib/opinion/okres";
 import { buildWnioskiSubanaliza, type StoredSub } from "@/lib/opinion/build";
+import { fazyKursu, instrumentySprawy, metrykiInstrumentu } from "@/lib/opinion/instrumenty";
 import { PROSECUTOR_QUESTIONS, TECHNIQUES } from "@/lib/opinion/legal";
 import {
   REDACT_META,
@@ -40,7 +42,16 @@ async function main() {
     .from("subanalyses").select("kind,title,status,chapter_no,body_md,data").eq("case_id", c.id);
   const m = await fetchAllMetrics(sb, c.id as string);
   const dni = [...new Set(m.map((x) => x.session_day).filter(Boolean))].sort() as string[];
-  const period = dni.length ? `${dni[0]} – ${dni[dni.length - 1]}` : null;
+  // ⚠️ OKRES DO PROMPTU BIERZE SIĘ Z POSTANOWIENIA. Wyprowadzony z zakresu metryk
+  // wchodził do prozy jako zdanie „Okres objęty analizą obejmuje przedział od
+  // 4 grudnia 2017 r." — data pierwszej sesji w policzonym pliku, nie granica badania.
+  let period: string | null = null;
+  try {
+    const o = okresBadany((subs ?? []) as never);
+    period = `${o.od} – ${o.do}`;
+  } catch {
+    period = dni.length ? `${dni[0]} – ${dni[dni.length - 1]} (zakres metryk silnika, NIE daty z postanowienia — nie cytuj jako okresu badanego)` : null;
+  }
   const caseQuestions =
     ((subs ?? []).find((s) => s.kind === "pytania_organu")?.data as { questions?: string[] } | null)?.questions
       ?.map((q) => String(q).trim()).filter(Boolean) ?? [];
@@ -79,16 +90,32 @@ async function main() {
     } else {
       const meta = REDACT_META[chapter as RedactChapter];
       if (!meta) { console.log(`✗ ${chapter}: nieznany rozdział (I, III, V albo wnioski)`); continue; }
-      const find = (k: string) => m.find((x) => x.key === k);
-      const peak = (pfx: string) =>
-        m.filter((x) => x.key.startsWith(pfx)).reduce<(typeof m)[number] | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
+      // ⚠️ FAKTY LICZBOWE PER INSTRUMENT. Zestaw łączny sumuje wolumeny różnych
+      // papierów i podstawia kurs jednego pod oba — wielkości stąd nie opisują
+      // żadnego waloru (patrz lib/opinion/instrumenty.ts).
+      const instrumenty = instrumentySprawy((subs ?? []) as never);
       const facts: string[] = [];
-      const gs = find("group_turnover_share");
-      if (gs?.value != null) facts.push(`Udział Grupy w wartości obrotu: ${gs.value}%.`);
-      const wp = peak("wash_");
-      if (wp?.value != null) facts.push(`Maksymalny udział transakcji wzajemnych w wolumenie sesji: ${wp.value}% (sesja ${wp.session_day}).`);
-      const cp = peak("cancel_");
-      if (cp?.value != null) facts.push(`Maksymalny udział anulacji zleceń kupna Grupy: ${cp.value}% (sesja ${cp.session_day}).`);
+      for (const inst of instrumenty) {
+        const mi = metrykiInstrumentu((subs ?? []) as never, inst.ticker);
+        const peakI = (pfx: string) =>
+          mi.filter((x) => x.key.startsWith(pfx)).reduce<(typeof mi)[number] | null>((a, b) => ((b.value ?? -1) > (a?.value ?? -1) ? b : a), null);
+        const gsI = mi.find((x) => x.key === "group_turnover_share");
+        if (gsI?.value != null) facts.push(`${inst.label}: udział Grupy w wartości obrotu ${gsI.value} %.`);
+        const wpI = peakI("wash_");
+        if (wpI?.value != null)
+          facts.push(`${inst.label}: maksymalny udział transakcji wzajemnych w wolumenie sesji ${wpI.value} % (sesja ${wpI.session_day}).`);
+        const f = fazyKursu(mi);
+        if (f)
+          facts.push(
+            `${inst.label}: kurs zamknięcia od ${f.kursPoczatkowy} zł (${f.odDnia}) do szczytu ${f.kursSzczyt} zł ` +
+              `(${f.dzienSzczytu}) — ${f.pumpPct > 0 ? "+" : ""}${f.pumpPct} %, na koniec okresu ${f.kursKoncowy} zł.`,
+          );
+      }
+      if (!instrumenty.length) {
+        const find = (k: string) => m.find((x) => x.key === k);
+        const gs = find("group_turnover_share");
+        if (gs?.value != null) facts.push(`Udział Grupy w wartości obrotu: ${gs.value}%.`);
+      }
       const approved = (subs ?? [])
         .filter((s) => String(s.chapter_no ?? "").startsWith("IV") && ((s.data as { findings?: string[] })?.findings?.length ?? 0) > 0)
         .map((s) => ({ title: s.title as string, findings: ((s.data as { findings?: string[] })?.findings ?? []) as string[] }));

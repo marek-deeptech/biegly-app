@@ -393,5 +393,19 @@ def detect_layering(
             "sell_exec_total": round(sum(d["sell_exec_vol"] for d in days if d["manip"])),
             "layer_orders_total": sum(d["layer_orders"] for d in days if d["manip"]),
         },
+        # PODSTAWA BADANIA — wszystkie sesje, nie tylko oflagowane.
+        #
+        # ⚠️ Sumy w `totals` liczą się PO SESJACH OFLAGOWANYCH, więc przy zerowej detekcji
+        # cały blok pokazuje zera. W opinii „0" bez podstawy czyta się jak „nie było zleceń",
+        # a w sprawie ZASTAL dla RSY było 279 zleceń kupna Grupy na 124 547 szt, z których
+        # żadna sesja nie spełniła łącznie kryteriów. Różnica między „brak zjawiska"
+        # a „brak materiału" jest dla opinii rozstrzygająca.
+        "examined": {
+            "sessions": len(days),
+            "cancelled_buy": round(sum(d["cancelled_buy"] for d in days)),
+            "declared_buy": round(sum(d["declared_buy"] for d in days)),
+            "sell_exec": round(sum(d["sell_exec_vol"] for d in days)),
+            "layer_orders": sum(d["layer_orders"] for d in days),
+        },
         "params": {"min_cancel_vol": min_cancel_vol, "min_cancel_share": min_cancel_share},
     }

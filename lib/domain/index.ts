@@ -53,6 +53,9 @@ export type StanSprawy = {
 };
 
 export type Krok = {
+  // Suma kluczy OBU dziedzin: bankowa dołożyła „wiedza", „prawo", „makro"
+  // i „wskazniki", manipulacyjna — „akcjonariat". Typ jest wspólny, więc każdy
+  // wątek musi tu dopisać swój klucz, nie podmieniać cudzych.
   klucz:
     | "overview"
     | "files"
@@ -62,6 +65,7 @@ export type Krok = {
     | "wskazniki"
     | "analysis"
     | "ekonomia"
+    | "akcjonariat"
     | "warsztat"
     | "opinion";
   label: string;
@@ -85,7 +89,7 @@ const KROKI_GPW: Krok[] = [
     gotowy: (s) => s.dokumentow > 0 && s.checklistOk },
   { klucz: "files", label: "Pliki", opis: "Wgranie i klasyfikacja akt",
     gotowy: (s) => s.dokumentow > 0 },
-  { klucz: "analysis", label: "Analiza liczbowa", opis: "Wskaźniki manipulacji z arkusza zleceń i transakcji UTP",
+  { klucz: "analysis", label: "Wskaźniki", opis: "Liczby z arkusza zleceń i transakcji UTP: kursy, wolumeny, udziały Grupy — podstawa wszystkich rozdziałów",
     gotowy: (s) => s.metryk > 0 },
   // KROK 4 — wymóg klienta (sprawa ZASTAL, 2026-08): analiza ekonomiczno-finansowa
   // emitenta ma być osobnym krokiem PRZED konstruowaniem opinii, nie jej częścią.
@@ -94,6 +98,14 @@ const KROKI_GPW: Krok[] = [
   { klucz: "ekonomia", label: "Analiza IV.1–7",
     opis: "Rozdział IV opinii w siedmiu pod-zakładkach: ekonomia emitenta (stooq), ESPI/EBI (espiebi), aktywność Grupy, wash, IMO, layering/spoofing, relacje — wzorzec: finał HubTech",
     gotowy: (s) => s.subanalizy.includes("ekofin_dane") },
+  // KROK 5 — historia stanu posiadania. Wchodzi PRZED warsztatem, bo odpowiedź na
+  // pytanie „kto i kiedy nabywał albo zbywał akcje” jest tłem dla oceny technik:
+  // ta sama transakcja czyta się inaczej, gdy podmiot budował pakiet, a inaczej,
+  // gdy z niego wychodził. Źródła: Bankier.pl (historia zmian + emisje kapitału)
+  // i sprawozdania opisowe zarządu z akt.
+  { klucz: "akcjonariat", label: "Historia zmian w akcjonariacie",
+    opis: "Stan posiadania dzień po dniu: nabycia, zbycia i rozwodnienia emisją (Bankier.pl + sprawozdania zarządu)",
+    gotowy: (s) => s.subanalizy.includes("akcjonariat") },
   { klucz: "warsztat", label: "Warsztat dowodowy", opis: "Techniki MAR, powiązania podmiotów, korelacja IP",
     gotowy: (s) => s.subanalizy.includes("techniki") && s.subanalizy.includes("powiazania_dane") },
   { klucz: "opinion", label: "Opinia", opis: "Rozdziały I–VI wg szkieletu opinii o manipulacji",
