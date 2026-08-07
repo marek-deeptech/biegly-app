@@ -97,8 +97,16 @@ async function main() {
       "dają wielkości o znaczeniu ekonomicznym.",
   );
   // Ustalenia z kroku 4 (kontrast obrotu, indeks 100, dynamika finansowa) zostają.
+  //
+  // ⚠️ IDEMPOTENCJA. Poprzedni bieg zostawiał SWOJE ustalenia jako „stare", więc po
+  // zmianie okresu rozdział niósł dwie fazy wzrostowe CSY naraz (+1175 % liczone od
+  // 4.12.2017 i +920 % od daty z postanowienia). Model opisał obie jako „zależne od
+  // punktu odniesienia" — czyli wprowadził do opinii wielkość spoza okresu badanego.
+  // Odejmujemy DOKŁADNIE to, co skrypt zapisał ostatnio (`findingsSilnika`), a nie
+  // to, co zgadnie wyrażenie regularne.
+  const poprzednie = new Set(((stare.findingsSilnika ?? []) as string[]).map(String));
   const stareUst = ((stare.findings ?? []) as string[]).filter(
-    (f) => !/^Fazy kursu \(zamknięcia\)|^Kurs wzrósł o/.test(String(f)),
+    (f) => !poprzednie.has(String(f)) && !/^Fazy kursu \(zamknięcia\)|^Kurs wzrósł o/.test(String(f)),
   );
 
   const proza = String(ekofin?.body_md ?? "");
@@ -117,6 +125,7 @@ async function main() {
         findings: [...findings, ...stareUst],
         instrumenty: instrumenty.map((i) => i.label),
         fazyWgInstrumentu: wgFaz,
+        findingsSilnika: findings,
         okno: { od: okres.od, do: okres.do, zrodlo: okres.zrodlo },
         // Proza powstała przed przeliczeniem — po zmianie liczb wymaga ponownej redakcji.
         proza_sprzed_przeliczenia: proza.length > 0,

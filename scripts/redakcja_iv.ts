@@ -13,6 +13,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
 }
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
+import { okresBadany } from "@/lib/opinion/okres";
 import { klientLLM } from "@/lib/llm/klient";
 import { fetchAllMetrics } from "@/lib/metrics-fetch";
 import { buildIvRedactPrompt, IV_REDACT_KINDS, type IvRedactKind } from "@/lib/opinion/redact";
@@ -34,7 +35,16 @@ async function main() {
     .from("subanalyses").select("kind,title,status,chapter_no,body_md,data").eq("case_id", c.id);
   const metrics = await fetchAllMetrics(sb, c.id as string);
   const dni = [...new Set(metrics.map((x) => x.session_day).filter(Boolean))].sort() as string[];
-  const period = dni.length ? `${dni[0]} – ${dni[dni.length - 1]}` : null;
+  // ⚠️ OKRES DO PROMPTU BIERZE SIĘ Z POSTANOWIENIA. Wyprowadzony z zakresu metryk
+  // wchodził do prozy jako zdanie „Okres objęty analizą obejmuje przedział od
+  // 4 grudnia 2017 r." — data pierwszej sesji w policzonym pliku, nie granica badania.
+  let period: string | null = null;
+  try {
+    const o = okresBadany((subs ?? []) as never);
+    period = `${o.od} – ${o.do}`;
+  } catch {
+    period = dni.length ? `${dni[0]} – ${dni[dni.length - 1]} (zakres metryk silnika, NIE daty z postanowienia — nie cytuj jako okresu badanego)` : null;
+  }
 
   const arg = (process.argv[3] ?? "").trim();
   const zTabelami = (subs ?? [])
