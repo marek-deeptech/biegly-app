@@ -16,45 +16,79 @@ type Sub = { kind: string; status?: string; body_md?: string; data?: unknown };
 type Metric = { key: string; value: number | null };
 type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
 
+/**
+ * Wyrównanie kolumny do prawej TYLKO wtedy, gdy niesie liczby.
+ *
+ * ⚠️ Wcześniej do prawej szło wszystko poza pierwszą kolumną, więc tytuły raportów
+ * ESPI („Zmiana stanu posiadania akcji…") uciekały na prawą krawędź i czytało się je
+ * gorzej niż kolumnę liczbową. Liczbą nazywamy komórkę, w której poza cyframi,
+ * separatorami i jednostką (%, zł, szt., p.p.) nie ma liter.
+ */
+function kolumnyLiczbowe(t: Tabela): boolean[] {
+  const rows = t.rows ?? [];
+  const ile = Math.max(0, ...rows.map((r) => r.length));
+  return Array.from({ length: ile }, (_, j) => {
+    const wartosci = rows.map((r) => String(r[j] ?? "").trim()).filter((v) => v && v !== "—");
+    if (!wartosci.length) return false;
+    const liczbowe = wartosci.filter((v) => /^[+-]?[\d\s\u00a0.,]+(%|zł|szt\.?|p\.p\.)?$/.test(v));
+    return liczbowe.length / wartosci.length >= 0.8;
+  });
+}
+
 function TabelaSkrot({ t, maks = 6 }: { t: Tabela; maks?: number }) {
   if (!t?.rows?.length) return null;
+  const doPrawej = kolumnyLiczbowe(t);
   return (
-    <div className="mt-2 overflow-x-auto">
-      {t.caption ? <p className="text-[11px] font-medium">{t.caption}</p> : null}
-      <table className="mt-1 w-full border-collapse text-xs">
-        <thead>
-          <tr className="border-b border-ink/30 text-left">
-            {(t.head ?? []).map((h, i) => (
-              <th key={i} className={`py-1 pr-2 font-medium ${i ? "text-right" : ""}`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {t.rows.slice(0, maks).map((r, i) => (
-            <tr key={i} className="border-b border-ink/10">
-              {r.map((v, j) => (
-                <td key={j} className={`py-1 pr-2 tabular-nums ${j ? "text-right" : ""}`}>{String(v).slice(0, 60)}</td>
+    <div className="mt-4">
+      {t.caption ? <p className="mb-1.5 text-xs font-medium text-inksoft">{t.caption}</p> : null}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-ink/40 text-left">
+              {(t.head ?? []).map((h, i) => (
+                <th key={i} className={`py-2 pr-3 text-xs font-semibold uppercase tracking-wide text-inksoft ${doPrawej[i] ? "text-right" : "text-left"}`}>
+                  {h}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {t.rows.slice(0, maks).map((r, i) => (
+              <tr key={i} className="border-b border-ink/10">
+                {r.map((v, j) => (
+                  // Pełna wartość w tytule — skrót w komórce nie może być jedynym,
+                  // co biegły zobaczy; tabele mają kolumny na 100+ znaków.
+                  <td key={j} title={String(v)} className={`py-1.5 pr-3 ${doPrawej[j] ? "text-right tabular-nums" : "text-left"}`}>
+                    {String(v).length > 90 ? `${String(v).slice(0, 90)}…` : String(v)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {t.rows.length > maks ? (
-        <p className="mt-0.5 text-[11px] text-inksoft">… i {t.rows.length - maks} kolejnych wierszy.</p>
+        <p className="mt-1.5 text-xs text-inksoft">… i {t.rows.length - maks} kolejnych wierszy (pełne tabele w opinii).</p>
       ) : null}
     </div>
   );
 }
 
-function Findings({ xs }: { xs?: unknown }) {
-  const lista = Array.isArray(xs) ? (xs as string[]).slice(0, 6) : [];
+function Findings({ xs, maks = 8 }: { xs?: unknown; maks?: number }) {
+  const wszystkie = Array.isArray(xs) ? (xs as string[]) : [];
+  const lista = wszystkie.slice(0, maks);
   if (!lista.length) return null;
   return (
-    <ul className="mt-2 space-y-1 text-xs">
-      {lista.map((f) => (
-        <li key={f} className="border-l-2 border-ink/40 pl-2">{String(f).slice(0, 240)}</li>
-      ))}
-    </ul>
+    <>
+      <ul className="mt-3 space-y-2 text-sm leading-relaxed">
+        {lista.map((f) => (
+          <li key={f} className="border-l-2 border-ink/40 pl-3">{String(f)}</li>
+        ))}
+      </ul>
+      {wszystkie.length > lista.length ? (
+        <p className="mt-1.5 text-xs text-inksoft">… i {wszystkie.length - lista.length} dalszych ustaleń.</p>
+      ) : null}
+    </>
   );
 }
 
@@ -78,20 +112,22 @@ export default function AnalizaIVPanel({
   const ZAKLADKI = [
     {
       id: "Wstęp",
+      krotki: "Przedmiot i emitenci",
       tytul: "Wstęp rozdziału IV (przedmiot, emitenci, system notowań, kontekst)",
       gotowe: Boolean(wg.get("proza_iv")),
     },
     {
       id: "IV.1",
-      tytul: "Ekonomia i otoczenie rynkowe",
+      krotki: "Ekonomia emitenta",
+      tytul: "Analiza ekonomiczno-finansowa i otoczenie rynkowe",
       gotowe: Boolean((dane("ekofin_dane")?.charts as unknown[] | undefined)?.length),
     },
-    { id: "IV.2", tytul: "Raporty ESPI i EBI", gotowe: Boolean(wg.get("espi_events")) },
-    { id: "IV.3", tytul: "Aktywność Grupy", gotowe: tremy.length > 0 || maMetryke("day_grp_") },
-    { id: "IV.4", tytul: "Wash trades", gotowe: maMetryke("wash_") },
-    { id: "IV.5", tytul: "Improper matched orders", gotowe: imoCount != null },
-    { id: "IV.6", tytul: "Layering i spoofing", gotowe: maMetryke("cancel_") || subanalyses.some((s) => /^spoofing_/.test(s.kind)) },
-    { id: "IV.7", tytul: "Relacje podmiotów", gotowe: Boolean(wg.get("powiazania_dane") || wg.get("relacje")) },
+    { id: "IV.2", krotki: "Raporty ESPI i EBI", tytul: "Analiza raportów bieżących w systemach ESPI i EBI", gotowe: Boolean(wg.get("espi_events")) },
+    { id: "IV.3", krotki: "Aktywność Grupy", tytul: "Aktywność podmiotów z Grupy w obrocie", gotowe: tremy.length > 0 || maMetryke("day_grp_") },
+    { id: "IV.4", krotki: "Wash trades", tytul: "Transakcje wzajemne (wash trades)", gotowe: maMetryke("wash_") },
+    { id: "IV.5", krotki: "Dopasowane zlecenia", tytul: "Improper matched orders — zlecenia dopasowane", gotowe: imoCount != null },
+    { id: "IV.6", krotki: "Layering i spoofing", tytul: "Layering i spoofing — warstwy zleceń", gotowe: maMetryke("cancel_") || subanalyses.some((s) => /^spoofing_/.test(s.kind)) },
+    { id: "IV.7", krotki: "Relacje podmiotów", tytul: "Identyfikacja relacji pomiędzy podmiotami z Grupy", gotowe: Boolean(wg.get("powiazania_dane") || wg.get("relacje")) },
   ] as const;
   const [akt, setAkt] = useState<(typeof ZAKLADKI)[number]["id"]>("IV.1");
 
@@ -107,27 +143,40 @@ export default function AnalizaIVPanel({
   const aktywnosc = dane("aktywnosc");
 
   return (
-    <section className="border border-ink/60 bg-card p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">
+    <section className="border border-ink/60 bg-card p-5">
+      <h2 className="text-sm font-semibold uppercase tracking-[0.12em]">
         Krok 4 — rozdział IV opinii (wzorzec: finał HubTech)
       </h2>
-      <div className="mt-3 flex flex-wrap gap-1">
+      {/* ⚠️ NAZWA NA PRZYCISKU, NIE POD SPODEM. Wcześniej przycisk niósł sam numer
+          („IV.2"), a tytuł stał w szarej linijce 11 px pod paskiem — żeby wiedzieć,
+          gdzie są raporty ESPI/EBI, trzeba było przeklikać zakładki albo najechać
+          myszą. Numer został jako kotwica do opinii, nazwa mówi, co jest w środku. */}
+      <div className="mt-4 flex flex-wrap gap-2">
         {ZAKLADKI.map((z) => (
           <button
             key={z.id}
             onClick={() => setAkt(z.id)}
-            className={`rounded-full border px-2.5 py-1 text-[11px] ${
-              akt === z.id ? "border-ink bg-ink text-card" : "border-ink/30 hover:border-ink/60"
+            className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm transition-colors ${
+              akt === z.id
+                ? "border-ink bg-ink text-card"
+                : "border-ink/30 hover:border-ink/70 hover:bg-ink/5"
             }`}
             title={z.tytul}
           >
-            {z.gotowe ? "✅" : "🟡"} {z.id}
+            <span aria-hidden>{z.gotowe ? "✅" : "🟡"}</span>
+            <span className="font-semibold">{z.id}</span>
+            <span className={akt === z.id ? "opacity-90" : "text-inksoft"}>{z.krotki}</span>
           </button>
         ))}
       </div>
-      <p className="mt-1 text-[11px] text-inksoft">
-        {ZAKLADKI.find((z) => z.id === akt)?.tytul}
-      </p>
+      <div className="mt-4 border-b border-line pb-2">
+        <h3 className="text-lg font-semibold leading-tight">
+          {ZAKLADKI.find((z) => z.id === akt)?.id} · {ZAKLADKI.find((z) => z.id === akt)?.tytul}
+        </h3>
+        <p className="mt-1 text-xs text-inksoft">
+          <span aria-hidden>✅</span> moduł ma dane · <span aria-hidden>🟡</span> czeka na wsad albo decyzję biegłego
+        </p>
+      </div>
 
       {/* REJESTR BRAKÓW — widoczny przy KAŻDEJ pod-zakładce, przefiltrowany do niej.
           Braki wyliczają się ze stanu sprawy (lib/opinion/braki-iv.ts), więc pozycja
@@ -139,9 +188,9 @@ export default function AnalizaIVPanel({
         const moje = wszystkie.filter((b) => (akt === "Wstęp" ? b.podrozdzial.includes("wstęp") : b.podrozdzial.startsWith(akt)));
         if (!moje.length) return null;
         return (
-          <div className="mt-3 border-l-2 border-amber-500 pl-3">
-            <p className="text-xs font-medium">Brakujący materiał ({moje.length})</p>
-            <ul className="mt-1 space-y-1.5 text-[11px] text-inksoft">
+          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="text-sm font-semibold">Brakujący materiał ({moje.length})</p>
+            <ul className="mt-2 space-y-2 text-sm text-inksoft">
               {moje.map((b) => (
                 <li key={b.czego}>
                   <span className="text-ink">◐ {b.czego}</span>
@@ -155,10 +204,10 @@ export default function AnalizaIVPanel({
       })()}
 
       {akt === "Wstęp" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           {wg.get("proza_iv") ? (
             <>
-              <p className="text-[11px] text-inksoft">
+              <p className="text-sm text-inksoft">
                 Szkic wstępu rozdziału IV (wzorzec: finał HubTech). Fragmenty w nawiasach
                 kwadratowych to jawne luki do uzupełnienia ze wskazanych źródeł — redakcja
                 i zatwierdzenie w zakładce „Opinia”.
@@ -180,14 +229,14 @@ export default function AnalizaIVPanel({
       )}
 
       {akt === "IV.2" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           {/* NAJPIERW rejestr espi_events (świeży — rośnie z każdym ingestem utrwaleń),
               dopiero potem ustalenia rozdziału `espi`, które są migawką z chwili jego
               generacji. Odwrotna kolejność pokazywała „0 raportów" przy 9 w aktach. */}
           <Findings xs={dane("espi_events")?.findings} />
           <TabelaSkrot t={(dane("espi_events")?.table ?? null) as Tabela} maks={9} />
           <div className="mt-3 border-t border-ink/10 pt-2 text-inksoft">
-            <p className="text-[11px] font-medium text-ink">Rozdział IV.2 (szkielet do redakcji)</p>
+            <p className="text-sm font-semibold text-ink">Rozdział IV.2 (szkielet do redakcji)</p>
             <Findings xs={espi?.findings} />
           </div>
           <TabelaSkrot t={(espi?.table ?? null) as Tabela} />
@@ -206,7 +255,7 @@ export default function AnalizaIVPanel({
       )}
 
       {akt === "IV.3" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           {tremy.length ? (
             <p className="text-inksoft">
               Instrumenty (TREM): {tremy.map((t) => t.kind.replace("trem_", "").toUpperCase()).join(", ")} — pełne
@@ -220,14 +269,14 @@ export default function AnalizaIVPanel({
       )}
 
       {akt === "IV.4" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           <Findings xs={wash?.findings} />
           <TabelaSkrot t={(wash?.table ?? null) as Tabela} />
         </div>
       )}
 
       {akt === "IV.5" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           {imoCount === 0 ? (
             <div className="border-l-2 border-ink/40 pl-3">
               <p className="font-medium">Ustalenie negatywne (jawne zero)</p>
@@ -247,14 +296,14 @@ export default function AnalizaIVPanel({
       )}
 
       {akt === "IV.6" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           <Findings xs={(layering?.findings ?? spoof?.findings) as unknown} />
           <TabelaSkrot t={((layering?.table ?? spoof?.table) ?? null) as Tabela} />
         </div>
       )}
 
       {akt === "IV.7" && (
-        <div className="mt-2 text-xs">
+        <div className="mt-4 text-sm leading-relaxed">
           <Findings xs={(relacje?.findings ?? powiazania?.findings) as unknown} />
           <TabelaSkrot t={((powiazania?.table ?? relacje?.table) ?? null) as Tabela} />
         </div>

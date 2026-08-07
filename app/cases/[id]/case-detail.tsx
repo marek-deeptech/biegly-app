@@ -1320,7 +1320,7 @@ export default function CaseDetail({
         )}
         {analyzeMsg && <p className="mb-3 text-sm text-red-600">{analyzeMsg}</p>}
 
-        <div className="mb-4 flex flex-wrap gap-1 border-b border-line pb-2">
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-line pb-3">
           {([
             ["przeglad", "Przegląd"],
             ["podmioty", "Podmioty"],
@@ -1331,8 +1331,10 @@ export default function CaseDetail({
             <button
               key={k}
               onClick={() => setWskZakladka(k)}
-              className={`border px-2.5 py-1 text-[11px] ${
-                wskZakladka === k ? "border-ink bg-ink text-card" : "border-ink/40 hover:bg-ink/5"
+              className={`rounded-lg border px-3.5 py-2 text-sm transition-colors ${
+                wskZakladka === k
+                  ? "border-ink bg-ink text-card"
+                  : "border-ink/30 hover:border-ink/70 hover:bg-ink/5"
               }`}
             >
               {label}
