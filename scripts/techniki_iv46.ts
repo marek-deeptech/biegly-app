@@ -13,6 +13,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createClient } from "@supabase/supabase-js";
+import { stabilny } from "@/lib/json-stabilny";
 import { okresBadany, opisOkresu, wOknie as wOknieOkresu } from "@/lib/opinion/okres";
 import { fazyKursu, instrumentySprawy, metrykiInstrumentu, tabelaFaz } from "@/lib/opinion/instrumenty";
 import {
@@ -51,8 +52,15 @@ async function zapisz(
   // Prozę zachowujemy i ZNACZAMY jako opisującą poprzednie liczby, żeby biegły
   // wiedział, że wymaga ponownej redakcji.
   const { data: stara } = await sb
-    .from("subanalyses").select("body_md").eq("case_id", id).eq("kind", kind).maybeSingle();
+    .from("subanalyses").select("body_md,data").eq("case_id", id).eq("kind", kind).maybeSingle();
   const proza = String(stara?.body_md ?? "");
+  // Znacznik reaguje na ZMIANĘ liczb, nie na sam fakt przeliczenia. Inaczej każdy bieg
+  // (także powtórzony bez zmian) kazałby redagować rozdziały od nowa — a bramka przed
+  // wydrukiem tonęłaby w alarmach, które nic nie znaczą.
+  const d0 = (stara?.data ?? {}) as { tables?: unknown; findings?: unknown };
+  const bezZmian =
+    stabilny(d0.tables ?? null) === stabilny(tables) &&
+    stabilny(d0.findings ?? null) === stabilny(oOkresie ? [...findings, oOkresie] : findings);
   const { error } = await sb.from("subanalyses").upsert(
     {
       case_id: id, kind, chapter_no, title, status: "szkic", body_md: proza,
@@ -61,7 +69,7 @@ async function zapisz(
       data: {
         table: tables[0] ?? null, tables,
         findings: oOkresie ? [...findings, oOkresie] : findings,
-        proza_sprzed_przeliczenia: proza.length > 0,
+        proza_sprzed_przeliczenia: proza.length > 0 && !bezZmian,
       },
     },
     { onConflict: "case_id,kind" },

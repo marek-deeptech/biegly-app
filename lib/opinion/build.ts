@@ -1945,11 +1945,21 @@ function buildAttachmentList(stored: StoredSub[]): string[] {
   const ipPairs = ip?.data?.table?.rows?.length ?? 0;
   if (ipPairs)
     out.push(`Wykaz powiązań — zbieżność adresów IP (${ipPairs} par użytkowników dzielących logowania z tych samych adresów).`);
-  const sp = stored.find((s) => s.kind === "spoofing_analysis");
-  const spSess = (sp?.data as unknown as { analysis?: { totals?: { sessions_flagged?: number } } } | null)?.analysis?.totals
-    ?.sessions_flagged;
-  if (sp && spSess != null)
-    out.push(`Raport „Spoofing & Layering" — analiza arkusza zleceń (${spSess} sesji ze znamionami techniki), z kolorowanymi sekwencjami zleceń i wykresami.`);
+  // Raport per instrument: sprawa wieloinstrumentowa ma osobną analizę każdego waloru.
+  const spoof = stored.filter((s) => /^spoofing_/.test(s.kind) && s.kind !== "spoofing_analysis");
+  const zrodlaSp = spoof.length ? spoof : stored.filter((s) => s.kind === "spoofing_analysis");
+  const opisy = zrodlaSp
+    .map((s) => {
+      const a = (s.data as unknown as { analysis?: { totals?: { sessions_flagged?: number }; examined?: { sessions?: number } } } | null)?.analysis;
+      if (!a?.totals || a.totals.sessions_flagged == null) return null;
+      const walor = s.kind === "spoofing_analysis" ? "" : `${s.kind.slice("spoofing_".length).toUpperCase()}: `;
+      // Podstawa badania obok wyniku — „0 sesji" bez niej czyta się jak brak materiału.
+      const baza = a.examined?.sessions != null ? ` z ${a.examined.sessions} zbadanych` : "";
+      return `${walor}${a.totals.sessions_flagged} sesji ze znamionami techniki${baza}`;
+    })
+    .filter((x): x is string => !!x);
+  if (opisy.length)
+    out.push(`Raport „Spoofing & Layering" — analiza arkusza zleceń (${opisy.join("; ")}), z kolorowanymi sekwencjami zleceń i wykresami.`);
   // Graf powiązań — zawsze dostępny (generowany z rostera Grupy, KRS i obrotu UTP).
   out.push("Graf powiązań kapitałowo-osobowych (podmioty Grupy, beneficjenci/organy, obrót wewnątrzgrupowy) — źródła: KRS, roster Grupy, dane UTP.");
   // Analiza OSINT (graf + ustalenia z sieci) — osobny załącznik, gdy przeprowadzona.
@@ -2349,11 +2359,18 @@ export function buildOpinion(
     type SpoofDayLite = {
       day: string; manip?: boolean; cancelled_buy?: number; declared_buy?: number;
       cancel_ratio?: number; sell_exec_vol?: number; layer_orders?: number; series?: SessionSeries;
+      walor?: string;
     };
-    const spoofDays =
-      ((stored.find((s) => s.kind === "spoofing_analysis")?.data as {
-        analysis?: { days?: SpoofDayLite[] };
-      } | null)?.analysis?.days) ?? [];
+    // ⚠️ ŹRÓDŁEM SĄ ANALIZY PER INSTRUMENT (`spoofing_<ticker>`). Zbiorczy
+    // `spoofing_analysis` pochodzi sprzed rozdzielenia walorów i miesza sesje dwóch
+    // arkuszy zleceń; zostaje wyłącznie jako zapas dla spraw jednoinstrumentowych.
+    const spoofSubs = stored.filter((s) => /^spoofing_/.test(s.kind) && s.kind !== "spoofing_analysis");
+    const zrodla = spoofSubs.length ? spoofSubs : stored.filter((s) => s.kind === "spoofing_analysis");
+    const spoofDays: SpoofDayLite[] = zrodla.flatMap((s) => {
+      const walor = s.kind === "spoofing_analysis" ? "" : s.kind.slice("spoofing_".length).toUpperCase();
+      const dni = ((s.data as { analysis?: { days?: SpoofDayLite[] } } | null)?.analysis?.days) ?? [];
+      return dni.map((d) => ({ ...d, walor }));
+    });
     if (layCh && layCh.status !== "todo" && spoofDays.length) {
       const pl0 = (n: number | null | undefined) => (n == null ? "—" : Math.round(n).toLocaleString("pl-PL"));
       const withSeries = spoofDays
@@ -2363,13 +2380,13 @@ export function buildOpinion(
       const extra: Placeholder[] = withSeries.map((d) => ({
         kind: "wykres" as const,
         name:
-          `Sesja ${d.day} — zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż), saldo oraz BestBid/BestAsk ` +
+          `Sesja ${d.day}${d.walor ? ` — ${d.walor}` : ""} — zgłoszony do arkusza wolumen zleceń Grupy (kupno/sprzedaż), saldo oraz BestBid/BestAsk ` +
           `(silnik dopasowań, faza ciągła); anulowane kupno ${pl0(d.cancelled_buy)} szt ` +
           `(${((d.cancel_ratio ?? 0) * 100).toFixed(1).replace(".", ",")}% zadeklarowanego), ` +
           `sprzedaż zrealizowana ${pl0(d.sell_exec_vol)} szt, warstw ${d.layer_orders ?? 0}`,
         svg: sessionChartSvg(
           d.series!, d.day, d.series!.bid, d.series!.ask,
-          `Wykres A — sesja ${d.day}: aktywność arkusza zleceń Grupy i kwotowania (matching engine)`,
+          `Wykres A — sesja ${d.day}${d.walor ? ` (${d.walor})` : ""}: aktywność arkusza zleceń Grupy i kwotowania (matching engine)`,
         ),
       }));
       if (extra.length) layCh.placeholders = [...(layCh.placeholders ?? []), ...extra];

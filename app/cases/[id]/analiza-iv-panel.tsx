@@ -90,7 +90,7 @@ export default function AnalizaIVPanel({
     { id: "IV.3", tytul: "Aktywność Grupy", gotowe: tremy.length > 0 || maMetryke("day_grp_") },
     { id: "IV.4", tytul: "Wash trades", gotowe: maMetryke("wash_") },
     { id: "IV.5", tytul: "Improper matched orders", gotowe: imoCount != null },
-    { id: "IV.6", tytul: "Layering i spoofing", gotowe: maMetryke("cancel_") || Boolean(wg.get("spoofing_analysis")) },
+    { id: "IV.6", tytul: "Layering i spoofing", gotowe: maMetryke("cancel_") || subanalyses.some((s) => /^spoofing_/.test(s.kind)) },
     { id: "IV.7", tytul: "Relacje podmiotów", gotowe: Boolean(wg.get("powiazania_dane") || wg.get("relacje")) },
   ] as const;
   const [akt, setAkt] = useState<(typeof ZAKLADKI)[number]["id"]>("IV.1");
@@ -98,7 +98,10 @@ export default function AnalizaIVPanel({
   const espi = dane("espi");
   const wash = dane("wash");
   const layering = dane("layering");
-  const spoof = dane("spoofing_analysis");
+  // Analizy zleceń per instrument (`spoofing_<ticker>`); zbiorcza tylko dla spraw
+  // jednoinstrumentowych — patrz lib/opinion/instrumenty.ts.
+  const spoofy = subanalyses.filter((s) => /^spoofing_/.test(s.kind) && s.kind !== "spoofing_analysis");
+  const spoof = (spoofy.length ? spoofy[0].data : dane("spoofing_analysis")) as Record<string, unknown> | null;
   const relacje = dane("relacje");
   const powiazania = dane("powiazania_dane");
   const aktywnosc = dane("aktywnosc");

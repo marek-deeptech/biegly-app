@@ -87,3 +87,25 @@ def test_owner_map_required_for_group_attribution():
     orders, _ = load_knf_orders(_xlsx(ROWS), [CSY, RSY])
     res = detect_layering(orders, [], ["zalewski", "wieczorek", "omegia"])
     assert res["totals"]["sessions_flagged"] == 0
+
+
+def test_examined_base_survives_zero_detection():
+    """Zerowa detekcja musi nieść PODSTAWĘ badania.
+
+    ⚠️ `totals` sumuje wyłącznie po sesjach oflagowanych, więc przy braku detekcji cały
+    blok to zera. W opinii „0 szt zleceń kupna" czyta się jak „Grupa nie składała zleceń",
+    podczas gdy w sprawie ZASTAL dla RSY było 279 zleceń kupna na 124 547 szt — po prostu
+    żadna sesja nie spełniła łącznie kryteriów. Rozróżnienie „brak zjawiska" / „brak
+    materiału" jest dla opinii rozstrzygające.
+    """
+    orders, owner_map = load_knf_orders(_xlsx(ROWS), [CSY, RSY])
+    # Próg wyżej niż cały zadeklarowany wolumen — detekcja pusta z definicji.
+    res = detect_layering(orders, [], ["zalewski", "wieczorek", "omegia"],
+                          min_cancel_vol=10_000_000, owner_map=owner_map)
+    assert res["totals"]["sessions_flagged"] == 0
+    assert res["totals"]["declared_buy_total"] == 0, "sumy liczą się po sesjach oflagowanych"
+    e = res["examined"]
+    assert e["sessions"] >= 1
+    assert e["declared_buy"] == 50000, "podstawa badania widzi zlecenia mimo zerowej detekcji"
+    assert e["cancelled_buy"] == 45000
+    assert e["layer_orders"] == 2

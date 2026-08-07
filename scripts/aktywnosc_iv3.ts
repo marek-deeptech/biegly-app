@@ -14,6 +14,7 @@ for (const line of readFileSync(join(ROOT, ".env.local"), "utf8").split("\n")) {
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createClient } from "@supabase/supabase-js";
+import { stabilny } from "@/lib/json-stabilny";
 import { okresBadany, opisOkresu, wOknie as wOknieOkresu } from "@/lib/opinion/okres";
 import { instrumentySprawy, metrykiInstrumentu } from "@/lib/opinion/instrumenty";
 import {
@@ -112,8 +113,13 @@ async function main() {
 
   // ⚠️ Proza przeżywa przeliczenie — patrz komentarz w scripts/techniki_iv46.ts.
   const { data: stara } = await sb
-    .from("subanalyses").select("body_md").eq("case_id", c.id).eq("kind", "aktywnosc").maybeSingle();
+    .from("subanalyses").select("body_md,data").eq("case_id", c.id).eq("kind", "aktywnosc").maybeSingle();
   const proza = String(stara?.body_md ?? "");
+  // Znacznik tylko przy ZMIANIE liczb — patrz komentarz w scripts/techniki_iv46.ts.
+  const d0 = (stara?.data ?? {}) as { tables?: unknown; findings?: unknown };
+  const bezZmian =
+    stabilny(d0.tables ?? null) === stabilny(tables) &&
+    stabilny(d0.findings ?? null) === stabilny(findings);
   const { error } = await sb.from("subanalyses").upsert(
     {
       case_id: c.id,
@@ -129,7 +135,7 @@ async function main() {
         sesjeIstotneWgInstrumentu: sesjeWgInstrumentu,
         instrumenty: instrumenty.map((i) => i.label),
         progi: PROGI_DOMYSLNE,
-        proza_sprzed_przeliczenia: proza.length > 0,
+        proza_sprzed_przeliczenia: proza.length > 0 && !bezZmian,
         okno: { od: okres.od, do: okres.do, zrodlo: okres.zrodlo },
       },
     },
