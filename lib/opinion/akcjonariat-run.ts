@@ -410,16 +410,23 @@ export async function wykonajZawiadomienia(
         /ZAWIAD|ESPI|EBI/i.test(String(d.doc_type)) ||
         /zawiadomien|stan\w* posiadan|art\.?\s*69|zej[śs]ci\w* z prog|znaczn\w+ pakiet/i.test(nazwaPliku(d)),
     );
-  // Ten sam raport bywa w aktach dwa razy: jako PDF i jako tekst pobrany z serwisu.
-  // Klucz to numer węzła ESPI z nazwy pliku — bez tego zdarzenie liczy się podwójnie.
-  const widziane = new Set<string>();
-  const bezPowtorzen = wszystkie.filter((d) => {
-    const n = nazwaPliku(d);
-    const klucz = (n.match(/node[_-]?(\d+)/i) ?? [])[1] ?? n.toLowerCase();
-    if (widziane.has(klucz)) return false;
-    widziane.add(klucz);
-    return true;
-  });
+  // Ten sam dokument bywa w aktach kilka razy: jako skan i jako jego wersja po OCR
+  // (`.ocr.pdf`), albo jako PDF z akt i tekst pobrany z serwisu. Klucz to numer węzła
+  // ESPI z nazwy, a gdy go nie ma — nazwa bez rozszerzenia i bez sufiksu `.ocr`.
+  // ⚠️ Z pary skan/OCR wybieramy WERSJĘ PO OCR: oryginał nie ma warstwy tekstowej,
+  // więc wygrana oryginału oznaczałaby cichą utratę treści, którą właśnie odzyskaliśmy.
+  const kluczDok = (d: { rel_path: string }) => {
+    const n = nazwaPliku(d).toLowerCase();
+    return (n.match(/node[_-]?(\d+)/i) ?? [])[1] ?? n.replace(/\.ocr\.pdf$/, "").replace(/\.(pdf|txt)$/, "");
+  };
+  const najlepsze = new Map<string, (typeof wszystkie)[number]>();
+  for (const d of wszystkie) {
+    const k = kluczDok(d);
+    const stary = najlepsze.get(k);
+    const poOcr = (x: { rel_path: string }) => /\.ocr\.pdf$/i.test(nazwaPliku(x));
+    if (!stary || (poOcr(d) && !poOcr(stary))) najlepsze.set(k, d);
+  }
+  const bezPowtorzen = [...najlepsze.values()];
   const kandydaci = bezPowtorzen.slice(0, 60);
   const pominietoNadLimit = bezPowtorzen.length - kandydaci.length;
   const powtorzenia = wszystkie.length - bezPowtorzen.length;
