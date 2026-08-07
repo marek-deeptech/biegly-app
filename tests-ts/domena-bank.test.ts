@@ -184,9 +184,13 @@ describe("rejestr pakietów dziedzinowych", () => {
     // ZASTAL 2026-08: analiza ekonomiczno-finansowa jako krok 4 po Analizie
     // liczbowej). Krok NIE istnieje w pakiecie bankowym: tam rubryka ekon-fin
     // żyje w kroku „Analiza" i dokłada się jej wymogami tej dziedziny.
-    expect(gpw.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "ekonomia", "warsztat", "opinion"]);
+    expect(gpw.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "ekonomia", "akcjonariat", "warsztat", "opinion"]);
     expect(bank.map((k) => k.klucz)).toEqual(["overview", "files", "analysis", "warsztat", "opinion"]);
     expect(bank.some((k) => k.klucz === "ekonomia")).toBe(false);
+    // Historia akcjonariatu też jest krokiem WYŁĄCZNIE manipulacyjnym: w sprawie
+    // bankowej nie ma emitenta giełdowego, którego stan posiadania dałoby się śledzić.
+    expect(bank.some((k) => k.klucz === "akcjonariat")).toBe(false);
+    expect(gpw.findIndex((k) => k.klucz === "akcjonariat")).toBeLessThan(gpw.findIndex((k) => k.klucz === "warsztat"));
     // …i inne etykiety oraz warunki ukończenia dla wspólnych kroków 3 i „warsztat"
     expect(gpw[2].label).not.toBe(bank[2].label);
     // Etykiety kroku 3 są PRZYPIĘTE: „Wskaźniki" w manipulacjach (nazwa od biegłego,

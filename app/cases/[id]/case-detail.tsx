@@ -20,6 +20,7 @@ import OpinionView from "./opinion-view";
 import CompletenessPanel from "./completeness-panel";
 import { packDla } from "@/lib/domain";
 import AnalizaEfPanel from "./analiza-ef-panel";
+import AkcjonariatPanel from "./akcjonariat-panel";
 import AnalizaIVPanel from "./analiza-iv-panel";
 import WskaznikiBankPanel from "./wskazniki-bank-panel";
 import WarsztatBankPanel from "./warsztat-bank-panel";
@@ -139,7 +140,7 @@ export default function CaseDetail({
   const [skipped, setSkipped] = useState<{ name: string; reason: string }[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
-  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "ekonomia" | "warsztat" | "opinion">("overview");
+  const [tab, setTab] = useState<"overview" | "files" | "analysis" | "ekonomia" | "akcjonariat" | "warsztat" | "opinion">("overview");
   const [docTypeFilter, setDocTypeFilter] = useState("");
   const [authorFilter, setAuthorFilter] = useState("");
   const [provFilter, setProvFilter] = useState("");
@@ -1237,6 +1238,13 @@ export default function CaseDetail({
           metrics={metrics}
           onDone={() => router.refresh()}
         />
+      )}
+
+      {/* KROK 5 GPW — historia stanu posiadania. Tło dla oceny technik: ta sama
+          transakcja czyta się inaczej, gdy podmiot budował pakiet, a inaczej, gdy
+          z niego wychodził. Krok nie istnieje w pakiecie bankowym. */}
+      {tab === "akcjonariat" && !dziedzinaBankowa && (
+        <AkcjonariatPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
       )}
 
       {tab === "analysis" && !dziedzinaBankowa && (
