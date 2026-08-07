@@ -1220,7 +1220,9 @@ export default function CaseDetail({
           (wzorzec MBR V.A–C i V.K) → Lista wskaźników. Analiza ekonomiczno-
           -finansowa prowadzi podzakładki wg wzorca MBR; dawny Warsztat dowodowy
           żyje w niej jako podzakładka „Proces i limity". */}
-      {tab === "wiedza" && dziedzinaBankowa && <WiedzaPanel dziedzina={caseRow.typ ?? "ryzyko_bankowe"} />}
+      {tab === "wiedza" && dziedzinaBankowa && (
+        <WiedzaPanel dziedzina={caseRow.typ ?? "ryzyko_bankowe"} subanalyses={subanalyses} />
+      )}
       {tab === "prawo" && dziedzinaBankowa && (
         <PrawoPanel caseId={caseRow.id} subanalyses={subanalyses} onDone={() => router.refresh()} />
       )}
