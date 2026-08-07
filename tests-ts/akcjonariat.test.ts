@@ -22,6 +22,7 @@ import {
   tabelaDni,
   tabelaEmisji,
   tabelaHistorii,
+  tabeleHistoriiWgEmitenta,
   tabelaRozbieznosci,
   uwagiZrodel,
   type ZmianaAkcjonariatu,
@@ -224,5 +225,66 @@ describe("tożsamość emitenta pod dawną firmą", () => {
 
   it("brak nazwy w dokumencie nie odrzuca pozycji (nie zgadujemy)", () => {
     expect(toSamaSpolka("", ["Hub.Tech"])).toBe(true);
+  });
+});
+
+describe("dwóch emitentów w jednej sprawie", () => {
+  /**
+   * ⚠️ REGRESJA ZE SPRAWY ZASTAL. Pierwszy bieg położył w JEDNEJ tabeli akcjonariuszy
+   * RSY (CSY S.A. — 32,98 %) i akcjonariuszy CSY (ZASTAL S.A. — 94,16 %). Ten sam
+   * podmiot jest w jednej spółce akcjonariuszem, a w drugiej emitentem, więc wspólne
+   * zestawienie sugeruje ciąg zmian tam, gdzie mowa o dwóch strukturach właścicielskich.
+   */
+  const zdarzenia = kwalifikuj(
+    [
+      { data: "2017-09-29", akcjonariusz: "CSY S.A.", akcje: 3661291, akcjeZmiana: 779791, procent: 32.98,
+        procentZmiana: 7.02, glosy: null, glosyZmiana: null, zrodlo: "zawiadomienie", emitentAkcji: "RSY S.A." },
+      { data: "2017-12-31", akcjonariusz: "ZASTAL S.A.", akcje: 30508128, akcjeZmiana: null, procent: 94.16,
+        procentZmiana: null, glosy: null, glosyZmiana: null, zrodlo: "sprawozdanie", emitentAkcji: "CSY S.A." },
+    ] as ZmianaAkcjonariatu[],
+    [],
+  );
+
+  it("każdy emitent dostaje własną tabelę z nazwą w podpisie", () => {
+    const t = tabeleHistoriiWgEmitenta(zdarzenia);
+    expect(t).toHaveLength(2);
+    expect(t.map((x) => x.caption.match(/akcji ([^—]+)/)?.[1].trim())).toEqual(["CSY S.A.", "RSY S.A."]);
+    expect(t.find((x) => x.caption.includes("RSY"))!.rows).toHaveLength(1);
+    expect(t.find((x) => x.caption.includes("RSY"))!.rows[0][1]).toBe("CSY S.A.");
+  });
+
+  it("jeden emitent = jedna tabela (sprawa jednoinstrumentowa bez zmian)", () => {
+    const jeden = zdarzenia.filter((z) => z.emitentAkcji === "RSY S.A.");
+    expect(tabeleHistoriiWgEmitenta(jeden)).toHaveLength(1);
+  });
+
+  it("zdarzenia bez ustalonego emitenta idą osobno i są tak podpisane", () => {
+    const bez = kwalifikuj(
+      [{ data: "2018-01-02", akcjonariusz: "X", akcje: 1, akcjeZmiana: 1, procent: null, procentZmiana: null,
+         glosy: null, glosyZmiana: null, zrodlo: "sprawozdanie" }] as ZmianaAkcjonariatu[], [],
+    );
+    const t = tabeleHistoriiWgEmitenta([...zdarzenia, ...bez]);
+    expect(t.some((x) => x.caption.includes("emitenta nie ustalono"))).toBe(true);
+  });
+
+  it("stan bez wcześniejszego zdarzenia NIE jest rozbieżnością źródeł", () => {
+    // Sprawozdanie bywa pierwszym ujęciem akcjonariusza; brak punktu odniesienia
+    // to milczenie drugiego źródła, nie sprzeczność.
+    const spr = [{ data: "2017-12-31", akcjonariusz: "Pozostali", akcje: 614000, akcjeZmiana: null, procent: 5.54,
+      procentZmiana: null, glosy: null, glosyZmiana: null, zrodlo: "sprawozdanie", emitentAkcji: "RSY S.A." }] as ZmianaAkcjonariatu[];
+    expect(porownajZeSprawozdaniem([], spr)).toEqual([]);
+  });
+
+  it("rozbieżność liczy się TYLKO w obrębie akcji tego samego emitenta", () => {
+    const zawiad = [{ data: "2017-09-29", akcjonariusz: "ZASTAL S.A.", akcje: 6824709, akcjeZmiana: -779791,
+      procent: 61.48, procentZmiana: -7.03, glosy: null, glosyZmiana: null, zrodlo: "zawiadomienie",
+      emitentAkcji: "RSY S.A." }] as ZmianaAkcjonariatu[];
+    // stan ZASTAL-u w akcjach CSY nie ma nic wspólnego z jego pakietem w RSY
+    const sprCsy = [{ data: "2017-12-31", akcjonariusz: "ZASTAL S.A.", akcje: 30508128, akcjeZmiana: null,
+      procent: 94.16, procentZmiana: null, glosy: null, glosyZmiana: null, zrodlo: "sprawozdanie",
+      emitentAkcji: "CSY S.A." }] as ZmianaAkcjonariatu[];
+    expect(porownajZeSprawozdaniem(zawiad, sprCsy)).toEqual([]);
+    const sprRsy = [{ ...sprCsy[0], akcje: 6800000, emitentAkcji: "RSY S.A." }];
+    expect(porownajZeSprawozdaniem(zawiad, sprRsy)).toHaveLength(1);
   });
 });

@@ -1,15 +1,19 @@
 /**
  * Bieg kroku „Historia zmian w akcjonariacie" — wspólny dla trasy HTTP i skryptów.
  *
- * Dwa wejścia, bo źródła są różnej natury:
- *  • `wykonajBankier` — tabela HTML, czytana deterministycznie (bez modelu);
- *  • `wykonajSprawozdania` — proza sprawozdania, czytana modelem, ale model
- *    WYŁĄCZNIE przepisuje wielkości z dokumentu (patrz komentarz przy SYSTEM).
+ * Trzy źródła różnej natury i różnej wagi dowodowej, plus złożenie:
+ *  • `wykonajZawiadomienia` — zawiadomienia z art. 69 (ŹRÓDŁO PIERWOTNE), model
+ *    czyta stan przed i po, RÓŻNICĘ liczy kod;
+ *  • `wykonajSprawozdania` — stan na dzień bilansowy z prozy sprawozdania zarządu;
+ *  • `wykonajBankier` — tabela HTML serwisu, czytana deterministycznie (bez modelu);
+ *    dla spółek WYKLUCZONYCH Z OBROTU serwis nie prowadzi strony i to źródło odpada;
+ *  • `zlozAkcjonariat` — rozdział z tego, co jest.
  *
  * Kwalifikacja zdarzeń i zestawienie źródeł zawsze w kodzie: lib/opinion/akcjonariat.ts.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
+import { ostatniJson } from "@/lib/llm/json";
 import { klientLLM } from "@/lib/llm/klient";
 import { pdfText } from "@/lib/intake/pdf";
 import {
@@ -20,7 +24,8 @@ import {
   porownajZeSprawozdaniem,
   tabelaDni,
   tabelaEmisji,
-  tabelaHistorii,
+  tabeleHistoriiWgEmitenta,
+  emitenciZdarzen,
   tabelaRozbieznosci,
   toSamaSpolka,
   uwagiZrodel,
@@ -43,7 +48,11 @@ export async function pobierzStroneBankiera(ticker: string): Promise<string> {
   return r.text();
 }
 
-/** Krok główny: historia z serwisu + zestawienie ze sprawozdaniami, jeśli już odczytane. */
+/**
+ * Pobór z serwisu — zapisuje WYŁĄCZNIE dane źródłowe, po czym składa rozdział.
+ * Rozdzielenie „źródło" od „złożenia" jest konieczne, bo dla spółki wykluczonej
+ * z obrotu serwisu nie ma wcale, a rozdział i tak musi powstać z dokumentów.
+ */
 export async function wykonajBankier(
   sb: SupabaseClient,
   caseId: string,
@@ -52,25 +61,69 @@ export async function wykonajBankier(
   const html = cfg.html ?? (cfg.ticker ? await pobierzStroneBankiera(cfg.ticker) : null);
   if (!html) return { ok: false, powod: "podaj symbol spółki w serwisie Bankier.pl albo zapisaną stronę" };
 
-  const historia = parsujHistorieBankier(html);
+  const zmiany = parsujHistorieBankier(html);
   const emisje = parsujEmisjeBankier(html);
-  if (!historia.length)
+  if (!zmiany.length)
     return {
       ok: false,
       powod:
-        "nie znaleziono tabeli „Historia zmian w akcjonariacie” — sprawdź symbol spółki; " +
-        "jeśli tabela jest na stronie, serwis zmienił jej układ i parser wymaga poprawki",
+        "nie znaleziono tabeli „Historia zmian w akcjonariacie”. Serwis nie prowadzi strony spółek " +
+        "WYKLUCZONYCH Z OBROTU — dla takiego emitenta historię trzeba złożyć z zawiadomień o stanie " +
+        "posiadania i sprawozdań zarządu z akt. Jeśli spółka jest notowana, sprawdź symbol.",
     };
 
-  const { data: subs } = await sb.from("subanalyses").select("kind,data").eq("case_id", caseId);
-  const zeSprawozdan = (((subs ?? []).find((s) => s.kind === "akcjonariat_sprawozdania")?.data as
-    | { zmiany?: ZmianaAkcjonariatu[] }
-    | null)?.zmiany ?? []) as ZmianaAkcjonariatu[];
+  const url = cfg.url ?? (cfg.ticker ? URL_BANKIER(cfg.ticker) : "strona zapisana lokalnie");
+  const { error } = await sb.from("subanalyses").upsert(
+    {
+      case_id: caseId,
+      kind: "akcjonariat_bankier",
+      chapter_no: "IV",
+      title: "Historia akcjonariatu wg Bankier.pl (dane źródłowe)",
+      status: "szkic",
+      body_md: "",
+      data: { zmiany, emisje, url, ticker: cfg.ticker ?? null, pobrano: new Date().toISOString().slice(0, 10) },
+    },
+    { onConflict: "case_id,kind" },
+  );
+  if (error) return { ok: false, powod: `zapis: ${error.message}` };
+  return zlozAkcjonariat(sb, caseId, { emitent: cfg.emitent });
+}
 
-  const zdarzenia = kwalifikuj([...historia, ...zeSprawozdan], emisje);
-  const rozbieznosci = porownajZeSprawozdaniem(historia, zeSprawozdan);
+/**
+ * Złożenie rozdziału z WSZYSTKICH dostępnych źródeł: serwisu (jeśli był),
+ * zawiadomień o stanie posiadania i sprawozdań opisowych zarządu.
+ */
+export async function zlozAkcjonariat(
+  sb: SupabaseClient,
+  caseId: string,
+  cfg: { emitent?: string },
+): Promise<Wynik> {
+  const { data: subs } = await sb.from("subanalyses").select("kind,data").eq("case_id", caseId);
+  const zrodlo = (kind: string) => (subs ?? []).find((s) => s.kind === kind)?.data as
+    | { zmiany?: ZmianaAkcjonariatu[]; emisje?: Emisja[]; url?: string; pobrano?: string }
+    | undefined;
+  const bank = zrodlo("akcjonariat_bankier");
+  const zZawiadomien = (zrodlo("akcjonariat_zawiadomienia")?.zmiany ?? []) as ZmianaAkcjonariatu[];
+  const zeSprawozdan = (zrodlo("akcjonariat_sprawozdania")?.zmiany ?? []) as ZmianaAkcjonariatu[];
+  const zSerwisu = (bank?.zmiany ?? []) as ZmianaAkcjonariatu[];
+  const emisje = (bank?.emisje ?? []) as Emisja[];
+
+  const wszystkie = [...zSerwisu, ...zZawiadomien, ...zeSprawozdan];
+  if (!wszystkie.length)
+    return {
+      ok: false,
+      powod:
+        "żadne ze źródeł nie dostarczyło danych: uruchom pobranie z Bankier.pl (spółka notowana) " +
+        "albo odczyt zawiadomień o stanie posiadania i sprawozdań zarządu z akt",
+    };
+
+  const zdarzenia = kwalifikuj(wszystkie, emisje);
+  // Stan ze sprawozdania porównujemy z ciągiem zdarzeń datowanych — obojętne,
+  // czy pochodzą z serwisu, czy z zawiadomień.
+  const podstawa = [...zSerwisu, ...zZawiadomien];
+  const rozbieznosci = porownajZeSprawozdaniem(podstawa, zeSprawozdan);
   const tables = [
-    tabelaHistorii(zdarzenia, cfg.emitent || undefined),
+    ...tabeleHistoriiWgEmitenta(zdarzenia),
     tabelaDni(zdarzenia),
     tabelaEmisji(emisje),
     tabelaRozbieznosci(rozbieznosci),
@@ -78,10 +131,21 @@ export async function wykonajBankier(
 
   const dni = [...new Set(zdarzenia.filter((z) => z.kwalifikacja !== "bez zmiany").map((z) => z.data))].sort();
   const ile = (k: string) => zdarzenia.filter((z) => z.kwalifikacja === k).length;
+  const wgZrodla = (z: ZmianaAkcjonariatu["zrodlo"]) => zdarzenia.filter((x) => x.zrodlo === z).length;
   const findings = [
     `Odtworzono ${zdarzenia.length} zmian stanu posiadania w ${dni.length} dniach, w okresie ` +
       `${dni[0]} – ${dni[dni.length - 1]}; podmiotów w historii akcjonariatu: ` +
       `${new Set(zdarzenia.map((z) => z.akcjonariusz)).size}.`,
+    ...(emitenciZdarzen(zdarzenia).length > 1
+      ? [
+          `Zestawienie obejmuje akcje ${emitenciZdarzen(zdarzenia).length} emitentów ` +
+            `(${emitenciZdarzen(zdarzenia).join(", ")}); historię każdego z nich przedstawiono w ODRĘBNEJ tabeli, ` +
+            "ponieważ są to niezależne struktury właścicielskie, a ten sam podmiot bywa w jednej akcjonariuszem, " +
+            "a w drugiej emitentem.",
+        ]
+      : []),
+    `Źródła zdarzeń: zawiadomienia o stanie posiadania ${wgZrodla("zawiadomienie")}, ` +
+      `serwis Bankier.pl ${wgZrodla("bankier")}, sprawozdania opisowe zarządu ${wgZrodla("sprawozdanie")}.`,
     `Kwalifikacja zdarzeń: nabycia ${ile("nabycie")}, zbycia ${ile("zbycie")}, objęcia nowych emisji ` +
       `${ile("objęcie emisji")}, rozwodnienia wskutek emisji ${ile("rozwodnienie")}, ` +
       `wymagających wyjaśnienia ${ile("nieokreślone")}.`,
@@ -95,11 +159,17 @@ export async function wykonajBankier(
       : []),
     ...(rozbieznosci.length
       ? [
-          "Stan wykazany w sprawozdaniach opisowych zarządu różni się od stanu wynikającego z serwisu " +
-            `w ${rozbieznosci.length} przypadkach — zestawienie w tabeli rozbieżności.`,
+          "Stan wykazany w sprawozdaniach opisowych zarządu różni się od stanu wynikającego z pozostałych " +
+            `źródeł w ${rozbieznosci.length} przypadkach — zestawienie w tabeli rozbieżności.`,
         ]
       : []),
     ...uwagiZrodel(zdarzenia),
+  ];
+
+  const zrodla = [
+    ...(zSerwisu.length ? [`Bankier.pl — historia zmian w akcjonariacie i emisje kapitału (${bank?.url}, pobrano ${bank?.pobrano})`] : []),
+    ...(zZawiadomien.length ? ["Zawiadomienia o stanie posiadania (art. 69 ustawy o ofercie publicznej) — akta sprawy"] : []),
+    ...(zeSprawozdan.length ? ["Sprawozdania opisowe zarządu z działalności spółki — akta sprawy"] : []),
   ];
 
   const { error } = await sb.from("subanalyses").upsert(
@@ -112,17 +182,9 @@ export async function wykonajBankier(
       body_md: "",
       data: {
         table: tables[0] ?? null,
-        tables,
-        findings,
-        zdarzenia,
-        emisje,
-        rozbieznosci,
+        tables, findings, zdarzenia, emisje, rozbieznosci,
         emitent: cfg.emitent ?? null,
-        ticker: cfg.ticker ?? null,
-        zrodla: [
-          `Bankier.pl — historia zmian w akcjonariacie i emisje kapitału (${cfg.url ?? (cfg.ticker ? URL_BANKIER(cfg.ticker) : "strona zapisana lokalnie")}, pobrano ${new Date().toISOString().slice(0, 10)})`,
-          ...(zeSprawozdan.length ? ["Sprawozdania opisowe zarządu z działalności spółki (akta sprawy)"] : []),
-        ],
+        zrodla,
       },
     },
     { onConflict: "case_id,kind" },
@@ -135,7 +197,7 @@ export async function wykonajBankier(
       `Odtworzono ${zdarzenia.length} zmian w ${dni.length} dniach (${dni[0]} – ${dni[dni.length - 1]}): ` +
       `nabycia ${ile("nabycie")}, zbycia ${ile("zbycie")}, objęcia emisji ${ile("objęcie emisji")}, ` +
       `rozwodnienia ${ile("rozwodnienie")}` +
-      (zeSprawozdan.length ? `; rozbieżności ze sprawozdaniami: ${rozbieznosci.length}` : "; bez danych ze sprawozdań zarządu"),
+      (rozbieznosci.length ? `; rozbieżności ze sprawozdaniami: ${rozbieznosci.length}` : ""),
   };
 }
 
@@ -179,9 +241,11 @@ export async function wykonajSprawozdania(
 
   const { data: docs } = await sb
     .from("documents").select("rel_path,storage_path").eq("case_id", caseId).limit(3000);
+  // Nazwa PLIKU, nie ścieżka — patrz komentarz przy doborze zawiadomień.
+  const nazwaPliku = (d: { rel_path: string }) => String(d.rel_path).split("/").pop() ?? "";
   const kandydaci = (docs ?? [])
     .filter((d) => d.storage_path && /\.pdf$/i.test(d.rel_path) && !/\.pobrane|loader|cookie/i.test(d.rel_path))
-    .filter((d) => /sprawozdan|zarzad|zarząd|dzialalnos|działalnoś|roczn/i.test(d.rel_path))
+    .filter((d) => /sprawozdan|zarzad|zarząd|dzialalnos|działalnoś|roczn/i.test(nazwaPliku(d)))
     .slice(0, 40);
   if (!kandydaci.length)
     return { ok: false, powod: "w aktach nie ma PDF-ów wyglądających na sprawozdania zarządu" };
@@ -217,14 +281,11 @@ export async function wykonajSprawozdania(
     const raw = (msg.content as Anthropic.ContentBlock[])
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text).join("\n").replace(/```json|```/g, "").trim();
-    const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
-    if (s < 0 || e <= s) {
-      log(`✗ ${nazwa}: model nie zwrócił JSON`);
+    const parsed = ostatniJson<{ spolka?: string | null; dzien?: string | null; rok?: number | null; pozycje?: Poz[] }>(raw);
+    if (!parsed) {
+      log(`✗ ${nazwa}: model nie zwrócił poprawnego JSON`);
       continue;
     }
-    const parsed = JSON.parse(raw.slice(s, e + 1)) as {
-      spolka?: string | null; dzien?: string | null; rok?: number | null; pozycje?: Poz[];
-    };
     const spolka = String(parsed.spolka ?? "");
     if (!toSamaSpolka(spolka, nazwy)) {
       obce.push(`${nazwa} → akcjonariat spółki „${spolka}”`);
@@ -249,6 +310,7 @@ export async function wykonajSprawozdania(
         glosyZmiana: null,
         zrodlo: "sprawozdanie",
         plik: nazwa,
+        emitentAkcji: spolka || null,
       });
     }
     log(`✓ ${nazwa}: stan na ${dzien}, pozycji ${parsed.pozycje.length}`);
@@ -268,12 +330,169 @@ export async function wykonajSprawozdania(
   );
   if (error) return { ok: false, powod: `zapis: ${error.message}` };
 
+  const zlozone = zmiany.length ? await zlozAkcjonariat(sb, caseId, { emitent: cfg.emitent }) : null;
   return {
     ok: true,
     podsumowanie:
       `Odczytano ${zmiany.length} pozycji z ${zbadane.length} sprawozdań` +
       (obce.length ? `; pominięto ${obce.length} o innej spółce` : "") +
       (bezTekstu.length ? `; ${bezTekstu.length} skanów wymaga OCR` : "") +
-      ". Uruchom teraz pobranie z Bankier.pl, żeby zestawić oba źródła.",
+      (zlozone?.ok ? `. ${zlozone.podsumowanie}` : ""),
+  };
+}
+
+// ── Zawiadomienia o stanie posiadania (art. 69 ustawy o ofercie) ──────────
+//
+// ⚠️ ŹRÓDŁO PIERWOTNE I JEDYNE dla spółek WYKLUCZONYCH Z OBROTU. Bankier.pl nie
+// prowadzi strony spółki po wykluczeniu (CSY, RSY i ZASTAL zwracają 303 → /#404),
+// więc dla sprawy ZASTAL cała historia stanu posiadania musi powstać z dokumentów.
+//
+// Zawiadomienie podaje stan PRZED i PO zdarzeniu — różnicę liczy kod, nie model.
+
+const SYSTEM_ZAW =
+  "Jesteś asystentem biegłego sądowego. Z treści zawiadomienia o zmianie stanu posiadania akcji " +
+  "(art. 69 ustawy o ofercie publicznej) wypisujesz WYŁĄCZNIE wielkości podane w dokumencie. " +
+  "ZASADY BEZWZGLĘDNE: (1) nie licz różnic ani procentów — podaj stan PRZED i PO tak, jak stoi " +
+  "w treści; (2) brak wielkości w dokumencie → null, nigdy domysł; (3) `data` to dzień ZDARZENIA " +
+  "(transakcji, rejestracji), nie data pisma ani wpływu; (4) `akcjonariusz` to podmiot, którego stan " +
+  "posiadania się zmienił, a `spolka` — emitent, którego akcji dotyczy zawiadomienie; (5) do każdej " +
+  "pozycji dołącz krótki cytat. " +
+  'Zwróć wyłącznie JSON: {"spolka":"…"|null,"zdarzenia":[{"data":"RRRR-MM-DD","akcjonariusz":"…",' +
+  '"akcjePrzed":liczba|null,"akcjePo":liczba|null,"procentPrzed":liczba|null,"procentPo":liczba|null,' +
+  '"cytat":"…"}]}. Gdy dokument nie jest zawiadomieniem o stanie posiadania, zwróć puste `zdarzenia`.';
+
+type PozZaw = {
+  data?: string;
+  akcjonariusz?: string;
+  akcjePrzed?: number | null;
+  akcjePo?: number | null;
+  procentPrzed?: number | null;
+  procentPo?: number | null;
+  cytat?: string;
+};
+
+export async function wykonajZawiadomienia(
+  sb: SupabaseClient,
+  caseId: string,
+  cfg: { emitent: string; maks?: number; log?: (s: string) => void },
+): Promise<Wynik> {
+  const log = cfg.log ?? (() => {});
+  const maks = cfg.maks ?? 20;
+
+  const { data: wczesniej } = await sb
+    .from("subanalyses").select("data").eq("case_id", caseId).eq("kind", "akcjonariat_bankier").maybeSingle();
+  const emisje = ((wczesniej?.data as { emisje?: Emisja[] } | null)?.emisje ?? []) as Emisja[];
+  const nazwy = [...new Set([...cfg.emitent.split(",").map((x) => x.trim()).filter(Boolean), ...dawneNazwy(emisje)])];
+
+  const { data: docs } = await sb
+    .from("documents").select("rel_path,storage_path,doc_type").eq("case_id", caseId).limit(3000);
+  // Typ dokumentu ALBO nazwa pliku — zawiadomienia bywają sklasyfikowane jako
+  // zwykłe raporty ESPI, a bywają nazwane wprost.
+  // ⚠️ DOPASOWANIE PO NAZWIE PLIKU, NIE PO ŚCIEŻCE. Akta są ułożone w katalogi
+  // („…/ZAWIADOMIENIE KNF/…”), więc wzorzec puszczony na całą ścieżkę wciągał
+  // wszystko, co leży w takim katalogu — w sprawie ZASTAL 44 umowy maklerskie
+  // zamiast zawiadomień. Typ dokumentu jest sygnałem pierwszym, nazwa drugim.
+  const nazwaPliku = (d: { rel_path: string }) => String(d.rel_path).split("/").pop() ?? "";
+  const wszystkie = (docs ?? [])
+    .filter((d) => d.storage_path && /\.pdf$/i.test(d.rel_path) && !/\.pobrane|loader|cookie/i.test(d.rel_path))
+    .filter(
+      (d) =>
+        /ZAWIAD|ESPI|EBI/i.test(String(d.doc_type)) ||
+        /zawiadomien|stan\w* posiadan|art\.?\s*69|zej[śs]ci\w* z prog|znaczn\w+ pakiet/i.test(nazwaPliku(d)),
+    );
+  const kandydaci = wszystkie.slice(0, 60);
+  const pominietoNadLimit = wszystkie.length - kandydaci.length;
+  if (!kandydaci.length)
+    return { ok: false, powod: "w aktach nie ma dokumentów wyglądających na zawiadomienia o stanie posiadania" };
+
+  const zmiany: ZmianaAkcjonariatu[] = [];
+  const zbadane: string[] = [];
+  const bezTekstu: string[] = [];
+  const obce: string[] = [];
+  let uzyte = 0;
+
+  for (const d of kandydaci) {
+    if (uzyte >= maks) break;
+    const nazwa = String(d.rel_path).split("/").pop() ?? "";
+    const { data: blob } = await sb.storage.from("case-files").download(d.storage_path as string);
+    if (!blob) continue;
+    const tekst = await pdfText(await blob.arrayBuffer(), 30000);
+    if (tekst.replace(/\s/g, "").length < 300) {
+      bezTekstu.push(nazwa);
+      continue;
+    }
+    if (!/stan\w* posiadan|art\.?\s*69|znaczn\w+ pakiet|prog\w* (ogólnej liczby głosów|[0-9])/i.test(tekst)) continue;
+    zbadane.push(nazwa);
+    uzyte += 1;
+
+    const msg = await klientLLM("akcjonariat/zawiadomienie", { sprawa: caseId }).messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 3000,
+      system: SYSTEM_ZAW,
+      messages: [{ role: "user", content: `PLIK: ${nazwa}\n\nTREŚĆ:\n${tekst.slice(0, 28000)}` }],
+    });
+    const raw = (msg.content as Anthropic.ContentBlock[])
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text).join("\n").replace(/```json|```/g, "").trim();
+    const parsed = ostatniJson<{ spolka?: string | null; zdarzenia?: PozZaw[] }>(raw);
+    if (!parsed) {
+      log(`✗ ${nazwa}: model nie zwrócił poprawnego JSON`);
+      continue;
+    }
+    const spolka = String(parsed.spolka ?? "");
+    if (!toSamaSpolka(spolka, nazwy)) {
+      obce.push(`${nazwa} → akcje spółki „${spolka}”`);
+      log(`⨯ ${nazwa}: zawiadomienie dotyczy akcji „${spolka}” — pomijam`);
+      continue;
+    }
+    let dodane = 0;
+    for (const z of parsed.zdarzenia ?? []) {
+      if (!z.akcjonariusz || !z.data || !/^\d{4}-\d{2}-\d{2}$/.test(String(z.data))) continue;
+      // RÓŻNICĘ LICZY KOD. Model podaje stan przed i po — to jest jego rola.
+      const zmianaAkcji = z.akcjePrzed != null && z.akcjePo != null ? z.akcjePo - z.akcjePrzed : null;
+      const zmianaProc =
+        z.procentPrzed != null && z.procentPo != null ? Math.round((z.procentPo - z.procentPrzed) * 100) / 100 : null;
+      zmiany.push({
+        data: String(z.data),
+        akcjonariusz: String(z.akcjonariusz).trim(),
+        akcje: z.akcjePo ?? null,
+        akcjeZmiana: zmianaAkcji,
+        procent: z.procentPo ?? null,
+        procentZmiana: zmianaProc,
+        glosy: null,
+        glosyZmiana: null,
+        zrodlo: "zawiadomienie",
+        plik: nazwa,
+        emitentAkcji: spolka || null,
+      });
+      dodane += 1;
+    }
+    if (dodane) log(`✓ ${nazwa}: ${dodane} zdarzeń stanu posiadania`);
+  }
+
+  const { error } = await sb.from("subanalyses").upsert(
+    {
+      case_id: caseId,
+      kind: "akcjonariat_zawiadomienia",
+      chapter_no: "IV",
+      title: "Zawiadomienia o stanie posiadania (dane źródłowe)",
+      status: "szkic",
+      body_md: "",
+      data: { zmiany, zbadane, bezTekstu, obce, emitent: cfg.emitent, nazwy, pominietoNadLimit },
+    },
+    { onConflict: "case_id,kind" },
+  );
+  if (error) return { ok: false, powod: `zapis: ${error.message}` };
+
+  const zlozone = zmiany.length ? await zlozAkcjonariat(sb, caseId, { emitent: cfg.emitent }) : null;
+  return {
+    ok: true,
+    podsumowanie:
+      `Odczytano ${zmiany.length} zdarzeń z ${zbadane.length} zawiadomień` +
+      // Odsiew ponad limit musi być powiedziany — inaczej „tyle jest” brzmi jak „tyle było”.
+      (pominietoNadLimit > 0 ? `; ${pominietoNadLimit} kandydatów poza limitem biegu` : "") +
+      (obce.length ? `; pominięto ${obce.length} dotyczących akcji innej spółki` : "") +
+      (bezTekstu.length ? `; ${bezTekstu.length} skanów wymaga OCR` : "") +
+      (zlozone?.ok ? `. ${zlozone.podsumowanie}` : ""),
   };
 }

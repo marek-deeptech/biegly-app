@@ -73,7 +73,7 @@ export default function AkcjonariatPanel({
 }) {
   const [ticker, setTicker] = useState("");
   const [emitent, setEmitent] = useState("");
-  const [praca, setPraca] = useState<"" | "bankier" | "sprawozdania">("");
+  const [praca, setPraca] = useState<"" | "bankier" | "sprawozdania" | "zawiadomienia">("");
   const [msg, setMsg] = useState("");
   const [pokaz, setPokaz] = useState(15);
 
@@ -88,7 +88,7 @@ export default function AkcjonariatPanel({
     return (s?.data ?? null) as { zmiany?: unknown[]; zbadane?: string[]; bezTekstu?: string[]; obce?: string[] } | null;
   }, [subanalyses]);
 
-  async function uruchom(co: "bankier" | "sprawozdania") {
+  async function uruchom(co: "bankier" | "sprawozdania" | "zawiadomienia") {
     if (co === "bankier" && !ticker.trim()) {
       setMsg("Podaj symbol spółki w serwisie Bankier.pl (np. HUBTECH).");
       return;
@@ -118,9 +118,10 @@ export default function AkcjonariatPanel({
     <section className="border border-ink/60 bg-card p-4">
       <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Historia zmian w akcjonariacie</h2>
       <p className="mt-1 text-[11px] text-inksoft">
-        Stan posiadania na każdy dzień, w którym odnotowano zmianę. Sprawozdania opisowe zarządu z akt
-        (dokument emitenta, stan na koniec roku) zestawione z historią serwisu Bankier.pl (dzień po dniu).
-        Spadek udziału bez zbycia akcji jest oznaczany jako rozwodnienie emisją, nie jako wyjście z akcjonariatu.
+        Stan posiadania na każdy dzień, w którym odnotowano zmianę. Trzy źródła: zawiadomienia z art. 69
+        (dowód — stan przed i po zdarzeniu), sprawozdania opisowe zarządu (stan na dzień bilansowy) oraz
+        historia serwisu Bankier.pl. Spadek udziału bez zbycia akcji jest oznaczany jako rozwodnienie emisją,
+        nie jako wyjście z akcjonariatu.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -150,6 +151,13 @@ export default function AkcjonariatPanel({
           {praca === "bankier" ? "Pobieram…" : "Pobierz historię (Bankier.pl)"}
         </button>
         <button
+          onClick={() => uruchom("zawiadomienia")}
+          disabled={!!praca}
+          className="border border-ink/60 px-3 py-1 text-xs hover:bg-ink hover:text-card disabled:opacity-50"
+        >
+          {praca === "zawiadomienia" ? "Czytam…" : "Odczytaj zawiadomienia o stanie posiadania (akta)"}
+        </button>
+        <button
           onClick={() => uruchom("sprawozdania")}
           disabled={!!praca}
           className="border border-ink/60 px-3 py-1 text-xs hover:bg-ink hover:text-card disabled:opacity-50"
@@ -174,8 +182,9 @@ export default function AkcjonariatPanel({
 
       {!dane ? (
         <p className="mt-3 text-xs text-inksoft">
-          Krok jeszcze nie policzony. Zacznij od pobrania historii z Bankier.pl — sprawozdania zarządu
-          dołożą stan na koniec każdego roku i pokażą ewentualne rozbieżności między źródłami.
+          Krok jeszcze nie policzony. Dla spółki notowanej zacznij od Bankier.pl; dla spółki WYKLUCZONEJ
+          Z OBROTU serwis nie prowadzi strony (CSY, RSY i ZASTAL zwracają błąd 404) i historię trzeba złożyć
+          z zawiadomień o stanie posiadania oraz sprawozdań zarządu z akt.
         </p>
       ) : (
         <>

@@ -36,8 +36,16 @@ export type ZmianaAkcjonariatu = {
   procentZmiana: number | null;
   glosy: number | null;
   glosyZmiana: number | null;
-  zrodlo: "bankier" | "sprawozdanie";
+  zrodlo: "bankier" | "sprawozdanie" | "zawiadomienie";
   plik?: string;
+  /**
+   * ⚠️ CZYJE AKCJE. W sprawie wieloinstrumentowej (ZASTAL: CSY i RSY) ten sam
+   * podmiot bywa i akcjonariuszem, i emitentem: ZASTAL S.A. ma 61,48 % akcji RSY,
+   * a jednocześnie 94,16 % akcji CSY należy do ZASTAL-u. Zestawienie bez tego
+   * pola kładzie oba stany w jednej tabeli i sugeruje ciąg zmian tam, gdzie mowa
+   * o dwóch różnych spółkach.
+   */
+  emitentAkcji?: string | null;
 };
 
 export type Emisja = {
@@ -241,7 +249,7 @@ export function tabelaHistorii(zdarzenia: ZdarzenieAkcjonariatu[], emitent?: str
   return {
     caption:
       `Tabela. Historia zmian w stanie posiadania akcji${emitent ? ` ${emitent}` : ""} — stan po każdej ` +
-      "odnotowanej zmianie, z kwalifikacją zdarzenia (dane serwisu Bankier.pl oraz sprawozdania opisowe zarządu)",
+      "odnotowanej zmianie, z kwalifikacją zdarzenia i źródłem",
     head: ["Data zmiany", "Akcjonariusz", "Liczba akcji", "Zmiana akcji", "Udział w kapitale", "Zmiana udziału", "Kwalifikacja", "Źródło"],
     rows: zdarzenia.map((z) => [
       z.data,
@@ -251,7 +259,10 @@ export function tabelaHistorii(zdarzenia: ZdarzenieAkcjonariatu[], emitent?: str
       z.procent == null ? "—" : `${pl(z.procent, 2)} %`,
       z.procentZmiana == null ? "—" : `${zeZnakiem(z.procentZmiana, 2)} p.p.`,
       KIERUNEK[z.kwalifikacja],
-      z.zrodlo === "bankier" ? "Bankier.pl" : `sprawozdanie zarządu${z.plik ? ` (${z.plik})` : ""}`,
+      z.zrodlo === "bankier"
+        ? "Bankier.pl"
+        : `${z.zrodlo === "zawiadomienie" ? "zawiadomienie o stanie posiadania" : "sprawozdanie zarządu"}` +
+          `${z.plik ? ` (${z.plik})` : ""}`,
     ]),
   };
 }
@@ -308,12 +319,24 @@ export function porownajZeSprawozdaniem(
   sprawozdania: ZmianaAkcjonariatu[],
 ): Rozbieznosc[] {
   const out: Rozbieznosc[] = [];
+  const ten = (x?: string | null) => (x ?? "").trim().toLowerCase();
   for (const s of sprawozdania) {
     const wczesniejsze = bankier
-      .filter((b) => b.akcjonariusz.toLowerCase() === s.akcjonariusz.toLowerCase() && b.data <= s.data)
+      .filter(
+        (b) =>
+          b.akcjonariusz.toLowerCase() === s.akcjonariusz.toLowerCase() &&
+          // porównujemy stan akcji TEGO SAMEGO emitenta
+          (!ten(s.emitentAkcji) || !ten(b.emitentAkcji) || ten(b.emitentAkcji) === ten(s.emitentAkcji)) &&
+          b.data <= s.data,
+      )
       .sort((a, b) => b.data.localeCompare(a.data));
     const stan = wczesniejsze[0]?.akcje ?? null;
-    if (s.akcje == null && stan == null) continue;
+    // ⚠️ BRAK PUNKTU ODNIESIENIA TO NIE ROZBIEŻNOŚĆ. Gdy dla akcjonariusza nie ma
+    // wcześniejszego zdarzenia, sprawozdanie jest pierwszym ujęciem jego stanu —
+    // wpisywanie tego do tabeli różnic sugerowałoby sprzeczność źródeł tam,
+    // gdzie jedno źródło po prostu milczy.
+    if (stan == null) continue;
+    if (s.akcje == null) continue;
     if (stan !== s.akcje)
       out.push({
         data: s.data,
@@ -339,14 +362,37 @@ export function tabelaRozbieznosci(r: Rozbieznosc[]): Tabela | null {
 
 /** Uwagi metodyczne — wchodzą do rozdziału razem z tabelami. */
 export function uwagiZrodel(zdarzenia: ZdarzenieAkcjonariatu[]): string[] {
-  const uwagi = [
-    "Kolumna „Data zmiany” w serwisie Bankier.pl niesie jedną z dwóch dat: dzień zmiany liczby akcji " +
-      "posiadanych przez akcjonariusza albo dzień zmiany wielkości kapitału spółki, która wpłynęła na jego " +
-      "udział procentowy. Data z tej kolumny nie jest zatem tożsama z datą transakcji.",
-    "Serwis Bankier.pl jest źródłem wtórnym — podaje stan według własnego opracowania zawiadomień. " +
-      "Dowodem pozostają zawiadomienia o stanie posiadania i sprawozdania emitenta; zestawienie służy " +
-      "ustaleniu dni, w których stan posiadania się zmienił.",
-  ];
+  const ma = (z: ZmianaAkcjonariatu["zrodlo"]) => zdarzenia.some((x) => x.zrodlo === z);
+  const uwagi: string[] = [];
+  // Uwaga o serwisie ma sens tylko wtedy, gdy serwis w ogóle był źródłem. Spółki
+  // wykluczone z obrotu (ZASTAL: CSY, RSY) nie mają strony w Bankier.pl i cała
+  // historia pochodzi wtedy z dokumentów.
+  if (ma("bankier"))
+    uwagi.push(
+      "Kolumna „Data zmiany” w serwisie Bankier.pl niesie jedną z dwóch dat: dzień zmiany liczby akcji " +
+        "posiadanych przez akcjonariusza albo dzień zmiany wielkości kapitału spółki, która wpłynęła na jego " +
+        "udział procentowy. Data z tej kolumny nie jest zatem tożsama z datą transakcji.",
+      "Serwis Bankier.pl jest źródłem wtórnym — podaje stan według własnego opracowania zawiadomień. " +
+        "Dowodem pozostają zawiadomienia o stanie posiadania i sprawozdania emitenta; zestawienie służy " +
+        "ustaleniu dni, w których stan posiadania się zmienił.",
+    );
+  if (ma("zawiadomienie"))
+    uwagi.push(
+      "Zawiadomienia o stanie posiadania (art. 69 ustawy o ofercie publicznej) są źródłem PIERWOTNYM: " +
+        "podają stan przed transakcją i po niej wprost, wraz z datą zdarzenia. Zmiany liczby akcji i udziału " +
+        "wyliczono z tych dwóch stanów, nie przepisano z narracji dokumentu.",
+    );
+  if (ma("sprawozdanie"))
+    uwagi.push(
+      "Sprawozdania opisowe zarządu podają STAN na dzień bilansowy, a nie zmianę — służą kontroli " +
+        "punktowej: czy stan wynikający z ciągu zawiadomień zgadza się z tym, co emitent wykazał na koniec roku.",
+    );
+  if (!ma("bankier"))
+    uwagi.push(
+      "Historii nie zasilono serwisem Bankier.pl. Dla instrumentu wykluczonego z obrotu serwis nie prowadzi " +
+        "strony spółki, więc kompletność zestawienia zależy wyłącznie od dokumentów zgromadzonych w aktach — " +
+        "brak zdarzenia w tabeli NIE oznacza, że zmiana nie nastąpiła.",
+    );
   const doWyjasnienia = zdarzenia.filter((z) => z.kwalifikacja === "nieokreślone");
   if (doWyjasnienia.length)
     uwagi.push(
@@ -383,4 +429,37 @@ export function toSamaSpolka(zDokumentu: string, nazwy: string[]): boolean {
     const r = rdzen(n);
     return r.length >= 5 && (d.includes(r) || r.includes(d));
   });
+}
+
+/** Emitenci, których akcji dotyczą zdarzenia (puste = nieoznaczone). */
+export function emitenciZdarzen(zdarzenia: ZdarzenieAkcjonariatu[]): string[] {
+  return [...new Set(zdarzenia.map((z) => (z.emitentAkcji ?? "").trim()).filter(Boolean))].sort();
+}
+
+/**
+ * Tabele historii ODRĘBNIE DLA AKCJI KAŻDEGO EMITENTA.
+ *
+ * ⚠️ Bez tego podziału w jednym zestawieniu stoją obok siebie akcjonariusze RSY
+ * (CSY S.A. 32,98 %) i akcjonariusze CSY (ZASTAL S.A. 94,16 %) — czytelnik widzi
+ * ciąg zmian, a to dwie niezależne struktury właścicielskie.
+ */
+export function tabeleHistoriiWgEmitenta(zdarzenia: ZdarzenieAkcjonariatu[]): Tabela[] {
+  const emitenci = emitenciZdarzen(zdarzenia);
+  if (emitenci.length <= 1) {
+    const t = tabelaHistorii(zdarzenia, emitenci[0]);
+    return t ? [t] : [];
+  }
+  const out: Tabela[] = [];
+  for (const e of emitenci) {
+    const t = tabelaHistorii(zdarzenia.filter((z) => (z.emitentAkcji ?? "").trim() === e), e);
+    if (t) out.push(t);
+  }
+  const bez = zdarzenia.filter((z) => !(z.emitentAkcji ?? "").trim());
+  if (bez.length) {
+    const t = tabelaHistorii(bez);
+    // Zdarzenia bez wskazanego emitenta idą osobno i są tak podpisane — cicho
+    // dołożone do którejkolwiek spółki byłyby przypisaniem bez podstawy.
+    if (t) out.push({ ...t, caption: `${t.caption} [emitenta nie ustalono z dokumentu]` });
+  }
+  return out;
 }
