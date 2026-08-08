@@ -15,6 +15,7 @@ import {
   kontrastObrotu,
   kontrastOkresow,
   mnoznikiWykazane,
+  wskaznikiRentownosci,
   parsujStooqCsv,
   type NotowanieDzienne,
   type PozycjaFin,
@@ -418,6 +419,18 @@ export async function wykonajEkofin(
     .maybeSingle();
   const items = ((fin?.data as { items?: PozycjaFin[] } | null)?.items ?? []) as PozycjaFin[];
   if (items.length) {
+    // Rentowność liczona z pozycji, które już są w aktach — część tabeli nr 3 wzorca.
+    const rent = wskaznikiRentownosci(items);
+    if (rent.table) {
+      tables.push(rent.table);
+      uwagi.push(...rent.uwagi);
+      const naj = rent.wskazniki.filter((w) => w.nazwa.startsWith("Rentowność netto"));
+      if (naj.length)
+        findings.push(
+          `Rentowność netto emitentów w okresach z akt: ` +
+            naj.slice(0, 6).map((w) => `${w.emitent} ${w.okres}: ${w.wartoscPct.toLocaleString("pl-PL")} %`).join("; ") + ".",
+        );
+    }
     const dyn = dynamikaFin(items);
     if (dyn.table) {
       tables.push(dyn.table);

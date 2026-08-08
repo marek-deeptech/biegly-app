@@ -512,3 +512,111 @@ export function mnoznikiWykazane(csv: string): {
     uwagi: [],
   };
 }
+
+// ── wskaźniki rentowności z pozycji sprawozdawczych ───────────────────────
+
+/**
+ * Rentowność emitenta liczona z pozycji, które już mamy w aktach.
+ *
+ * ⚠️ CZĘŚĆ TABELI NR 3 WZORCA. Finał HubTech ma „Wskaźniki wartości rynkowej ORAZ
+ * rentowności". Część rynkowa (C/Z, C/WK) wymaga liczby akcji i danych portali —
+ * to zostaje na liście braków. Część rentownościowa jest policzalna z materiału,
+ * który leży w sprawie: przychody, wynik operacyjny, wynik netto, kapitał własny
+ * i suma bilansowa są wśród 87 obserwacji odczytanych ze sprawozdań.
+ *
+ * Wskaźnik powstaje TYLKO wtedy, gdy obie pozycje pochodzą z tego samego okresu
+ * i tego samego emitenta. Mieszanie okresów dałoby liczbę bez desygnatu.
+ */
+export type WskaznikRentownosci = {
+  emitent: string;
+  okres: string;
+  nazwa: string;
+  wartoscPct: number;
+  licznik: string;
+  mianownik: string;
+};
+
+const SYNONIMY: Record<string, RegExp> = {
+  przychody: /przychody (netto )?ze sprzeda/i,
+  operacyjny: /zysk\/?strata z dzia[łl]alno[śs]ci operacyjnej|wynik operacyjny|ebit/i,
+  netto: /zysk\/?strata netto|wynik netto/i,
+  kapital: /kapita[łl] w[łl]asny/i,
+  aktywa: /suma bilansowa|aktywa razem/i,
+};
+
+export function wskaznikiRentownosci(items: PozycjaFin[]): {
+  table: { caption: string; head: string[]; rows: string[][] } | null;
+  wskazniki: WskaznikRentownosci[];
+  uwagi: string[];
+} {
+  const uwagi: string[] = [];
+  // emitent → okres → rola → wartość (po sprowadzeniu jednostek w obrębie serii)
+  const wg = new Map<string, Map<string, Map<string, number>>>();
+  const seria = new Map<string, PozycjaFin[]>();
+  for (const it of items) {
+    const rola = Object.entries(SYNONIMY).find(([, re]) => re.test(it.position))?.[0];
+    if (!rola) continue;
+    const k = `${(it.issuer ?? "—").trim()}||${rola}`;
+    if (!seria.has(k)) seria.set(k, []);
+    seria.get(k)!.push(it);
+  }
+  for (const [k, xs] of seria) {
+    const [emitent, rola] = k.split("||");
+    const wspolne = doWspolnejJednostki(xs);
+    xs.forEach((x, i) => {
+      const v = wspolne ? wspolne.wartosci[i] : liczbaPl(x.value);
+      if (v == null) return;
+      if (!wg.has(emitent)) wg.set(emitent, new Map());
+      const okresy = wg.get(emitent)!;
+      if (!okresy.has(x.period)) okresy.set(x.period, new Map());
+      okresy.get(x.period)!.set(rola, v);
+    });
+  }
+
+  const DEF: { nazwa: string; licznik: string; mianownik: string }[] = [
+    { nazwa: "Rentowność operacyjna (EBIT / przychody)", licznik: "operacyjny", mianownik: "przychody" },
+    { nazwa: "Rentowność netto (wynik netto / przychody)", licznik: "netto", mianownik: "przychody" },
+    { nazwa: "ROE (wynik netto / kapitał własny)", licznik: "netto", mianownik: "kapital" },
+    { nazwa: "ROA (wynik netto / suma bilansowa)", licznik: "netto", mianownik: "aktywa" },
+  ];
+  const wskazniki: WskaznikRentownosci[] = [];
+  for (const [emitent, okresy] of [...wg.entries()].sort()) {
+    for (const [okres, role] of [...okresy.entries()].sort()) {
+      for (const d of DEF) {
+        const l = role.get(d.licznik);
+        const m = role.get(d.mianownik);
+        if (l == null || m == null || m === 0) continue;
+        wskazniki.push({
+          emitent, okres, nazwa: d.nazwa,
+          wartoscPct: Math.round((10000 * l) / m) / 100,
+          licznik: d.licznik, mianownik: d.mianownik,
+        });
+      }
+    }
+  }
+  if (!wskazniki.length) {
+    uwagi.push(
+      "Nie policzono wskaźników rentowności: w odczytanych pozycjach nie ma pary licznik–mianownik " +
+        "z tego samego okresu i tego samego emitenta.",
+    );
+    return { table: null, wskazniki, uwagi };
+  }
+  uwagi.push(
+    "Wskaźniki rentowności policzono z pozycji sprawozdawczych odczytanych z akt; wartości rynkowe " +
+      "(C/Z, C/WK) wymagają liczby akcji i danych portali i pozostają do pozyskania.",
+  );
+  return {
+    table: {
+      caption:
+        "Tabela. Wskaźniki rentowności emitentów policzone z pozycji sprawozdawczych " +
+        "(licznik i mianownik z tego samego okresu i tej samej spółki)",
+      head: ["Emitent", "Okres", "Wskaźnik", "Wartość"],
+      rows: wskazniki.map((w) => [
+        w.emitent, w.okres, w.nazwa,
+        `${w.wartoscPct.toLocaleString("pl-PL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`,
+      ]),
+    },
+    wskazniki,
+    uwagi,
+  };
+}

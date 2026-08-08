@@ -94,6 +94,19 @@ async function main() {
     );
   }
 
+  // ⚠️ TABELE ZE ŹRÓDŁA `obrot_miary` DOKŁADAMY PRZY SKŁADANIU. Liczy je silnik
+  // Pythona (engine/obrot_wg_miar.py) w osobnym biegu; trzymanie ich w tej samej
+  // subanalizie znaczyłoby, że ponowny bieg jednego skryptu kasuje dorobek drugiego.
+  const miary = ((subs ?? []).find((s) => s.kind === "obrot_miary")?.data as { tables?: Tabela[] } | null)?.tables ?? [];
+  const doIV3 = miary.filter((t) => /w trzech miarach: liczba transakcji|transakcje kupna i sprzedaży/.test(t.caption));
+  tables.push(...doIV3);
+  if (doIV3.length)
+    findings.push(
+      "Obrót Grupy przedstawiono w TRZECH miarach — liczbie transakcji, wartości i wolumenie — bo są " +
+        "niezależne: udział w liczbie transakcji odpowiada na pytanie „ile razy”, a udział w wolumenie " +
+        "na pytanie „ile akcji”; dominacja w jednej mierze nie przesądza o drugiej.",
+    );
+
   findings.push(`Kryterium doboru sesji do tabel szczegółowych: ${opisProgow(PROGI_DOMYSLNE)}.`);
   findings.push(opisOkresu(okres));
   // Odsiew ponad limit MUSI być powiedziany: milczenie sugerowałoby, że tabele

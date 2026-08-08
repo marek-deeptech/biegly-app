@@ -21,6 +21,7 @@ import {
   kontrastObrotu,
   liczbaPl,
   mnoznikiWykazane,
+  wskaznikiRentownosci,
   parsujStooqCsv,
 } from "@/lib/opinion/ekofin";
 
@@ -259,5 +260,59 @@ describe("PARYTET z finałem KM — złoty plik hub_d.csv", () => {
     expect(k.przed.sredniaWartoscObrotu!).toBeCloseTo(260405.34, 2);
     // KM: „średni dzienny wolumen… wyniósł 9.409.400 sztuk”
     expect(Math.round(k.badany.sredniWolumen!)).toBe(9409400);
+  });
+});
+
+describe("wskaźniki rentowności (część tabeli nr 3 wzorca)", () => {
+  const ITEMS = [
+    { issuer: "CSY S.A.", position: "przychody netto ze sprzedaży", period: "2017", value: "19 501", unit: "tys. zł" },
+    { issuer: "CSY S.A.", position: "zysk/strata netto", period: "2017", value: "5 368", unit: "tys. zł" },
+    { issuer: "CSY S.A.", position: "zysk/strata z działalności operacyjnej", period: "2017", value: "1 950", unit: "tys. zł" },
+    { issuer: "CSY S.A.", position: "kapitał własny", period: "2017", value: "28 626", unit: "tys. zł" },
+    { issuer: "CSY S.A.", position: "suma bilansowa (aktywa razem)", period: "2017", value: "53 680", unit: "tys. zł" },
+    // inny okres tej samej spółki — nie wolno mieszać z powyższym
+    { issuer: "CSY S.A.", position: "przychody netto ze sprzedaży", period: "2016", value: "17 086", unit: "tys. zł" },
+    // inna spółka — też osobno
+    { issuer: "RSY S.A.", position: "przychody netto ze sprzedaży", period: "2017", value: "363", unit: "tys. zł" },
+    { issuer: "RSY S.A.", position: "zysk/strata netto", period: "2017", value: "1 784", unit: "tys. zł" },
+  ];
+
+  it("liczy cztery wskaźniki z pozycji tego samego okresu", () => {
+    const { wskazniki } = wskaznikiRentownosci(ITEMS);
+    const csy2017 = wskazniki.filter((w) => w.emitent === "CSY S.A." && w.okres === "2017");
+    expect(csy2017.map((w) => w.nazwa.split(" (")[0]).sort()).toEqual([
+      "ROA", "ROE", "Rentowność netto", "Rentowność operacyjna",
+    ]);
+    expect(csy2017.find((w) => w.nazwa.startsWith("Rentowność netto"))!.wartoscPct).toBeCloseTo(27.53, 2);
+    expect(csy2017.find((w) => w.nazwa.startsWith("ROE"))!.wartoscPct).toBeCloseTo(18.75, 2);
+    expect(csy2017.find((w) => w.nazwa.startsWith("ROA"))!.wartoscPct).toBeCloseTo(10.0, 1);
+  });
+
+  it("nie miesza okresów ani emitentów", () => {
+    const { wskazniki } = wskaznikiRentownosci(ITEMS);
+    // 2016 ma tylko przychody — bez licznika nie ma wskaźnika
+    expect(wskazniki.some((w) => w.okres === "2016")).toBe(false);
+    // RSY ma przychody i wynik netto → tylko rentowność netto
+    const rsy = wskazniki.filter((w) => w.emitent === "RSY S.A.");
+    expect(rsy).toHaveLength(1);
+    expect(rsy[0].wartoscPct).toBeCloseTo(491.46, 1); // wynik z wyceny, nie ze sprzedaży
+  });
+
+  it("mianownik zerowy nie tworzy wskaźnika (dzielenie bez sensu, nie nieskończoność)", () => {
+    const { wskazniki, uwagi } = wskaznikiRentownosci([
+      { issuer: "X", position: "przychody netto ze sprzedaży", period: "2020", value: "0", unit: "tys. zł" },
+      { issuer: "X", position: "zysk/strata netto", period: "2020", value: "100", unit: "tys. zł" },
+    ]);
+    expect(wskazniki).toEqual([]);
+    expect(uwagi.join(" ")).toMatch(/Nie policzono/);
+  });
+
+  it("jednostki niejednolite w serii są sprowadzane przed liczeniem", () => {
+    const { wskazniki } = wskaznikiRentownosci([
+      { issuer: "Y", position: "przychody netto ze sprzedaży", period: "2020", value: "10 000 000", unit: "zł" },
+      { issuer: "Y", position: "przychody netto ze sprzedaży", period: "2019", value: "8 000", unit: "tys. zł" },
+      { issuer: "Y", position: "zysk/strata netto", period: "2020", value: "1 000 000", unit: "zł" },
+    ]);
+    expect(wskazniki.find((w) => w.okres === "2020" && w.nazwa.startsWith("Rentowność netto"))!.wartoscPct).toBeCloseTo(10, 2);
   });
 });

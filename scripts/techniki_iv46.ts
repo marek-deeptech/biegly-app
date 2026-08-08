@@ -177,6 +177,19 @@ async function main() {
       f6.push(`${inst.label}: anulacje rozbite na ${perPodmiot.rows.length} podmiotów — atrybucja imienna wymagana pytaniem 1 postanowienia.`);
   }
 
+  // Tabele ze źródła `obrot_miary` — patrz komentarz w scripts/aktywnosc_iv3.ts.
+  const miary = ((subs ?? []).find((s) => s.kind === "obrot_miary")?.data as { tables?: unknown[] } | null)?.tables ?? [];
+  const doIV4 = (miary as { caption: string }[]).filter((t) =>
+    /obrót MIĘDZY podmiotami z Grupy w trzech miarach|średni odstęp między kolejnymi transakcjami/.test(t.caption),
+  );
+  wash4.push(...doIV4);
+  if (doIV4.some((t) => /średni odstęp/.test(t.caption)))
+    fWash.push(
+      "Odstęp między kolejnymi transakcjami tej samej pary kupujący–sprzedający liczony jest w obrębie sesji " +
+        "z arkusza transakcji; wartości poniżej sekundy oznaczają transakcje zawarte w tej samej sekundzie zegara. " +
+        "Nie jest to czas realizacji zlecenia — tego z dostępnych plików ustalić się nie da.",
+    );
+
   // ── IV.4: pary wewnątrzgrupowe (metryka bez wymiaru instrumentu) ─────────
   const pary = tabelaParWewnatrzgrupowych(metrykiLaczne);
   if (pary) {
