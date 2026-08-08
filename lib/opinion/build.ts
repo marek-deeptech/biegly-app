@@ -2249,6 +2249,28 @@ export function buildOpinion(
     if (extra.length) ch.placeholders = [...(ch.placeholders ?? []), ...extra];
   }
 
+  // HISTORIA AKCJONARIATU do rozdziału relacji.
+  //
+  // ⚠️ KROK MA WŁASNĄ ZAKŁADKĘ, ALE OPINIA MA JEDEN ROZDZIAŁ O POWIĄZANIACH.
+  // Stan posiadania jest relacją kapitałową między podmiotami, więc jego tabele
+  // wchodzą do IV.7 razem z grafami. Bez tego krok 5 liczyłby dla samego panelu,
+  // a opinia nie miałaby ani jednej tabeli o tym, kto i kiedy obejmował akcje.
+  {
+    const relNo0 = plan.find((x) => x.kind === "relacje")?.no;
+    const relCh0 = relNo0 ? merged.find((x) => x.no === relNo0) : null;
+    const akc = stored.find((s) => s.kind === "akcjonariat")?.data as
+      | { tables?: OpTable[]; findings?: string[] }
+      | null;
+    if (relCh0 && relCh0.status !== "todo" && akc?.tables?.length) {
+      const cur = chapterTables(relCh0);
+      const nowe = akc.tables.filter((t) => t && !cur.some((c) => c.caption === t.caption));
+      if (nowe.length) relCh0.tables = [...cur, ...nowe];
+      const fset = new Set((relCh0.findings ?? []).map((f) => f.text));
+      for (const f of akc.findings ?? [])
+        if (!fset.has(f)) (relCh0.findings ??= []).push({ conf: "grounded" as Conf, text: f });
+    }
+  }
+
   // GRAFY POWIĄZAŃ do rozdziału relacji (wektorowe SVG → rasteryzuje renderer PDF):
   //  1) kapitałowo-osobowy — roster Grupy + obrót wewnątrzgrupowy (pair_intra) + organy KRS,
   //  2) zbieżność IP — pary użytkowników dzielących adresy (subanaliza powiazania_dane),

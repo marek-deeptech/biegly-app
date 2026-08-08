@@ -100,6 +100,21 @@ async function main() {
   const miary = ((subs ?? []).find((s) => s.kind === "obrot_miary")?.data as { tables?: Tabela[] } | null)?.tables ?? [];
   const doIV3 = miary.filter((t) => /w trzech miarach: liczba transakcji|transakcje kupna i sprzedaży/.test(t.caption));
   tables.push(...doIV3);
+
+  // ⚠️ WSKAŹNIKI DODATKOWE MUSZĄ MIEĆ TABELE W OPINII. Ich liczby (NMaxC, WNK, VWAP)
+  // trafiały do Wniosków przez ustalenia, ale same tabele nigdzie się nie drukowały:
+  // subanaliza `wskazniki_dodatkowe` nie jest rozdziałem z planu. Wnioski cytowały
+  // więc wielkości, których czytelnik nie mógł sprawdzić w rozdziale analitycznym —
+  // w opinii dla sądu to wada, nie drobiazg. Miejscem jest IV.3, bo NMaxC i wpływ
+  // na kurs opisują AKTYWNOŚĆ podmiotów w kształtowaniu ceny.
+  const dodatkowe = ((subs ?? []).find((s) => s.kind === "wskazniki_dodatkowe")?.data as { tables?: Tabela[] } | null)?.tables ?? [];
+  tables.push(...dodatkowe);
+  if (dodatkowe.length)
+    findings.push(
+      "Wskaźniki dodatkowe (nowe maksima cenowe NMaxC, wpływ na kurs WNK w złotych i procentach, " +
+        "VWAP Grupy wobec VWAP sesji, udział transakcji wzajemnych, charakter Taker/Maker) przedstawiono " +
+        "w tabelach tego podrozdziału — wielkości przywołane we Wnioskach mają w nich pokrycie.",
+    );
   if (doIV3.length)
     findings.push(
       "Obrót Grupy przedstawiono w TRZECH miarach — liczbie transakcji, wartości i wolumenie — bo są " +
