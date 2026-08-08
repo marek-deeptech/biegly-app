@@ -10,6 +10,7 @@
 // i rozbieżności między źródłami powstają w lib/opinion/akcjonariat.ts.
 
 import { useMemo, useState } from "react";
+import { ZeZrodlami } from "./ui-analizy";
 
 type Sub = { kind: string; status?: string; data?: unknown };
 type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
@@ -47,7 +48,7 @@ function Tabelka({ t, maks }: { t: Tabela; maks: number }) {
                       j === kolKwal ? (KOLOR[String(v)] ?? "") : ""
                     }`}
                   >
-                    {String(v)}
+                    <ZeZrodlami tekst={String(v)} />
                   </td>
                 ))}
               </tr>
@@ -191,7 +192,9 @@ export default function AkcjonariatPanel({
           {dane.findings?.length ? (
             <ul className="mt-6 space-y-2.5 text-sm leading-relaxed">
               {dane.findings.map((f) => (
-                <li key={f} className="border-l-2 border-ink/40 pl-3">{f}</li>
+                <li key={f} className="border-l-2 border-ink/40 pl-3">
+                  <ZeZrodlami tekst={f} />
+                </li>
               ))}
             </ul>
           ) : null}
@@ -204,7 +207,9 @@ export default function AkcjonariatPanel({
             </button>
           ) : null}
           {dane.zrodla?.length ? (
-            <p className="mt-8 text-xs text-inksoft">Źródła: {dane.zrodla.join(" · ")}</p>
+            <p className="mt-8 text-xs text-inksoft">
+              Źródła: <ZeZrodlami tekst={dane.zrodla.join(" · ")} />
+            </p>
           ) : null}
         </>
       )}

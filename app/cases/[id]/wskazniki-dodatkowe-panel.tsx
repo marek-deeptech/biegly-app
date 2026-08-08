@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui";
+import { ZeZrodlami } from "./ui-analizy";
 
 type Sub = { kind: string; data?: unknown };
 type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
@@ -38,7 +39,9 @@ function Tabelka({ t }: { t: Tabela }) {
             {widoczne.map((r, i) => (
               <tr key={i} className="border-b border-ink/10">
                 {r.map((v, j) => (
-                  <td key={j} className={`py-1.5 pr-3 tabular-nums ${j ? "text-right" : ""}`}>{String(v)}</td>
+                  <td key={j} className={`py-1.5 pr-3 tabular-nums ${j ? "text-right" : ""}`}>
+                    <ZeZrodlami tekst={String(v)} />
+                  </td>
                 ))}
               </tr>
             ))}
@@ -125,7 +128,9 @@ export default function WskaznikiDodatkowePanel({
           {liczbowe.length > 0 && (
             <ul className="mt-6 space-y-2.5 text-sm leading-relaxed">
               {liczbowe.map((f) => (
-                <li key={f} className="border-l-2 border-ink/40 pl-3">{f}</li>
+                <li key={f} className="border-l-2 border-ink/40 pl-3">
+                  <ZeZrodlami tekst={f} />
+                </li>
               ))}
             </ul>
           )}

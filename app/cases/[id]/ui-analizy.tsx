@@ -15,6 +15,38 @@
 
 import type { ReactNode } from "react";
 
+import { podzielNaLinki } from "@/lib/linki";
+
+/**
+ * Tekst z klikalnymi adresami źródeł.
+ *
+ * ⚠️ POWÓD. Tabele i ustalenia niosą adresy, pod którymi biegły ma sprawdzić
+ * materiał („espiebi.pap.pl/node/372228", „bankier.pl/…/akcjonariat"). Wypisane
+ * jako zwykły tekst zmuszały do przepisywania ich ręcznie do przeglądarki —
+ * przy 68 wierszach historii akcjonariatu to jest realna praca.
+ */
+export function ZeZrodlami({ tekst }: { tekst: string }) {
+  return (
+    <>
+      {podzielNaLinki(tekst).map((cz, i) =>
+        cz.link ? (
+          <a
+            key={i}
+            href={cz.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-ink/40 underline-offset-2 hover:decoration-ink"
+          >
+            {cz.tekst}
+          </a>
+        ) : (
+          <span key={i}>{cz.tekst}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 export type Tabela = { caption?: string; head?: string[]; rows?: string[][] };
 
 /** Kontener treści zakładki — wymusza jednolity odstęp między blokami. */
@@ -46,7 +78,9 @@ export function Ustalenia({ xs, maks = 8 }: { xs?: unknown; maks?: number }) {
     <div>
       <ul className="space-y-2.5">
         {lista.map((f) => (
-          <li key={f} className="border-l-2 border-ink/40 pl-3">{String(f)}</li>
+          <li key={f} className="border-l-2 border-ink/40 pl-3">
+            <ZeZrodlami tekst={String(f)} />
+          </li>
         ))}
       </ul>
       {wszystkie.length > lista.length ? (
@@ -105,7 +139,7 @@ export function TabelaDanych({ t, maks = 8, uwagaPonad }: { t: Tabela; maks?: nu
                     title={String(v)}
                     className={`py-2 pr-4 ${doPrawej[j] ? "text-right tabular-nums" : "text-left"}`}
                   >
-                    {String(v).length > 90 ? `${String(v).slice(0, 90)}…` : String(v)}
+                    <ZeZrodlami tekst={String(v).length > 90 ? `${String(v).slice(0, 90)}…` : String(v)} />
                   </td>
                 ))}
               </tr>
@@ -131,7 +165,9 @@ export function Zastrzezenia({ tytul, xs }: { tytul: string; xs?: unknown }) {
       <p className="text-sm font-semibold">{tytul}</p>
       <ul className="mt-2.5 space-y-2 text-sm text-inksoft">
         {lista.map((f) => (
-          <li key={f}>{String(f)}</li>
+          <li key={f}>
+            <ZeZrodlami tekst={String(f)} />
+          </li>
         ))}
       </ul>
     </div>

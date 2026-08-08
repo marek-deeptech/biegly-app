@@ -9,6 +9,7 @@
 // kroku, nie ostrzeżeniem: mówi biegłemu, czego jeszcze nie ma w materiale.
 
 import { useMemo, useState } from "react";
+import { ZeZrodlami } from "./ui-analizy";
 import { Button } from "@/components/ui";
 
 type Tabela = { caption: string; head: string[]; rows: string[][] };
@@ -152,7 +153,9 @@ export default function EkofinPanel({
       {dane?.findings?.length ? (
         <ul className="mt-6 space-y-2.5 text-sm leading-relaxed">
           {dane.findings.map((f) => (
-            <li key={f} className="border-l-2 border-ink/40 pl-2">{f}</li>
+            <li key={f} className="border-l-2 border-ink/40 pl-2">
+              <ZeZrodlami tekst={String(f)} />
+            </li>
           ))}
         </ul>
       ) : null}
@@ -183,7 +186,7 @@ export default function EkofinPanel({
               {t.rows.slice(0, 8).map((r, i) => (
                 <tr key={i} className="border-b border-ink/10">
                   {r.map((v, j) => (
-                    <td key={j} className={`py-1 pr-2 tabular-nums ${j ? "text-right" : ""}`}>{v}</td>
+                    <td key={j} className={`py-1 pr-2 tabular-nums ${j ? "text-right" : ""}`}><ZeZrodlami tekst={String(v)} /></td>
                   ))}
                 </tr>
               ))}
