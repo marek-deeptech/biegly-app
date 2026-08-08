@@ -48,7 +48,7 @@ def proc(v):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sprawa")
-    ap.add_argument("--maks-sesji", type=int, default=40)
+    ap.add_argument("--maks-sesji", type=int, default=0, help="0 = wszystkie sesje (tabela pełna)")
     ap.add_argument("--maks-par", type=int, default=25)
     args = ap.parse_args()
 
@@ -114,7 +114,9 @@ def main() -> int:
         o = miary["okres"]
 
         # ── tabela A: trzy miary, poziom i udział (wzorzec: tab. 29–34) ──
-        naj = sorted(miary["sesje"], key=lambda s: -(s["udzial_wolumenu"] or 0))[: args.maks_sesji]
+        naj = sorted(miary["sesje"], key=lambda s: -(s["udzial_wolumenu"] or 0))
+        if args.maks_sesji:
+            naj = naj[: args.maks_sesji]
         tables.append({
             "caption": f"Tabela. {et} — obrót Grupy wobec obrotu ogółem w trzech miarach: liczba transakcji, "
                        f"wartość i wolumen ({len(naj)} sesji o najwyższym udziale wolumenowym z {o['sesji']})",
@@ -128,10 +130,14 @@ def main() -> int:
 
         # ── tabela B: kupno i sprzedaż Grupy per dzień (wzorzec: tab. 24–25) ──
         aktywne = [s for s in ks["sesje"] if s["kupno_wolumen"] or s["sprzedaz_wolumen"]]
-        naj_ks = sorted(aktywne, key=lambda s: -(s["kupno_wolumen"] + s["sprzedaz_wolumen"]))[: args.maks_sesji]
+        naj_ks = sorted(aktywne, key=lambda s: -(s["kupno_wolumen"] + s["sprzedaz_wolumen"]))
+        if args.maks_sesji:
+            naj_ks = naj_ks[: args.maks_sesji]
         tables.append({
-            "caption": f"Tabela. {et} — transakcje kupna i sprzedaży podmiotów z Grupy z podziałem na dni "
-                       f"({len(naj_ks)} sesji o największym obrocie Grupy z {len(aktywne)})",
+            "caption": f"Tabela. {et} — transakcje kupna i sprzedaży podmiotów z Grupy z podziałem na dni " + (
+                f"(wszystkie {len(naj_ks)} sesji z obrotem Grupy)" if not args.maks_sesji
+                else f"({len(naj_ks)} sesji o największym obrocie Grupy z {len(aktywne)})"
+            ),
             "head": ["Sesja", "Kupno — transakcji", "Kupno — wolumen [szt.]", "Kupno — wartość [zł]",
                      "Sprzedaż — transakcji", "Sprzedaż — wolumen [szt.]", "Sprzedaż — wartość [zł]",
                      "Saldo wolumenu [szt.]", "Saldo gotówki [zł]"],
@@ -143,10 +149,14 @@ def main() -> int:
 
         # ── tabela C: obrót wewnątrzgrupowy w trzech miarach (wzorzec: tab. 26–28) ──
         if wew["sesje"]:
-            naj_w = sorted(wew["sesje"], key=lambda s: -(s["udzial_wolumenu"] or 0))[: args.maks_sesji]
+            naj_w = sorted(wew["sesje"], key=lambda s: -(s["udzial_wolumenu"] or 0))
+            if args.maks_sesji:
+                naj_w = naj_w[: args.maks_sesji]
             tables.append({
-                "caption": f"Tabela. {et} — obrót MIĘDZY podmiotami z Grupy w trzech miarach "
-                           f"({len(naj_w)} sesji z {wew['okres']['sesji_z_obrotem']}, w których wystąpił)",
+                "caption": f"Tabela. {et} — obrót MIĘDZY podmiotami z Grupy w trzech miarach " + (
+                    f"(wszystkie {len(naj_w)} sesji, w których wystąpił)" if not args.maks_sesji
+                    else f"({len(naj_w)} sesji z {wew['okres']['sesji_z_obrotem']}, w których wystąpił)"
+                ),
                 "head": ["Sesja", "Transakcji", "Udział w liczbie", "Wartość [zł]", "Udział w wartości",
                          "Wolumen [szt.]", "Udział w wolumenie"],
                 "rows": [[s["dzien"], pl(s["transakcji"]), proc(s["udzial_transakcji"]), pl(s["wartosc"], 2),

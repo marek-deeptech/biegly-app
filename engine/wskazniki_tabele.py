@@ -15,8 +15,14 @@ def pl(v, frac=0):
     return f"{v:,.{frac}f}".replace(",", "\u00a0").replace(".", ",")
 
 
-def zloz(wg_instrumentu: dict, fragmenty: list, maks_sesji: int = 40) -> dict:
-    """Tabele + ustalenia z surowych wierszy TREM pogrupowanych po ISIN."""
+def zloz(wg_instrumentu: dict, fragmenty: list, maks_sesji: int = 0) -> dict:
+    """Tabele + ustalenia z surowych wierszy TREM pogrupowanych po ISIN.
+
+    ⚠️ `maks_sesji = 0` znaczy TABELA PEŁNA. Domyślny limit 40 sesji był pomyłką
+    w opinii: rozdział cytował wielkości za cały okres badany, a tabela pod spodem
+    pokazywała wybrane czterdzieści sesji z dwustu trzech. Czytelnik nie mógł
+    odtworzyć sumy z wierszy, które widzi. Limit zostaje jako opcja dla podglądu.
+    """
     tables, findings, uwagi_wsp = [], [], []
     wyniki = {}
     for isin, rows in sorted(wg_instrumentu.items()):
@@ -46,10 +52,14 @@ def zloz(wg_instrumentu: dict, fragmenty: list, maks_sesji: int = 40) -> dict:
             ],
         })
 
-        sesje = sorted(w["sesje"], key=lambda s: -(s["wnk_pln_grupa"] or 0))[: maks_sesji]
+        sesje = sorted(w["sesje"], key=lambda s: -(s["wnk_pln_grupa"] or 0))
+        if maks_sesji:
+            sesje = sesje[:maks_sesji]
         tables.append({
-            "caption": f"Tabela. {etykieta} — wskaźniki dodatkowe per sesja "
-                       f"({len(sesje)} sesji o największym wpływie Grupy na kurs, z {ok['sesji']})",
+            "caption": f"Tabela. {etykieta} — wskaźniki dodatkowe per sesja " + (
+                f"(wszystkie {len(sesje)} sesji okresu)" if not maks_sesji
+                else f"({len(sesje)} sesji o największym wpływie Grupy na kurs, z {ok['sesji']})"
+            ),
             "head": ["Sesja", "Transakcji", "NMaxC Grupa / razem", "WNK Grupa (zł)", "WNK sesja (zł)",
                      "Udział WNK", "WNK Grupa (p.p.)", "VWAP Grupa kupno", "VWAP sesja", "WT%"],
             "rows": [[

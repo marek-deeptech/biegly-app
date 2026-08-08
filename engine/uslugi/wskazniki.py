@@ -90,7 +90,8 @@ class handler(BaseHTTPRequestHandler):
                     wg_instrumentu.setdefault(isin, []).append(row)
                 uzyte.append(nazwa)
 
-            z = zloz(wg_instrumentu, fragmenty, int(body.get("maksSesji") or 40))
+            # 0 = tabela pełna; limit tylko na wyraźne życzenie wywołującego
+            z = zloz(wg_instrumentu, fragmenty, int(body.get("maksSesji") or 0))
             payload = [{
                 "case_id": case_id, "kind": "wskazniki_dodatkowe", "chapter_no": "IV",
                 "title": "Wskaźniki dodatkowe (NMaxC, WNK, VWAP, WT%, Taker/Maker)",

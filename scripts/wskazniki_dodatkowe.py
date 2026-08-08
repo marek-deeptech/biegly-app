@@ -40,7 +40,7 @@ def pl(v, frac=0):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sprawa")
-    ap.add_argument("--maks-sesji", type=int, default=40, help="ile sesji w tabeli szczegółowej")
+    ap.add_argument("--maks-sesji", type=int, default=0, help="0 = wszystkie sesje (tabela pełna do opinii)")
     args = ap.parse_args()
 
     base, key = _env()
